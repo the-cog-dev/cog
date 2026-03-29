@@ -31,6 +31,11 @@ export function createDatabase(dbPath: string): Database.Database {
       tags TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL
     );
+
+    -- Clear previous session data so each launch starts fresh
+    DELETE FROM pinboard_tasks;
+    DELETE FROM info_entries;
+    DELETE FROM messages;
   `)
 
   return db

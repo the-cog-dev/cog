@@ -69,6 +69,7 @@ function buildCliLaunchCommands(
 
   if (cliBase === 'claude') {
     const parts = [`claude --mcp-config "${mcpConfigPath}"`]
+    if (config.model) parts[0] += ` --model ${config.model}`
     if (config.autoMode) parts[0] += ' --dangerously-skip-permissions'
     return parts
   }
@@ -80,13 +81,16 @@ function buildCliLaunchCommands(
     const cmds = [
       `codex mcp remove agentorch 2>$null; codex mcp add agentorch -- node "${mcpServerPath}" ${hubPort} ${hubSecret} ${config.id} ${config.name}`,
     ]
-    const codexCmd = config.autoMode ? 'codex --yolo' : 'codex'
+    let codexCmd = 'codex'
+    if (config.model) codexCmd += ` -m ${config.model}`
+    if (config.autoMode) codexCmd += ' --yolo'
     cmds.push(codexCmd)
     return cmds
   }
 
   if (cliBase === 'kimi') {
     let cmd = `kimi --mcp-config-file "${mcpConfigPath}"`
+    if (config.model) cmd += ` --model ${config.model}`
     if (config.autoMode) cmd += ' --yolo'
     return [cmd]
   }
