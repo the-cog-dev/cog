@@ -41,7 +41,10 @@ function createWindow(): BrowserWindow {
 }
 
 // Returns one or more commands to type into the shell. Array = chain them sequentially.
-function buildCliLaunchCommands(config: AgentConfig, mcpConfigPath: string, mcpServerPath: string): string[] | null {
+function buildCliLaunchCommands(
+  config: AgentConfig, mcpConfigPath: string, mcpServerPath: string,
+  hubPort: number, hubSecret: string
+): string[] | null {
   const cliBase = config.cli
 
   // Plain terminal: don't launch any CLI, just leave the shell open
@@ -54,11 +57,11 @@ function buildCliLaunchCommands(config: AgentConfig, mcpConfigPath: string, mcpS
   }
 
   if (cliBase === 'codex') {
-    // Codex uses `codex mcp add <name> -- <command>` to register MCP servers.
-    // Use a single consistent name so we don't pollute the global config.
-    // We remove + re-add to ensure the path is current.
+    // Codex uses `codex mcp add <name> -- <command> <args>` to register MCP servers.
+    // Pass hub connection info as CLI args so codex's subprocess gets them
+    // (env vars may not propagate through codex's process spawning).
     const cmds = [
-      `codex mcp remove agentorch 2>$null; codex mcp add agentorch -- node "${mcpServerPath}"`,
+      `codex mcp remove agentorch 2>$null; codex mcp add agentorch -- node "${mcpServerPath}" ${hubPort} ${hubSecret} ${config.id} ${config.name}`,
     ]
     const codexCmd = config.autoMode ? 'codex --yolo' : 'codex'
     cmds.push(codexCmd)
@@ -158,7 +161,7 @@ function setupIPC(): void {
 
     // Launch agent CLI after shell initializes (plain terminals skip this)
     // Some CLIs need multiple commands (e.g., codex needs `mcp add` first)
-    const cmds = buildCliLaunchCommands(config, mcpConfigPath, mcpServerPath)
+    const cmds = buildCliLaunchCommands(config, mcpConfigPath, mcpServerPath, hub.port, hub.secret)
     if (cmds) {
       let delay = 1000
       for (const cmd of cmds) {
