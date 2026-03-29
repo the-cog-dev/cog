@@ -109,9 +109,8 @@ function setupMessageNudge(): void {
     if (!managed) return
 
     const nudge = `[AgentOrch] New message from "${msg.from}". Call get_messages() now to read it.`
-    // CLI-specific Enter: \r works for Claude/Kimi (single write), \n for Codex
-    const enter = managed.config.cli === 'codex' ? '\n' : '\r'
-    writeToPty(managed, nudge + enter)
+    // Single write with \r appended — this is what works for Claude
+    writeToPty(managed, nudge + '\r')
   }
 }
 
@@ -188,8 +187,7 @@ function setupIPC(): void {
         if (!hasReceivedInitialPrompt.has(config.id)) {
           hasReceivedInitialPrompt.add(config.id)
           const prompt = buildInitialPrompt(config)
-          const enter = config.cli === 'codex' ? '\n' : '\r'
-          writeToPty(managed, prompt + enter)
+          writeToPty(managed, prompt + '\r')
         }
       }, delay + CLI_LOAD_TIME)
     }
