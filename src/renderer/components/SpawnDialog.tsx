@@ -6,6 +6,14 @@ interface SpawnDialogProps {
   onCancel: () => void
 }
 
+const ROLE_PRESETS = [
+  { label: 'Orchestrator', value: 'orchestrator', hint: 'Coordinates agents, dispatches tasks, synthesizes results' },
+  { label: 'Worker', value: 'worker', hint: 'Executes tasks assigned by the orchestrator' },
+  { label: 'Researcher', value: 'researcher', hint: 'Gathers information, reads docs, explores codebases' },
+  { label: 'Reviewer', value: 'reviewer', hint: 'Reviews code and work from other agents' },
+  { label: 'Custom', value: '', hint: '' }
+]
+
 const CLI_PRESETS = [
   { label: 'Claude Code', value: 'claude' },
   { label: 'Codex CLI', value: 'codex' },
@@ -19,7 +27,8 @@ export function SpawnDialog({ onSpawn, onCancel }: SpawnDialogProps): React.Reac
   const [cli, setCli] = useState('claude')
   const [customCli, setCustomCli] = useState('')
   const [cwd, setCwd] = useState('')
-  const [role, setRole] = useState('')
+  const [role, setRole] = useState('worker')
+  const [customRole, setCustomRole] = useState('')
   const [ceoNotes, setCeoNotes] = useState('')
   const [admin, setAdmin] = useState(false)
   const [autoMode, setAutoMode] = useState(false)
@@ -37,7 +46,7 @@ export function SpawnDialog({ onSpawn, onCancel }: SpawnDialogProps): React.Reac
       name: name.trim(),
       cli: cli || customCli.trim(),
       cwd: cwd.trim(),
-      role: role.trim(),
+      role: (role || customRole).trim(),
       ceoNotes: ceoNotes.trim(),
       admin,
       autoMode,
@@ -93,8 +102,20 @@ export function SpawnDialog({ onSpawn, onCancel }: SpawnDialogProps): React.Reac
 
         <label style={labelStyle}>
           Role
-          <input value={role} onChange={e => setRole(e.target.value)} style={inputStyle} placeholder="Decompiler" />
+          <select value={role} onChange={e => setRole(e.target.value)} style={inputStyle}>
+            {ROLE_PRESETS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
+          {ROLE_PRESETS.find(r => r.value === role)?.hint && (
+            <span style={{ color: '#555', fontSize: '11px' }}>{ROLE_PRESETS.find(r => r.value === role)?.hint}</span>
+          )}
         </label>
+
+        {role === '' && (
+          <label style={labelStyle}>
+            Custom Role
+            <input value={customRole} onChange={e => setCustomRole(e.target.value)} required style={inputStyle} placeholder="e.g. Monitor, Tester" />
+          </label>
+        )}
 
         <label style={labelStyle}>
           CEO Notes
