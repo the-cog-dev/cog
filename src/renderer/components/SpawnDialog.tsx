@@ -147,7 +147,7 @@ export function SpawnDialog({ onSpawn, onCancel }: SpawnDialogProps): React.Reac
           <span style={{ color: '#666', fontSize: '11px' }}>
             {cli === 'claude' ? '(--dangerously-skip-permissions)' :
              cli === 'codex' ? '(--yolo)' :
-             cli === 'kimi' ? '(--dangerously-skip-permissions)' : '(auto-run)'}
+             cli === 'kimi' ? '(--yolo)' : '(auto-run)'}
           </span>
         </label>
 
