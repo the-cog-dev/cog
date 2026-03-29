@@ -7,6 +7,7 @@ export interface AgentConfig {
   cwd: string
   role: string
   ceoNotes: string
+  shell: 'cmd' | 'powershell'  // which shell to spawn the agent in
   admin: boolean
   autoMode: boolean    // --dangerously-skip-permissions (Claude), --yolo (Codex), etc.
   promptRegex?: string

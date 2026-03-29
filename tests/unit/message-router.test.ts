@@ -10,6 +10,7 @@ const makeConfig = (name: string): AgentConfig => ({
   cwd: '/tmp',
   role: 'Test',
   ceoNotes: '',
+  shell: 'powershell' as const,
   admin: false,
   autoMode: false
 })

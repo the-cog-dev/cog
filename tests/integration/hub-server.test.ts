@@ -36,7 +36,7 @@ describe('Hub HTTP Server', () => {
       method: 'POST',
       body: JSON.stringify({
         id: 'a1', name: 'orchestrator', cli: 'claude',
-        cwd: '/tmp', role: 'Coordinator', ceoNotes: 'You lead.', admin: false, autoMode: false
+        cwd: '/tmp', role: 'Coordinator', ceoNotes: 'You lead.', shell: 'powershell', admin: false, autoMode: false
       })
     })
     expect(reg.status).toBe(200)
@@ -52,7 +52,7 @@ describe('Hub HTTP Server', () => {
       method: 'POST',
       body: JSON.stringify({
         id: 'a2', name: 'worker-1', cli: 'claude',
-        cwd: '/tmp', role: 'Worker', ceoNotes: 'Do tasks.', admin: false, autoMode: false
+        cwd: '/tmp', role: 'Worker', ceoNotes: 'Do tasks.', shell: 'powershell', admin: false, autoMode: false
       })
     })
 

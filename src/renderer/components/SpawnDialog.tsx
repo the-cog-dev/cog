@@ -30,6 +30,7 @@ export function SpawnDialog({ onSpawn, onCancel }: SpawnDialogProps): React.Reac
   const [role, setRole] = useState('worker')
   const [customRole, setCustomRole] = useState('')
   const [ceoNotes, setCeoNotes] = useState('')
+  const [shell, setShell] = useState<'cmd' | 'powershell'>('powershell')
   const [admin, setAdmin] = useState(false)
   const [autoMode, setAutoMode] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -48,6 +49,7 @@ export function SpawnDialog({ onSpawn, onCancel }: SpawnDialogProps): React.Reac
       cwd: cwd.trim(),
       role: (role || customRole).trim(),
       ceoNotes: ceoNotes.trim(),
+      shell,
       admin,
       autoMode,
       promptRegex: promptRegex.trim() || undefined
@@ -162,10 +164,20 @@ export function SpawnDialog({ onSpawn, onCancel }: SpawnDialogProps): React.Reac
         </button>
 
         {showAdvanced && (
-          <label style={labelStyle}>
-            Prompt Regex Override
-            <input value={promptRegex} onChange={e => setPromptRegex(e.target.value)} style={inputStyle} placeholder="[>❯]\\s*$" />
-          </label>
+          <>
+            <label style={labelStyle}>
+              Shell
+              <select value={shell} onChange={e => setShell(e.target.value as 'cmd' | 'powershell')} style={inputStyle}>
+                <option value="powershell">PowerShell</option>
+                <option value="cmd">Command Prompt (cmd)</option>
+              </select>
+              <span style={{ color: '#555', fontSize: '11px' }}>Use cmd if a CLI isn't found in PowerShell</span>
+            </label>
+            <label style={labelStyle}>
+              Prompt Regex Override
+              <input value={promptRegex} onChange={e => setPromptRegex(e.target.value)} style={inputStyle} placeholder="[>❯]\\s*$" />
+            </label>
+          </>
         )}
 
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>

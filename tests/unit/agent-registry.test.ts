@@ -9,6 +9,7 @@ const makeConfig = (overrides: Partial<AgentConfig> = {}): AgentConfig => ({
   cwd: '/tmp',
   role: 'Tester',
   ceoNotes: 'Test agent',
+  shell: 'powershell' as const,
   admin: false,
   autoMode: false,
   ...overrides

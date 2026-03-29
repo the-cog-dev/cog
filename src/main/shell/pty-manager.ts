@@ -33,7 +33,9 @@ export function spawnAgentPty(opts: SpawnOptions): ManagedPty {
 
   const outputBuffer = new OutputBuffer(1000)
 
-  const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash'
+  const shell = process.platform === 'win32'
+    ? (opts.config.shell === 'powershell' ? 'powershell.exe' : 'cmd.exe')
+    : 'bash'
 
   const shellArgs: string[] = []
   if (opts.config.admin && process.platform === 'win32') {
