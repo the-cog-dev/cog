@@ -146,7 +146,8 @@ export function SpawnDialog({ onSpawn, onCancel }: SpawnDialogProps): React.Reac
           Auto-approve mode
           <span style={{ color: '#666', fontSize: '11px' }}>
             {cli === 'claude' ? '(--dangerously-skip-permissions)' :
-             cli === 'codex' ? '(--yolo)' : '(auto-run)'}
+             cli === 'codex' ? '(--yolo)' :
+             cli === 'kimi' ? '(--dangerously-skip-permissions)' : '(auto-run)'}
           </span>
         </label>
 

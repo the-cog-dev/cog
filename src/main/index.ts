@@ -69,8 +69,9 @@ function buildCliLaunchCommands(
   }
 
   if (cliBase === 'kimi') {
-    const parts = [`kimi --mcp-config-file "${mcpConfigPath}"`]
-    return parts
+    let cmd = `kimi --mcp-config-file "${mcpConfigPath}"`
+    if (config.autoMode) cmd += ' --dangerously-skip-permissions'
+    return [cmd]
   }
 
   // Custom CLIs: just run the command, no MCP
