@@ -10,6 +10,7 @@ const CLI_PRESETS = [
   { label: 'Claude Code', value: 'claude' },
   { label: 'Codex CLI', value: 'codex' },
   { label: 'Kimi CLI', value: 'kimi' },
+  { label: 'Plain Terminal', value: 'terminal' },
   { label: 'Custom', value: '' }
 ]
 

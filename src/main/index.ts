@@ -39,8 +39,12 @@ function createWindow(): BrowserWindow {
   return win
 }
 
-function buildCliLaunchCommand(config: AgentConfig, mcpConfigPath: string): string {
+function buildCliLaunchCommand(config: AgentConfig, mcpConfigPath: string): string | null {
   const cliBase = config.cli
+
+  // Plain terminal: don't launch any CLI, just leave the shell open
+  if (cliBase === 'terminal') return null
+
   const parts: string[] = [cliBase]
 
   // MCP config flags vary by CLI
@@ -53,7 +57,7 @@ function buildCliLaunchCommand(config: AgentConfig, mcpConfigPath: string): stri
   } else if (cliBase === 'kimi') {
     parts.push(`--mcp-config "${mcpConfigPath}"`)
   }
-  // Custom CLIs: no MCP flag, no auto mode
+  // Custom CLIs: just run the command, no MCP flag
 
   return parts.join(' ') + '\r'
 }
@@ -100,12 +104,13 @@ function setupIPC(): void {
     agents.set(config.id, managed)
     mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, hub.registry.list())
 
-    // Launch agent CLI after shell initializes
-    // Agents get their context via MCP tools (read_ceo_notes, get_agents) — not stdin injection
-    setTimeout(() => {
-      const launchCmd = buildCliLaunchCommand(config, mcpConfigPath)
-      writeToPty(managed, launchCmd)
-    }, 1000)
+    // Launch agent CLI after shell initializes (plain terminals skip this)
+    const launchCmd = buildCliLaunchCommand(config, mcpConfigPath)
+    if (launchCmd) {
+      setTimeout(() => {
+        writeToPty(managed, launchCmd)
+      }, 1000)
+    }
 
     return { id: config.id, mcpConfigPath }
   })
