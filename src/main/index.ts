@@ -9,13 +9,7 @@ import { IPC } from '../shared/types'
 let hub: HubServer
 let mainWindow: BrowserWindow
 const agents = new Map<string, ManagedPty>()
-const messagePollers = new Map<string, ReturnType<typeof setInterval>>()
 const hasReceivedInitialPrompt = new Set<string>()
-
-// CLIs that natively support MCP (pull their own messages)
-// CLIs that pull their own messages via MCP get_messages() tool.
-// Codex registers MCP via `codex mcp add` so it IS MCP-capable.
-const MCP_CAPABLE_CLIS = new Set(['claude', 'kimi', 'codex'])
 
 function getMcpServerPath(): string {
   if (app.isPackaged) {
@@ -92,29 +86,19 @@ function buildInitialPrompt(config: AgentConfig): string {
   return lines.join(' ')
 }
 
-// For non-MCP agents: poll for messages and inject them into the terminal stdin
-function startMessagePoller(config: AgentConfig, managed: ManagedPty): void {
-  if (MCP_CAPABLE_CLIS.has(config.cli)) return // MCP agents pull their own messages
+// When a message is queued for an agent, nudge them immediately via stdin.
+// MCP agents get a nudge to call get_messages(). Non-MCP agents get the full message.
+function setupMessageNudge(): void {
+  hub.messages.onMessageQueued = (msg) => {
+    // Find the target agent's PTY by name
+    const target = hub.registry.get(msg.to)
+    if (!target) return
 
-  const poller = setInterval(() => {
-    const messages = hub.messages.getMessages(config.name)
-    if (messages.length === 0) return
+    const managed = Array.from(agents.values()).find(a => a.config.name === msg.to)
+    if (!managed) return
 
-    for (const msg of messages) {
-      // Format message as readable text and inject into the agent's stdin
-      const formatted = `\r\n${msg.message}\r\n`
-      writeToPty(managed, formatted)
-    }
-  }, 2000) // Check every 2 seconds
-
-  messagePollers.set(config.id, poller)
-}
-
-function stopMessagePoller(agentId: string): void {
-  const poller = messagePollers.get(agentId)
-  if (poller) {
-    clearInterval(poller)
-    messagePollers.delete(agentId)
+    const nudge = `[AgentOrch] New message from "${msg.from}". Call get_messages() now to read it.\r`
+    writeToPty(managed, nudge)
   }
 }
 
@@ -157,7 +141,7 @@ function setupIPC(): void {
         mainWindow.webContents.send(IPC.PTY_OUTPUT, config.id, data)
       },
       onExit: (exitCode) => {
-        stopMessagePoller(config.id)
+
         hub.registry.updateStatus(config.name, 'disconnected')
         mainWindow.webContents.send(IPC.PTY_EXIT, config.id, exitCode)
         mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, hub.registry.list())
@@ -197,7 +181,6 @@ function setupIPC(): void {
     }
 
     // For non-MCP agents: poll and inject messages into stdin
-    startMessagePoller(config, managed)
 
     return { id: config.id, mcpConfigPath }
   })
@@ -210,7 +193,6 @@ function setupIPC(): void {
   ipcMain.handle(IPC.KILL_AGENT, (_event, agentId: string) => {
     const managed = agents.get(agentId)
     if (managed) {
-      stopMessagePoller(agentId)
       killPty(managed)
       hub.registry.remove(managed.config.name)
       hub.messages.clearAgent(managed.config.name)
@@ -241,6 +223,7 @@ async function main(): Promise<void> {
 
   hub = await createHubServer()
   console.log(`Hub server running on port ${hub.port}`)
+  setupMessageNudge()
 
   setupIPC()
   mainWindow = createWindow()
@@ -249,8 +232,7 @@ async function main(): Promise<void> {
 main()
 
 app.on('window-all-closed', () => {
-  for (const [id, managed] of agents) {
-    stopMessagePoller(id)
+  for (const [, managed] of agents) {
     killPty(managed)
     if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
   }

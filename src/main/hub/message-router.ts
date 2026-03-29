@@ -7,6 +7,7 @@ const MAX_QUEUE_DEPTH = 100
 
 export class MessageRouter {
   private queues = new Map<string, Message[]>()
+  onMessageQueued?: (msg: Message) => void
 
   constructor(private registry: AgentRegistry) {}
 
@@ -38,6 +39,9 @@ export class MessageRouter {
     while (queue.length > MAX_QUEUE_DEPTH) {
       queue.shift()
     }
+
+    // Notify listener (main process uses this to nudge agents)
+    this.onMessageQueued?.(msg)
 
     if (target.status === 'disconnected') {
       return { status: 'queued', detail: `${to} is offline, message queued` }
