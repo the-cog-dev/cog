@@ -97,7 +97,19 @@ export function SpawnDialog({ onSpawn, onCancel }: SpawnDialogProps): React.Reac
 
         <label style={labelStyle}>
           Working Directory
-          <input value={cwd} onChange={e => setCwd(e.target.value)} style={inputStyle} />
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <input value={cwd} onChange={e => setCwd(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+            <button
+              type="button"
+              onClick={() => window.electronAPI.browseDirectory(cwd).then(dir => { if (dir) setCwd(dir) })}
+              style={{
+                padding: '8px 12px', backgroundColor: '#2a2a2a', border: '1px solid #444',
+                borderRadius: '4px', color: '#aaa', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap'
+              }}
+            >
+              Browse
+            </button>
+          </div>
         </label>
 
         <label style={labelStyle}>

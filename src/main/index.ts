@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'path'
 import { createHubServer, type HubServer } from './hub/server'
 import { spawnAgentPty, writeToPty, resizePty, killPty, type ManagedPty } from './shell/pty-manager'
@@ -202,6 +202,14 @@ function setupIPC(): void {
   })
 
   ipcMain.handle('app:cwd', () => process.cwd())
+
+  ipcMain.handle('dialog:browse-directory', async (_event, defaultPath: string) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      defaultPath: defaultPath || undefined,
+      properties: ['openDirectory']
+    })
+    return result.canceled ? null : result.filePaths[0]
+  })
 }
 
 async function main(): Promise<void> {

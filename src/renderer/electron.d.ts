@@ -10,6 +10,7 @@ declare global {
       writeToPty: (agentId: string, data: string) => Promise<void>
       resizePty: (agentId: string, cols: number, rows: number) => Promise<void>
       getCwd: () => Promise<string>
+      browseDirectory: (defaultPath: string) => Promise<string | null>
       onPtyOutput: (callback: (agentId: string, data: string) => void) => () => void
       onPtyExit: (callback: (agentId: string, exitCode: number | undefined) => void) => () => void
       onAgentStateUpdate: (callback: (agents: AgentState[]) => void) => () => void

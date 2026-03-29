@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeToPty: (agentId: string, data: string) => ipcRenderer.invoke(IPC.WRITE_TO_PTY, agentId, data),
   resizePty: (agentId: string, cols: number, rows: number) => ipcRenderer.invoke('pty:resize', agentId, cols, rows),
   getCwd: () => ipcRenderer.invoke('app:cwd'),
+  browseDirectory: (defaultPath: string) => ipcRenderer.invoke('dialog:browse-directory', defaultPath),
   onPtyOutput: (callback: (agentId: string, data: string) => void) => {
     const handler = (_event: unknown, agentId: string, data: string) => callback(agentId, data)
     ipcRenderer.on(IPC.PTY_OUTPUT, handler)
