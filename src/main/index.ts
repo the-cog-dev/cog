@@ -228,6 +228,32 @@ function setupMessageNudge(): void {
   }
 }
 
+// When info is posted, nudge orchestrator agents so they know to read it.
+function setupInfoNudge(): void {
+  const existingCallback = hub.infoChannel.onEntryAdded
+  hub.infoChannel.onEntryAdded = (entry) => {
+    // Preserve the existing persistence + renderer behavior before nudging.
+    existingCallback?.(entry)
+
+    const orchestrators = hub.registry.list().filter(agent => agent.role === 'orchestrator')
+    for (const orchestrator of orchestrators) {
+      if (orchestrator.name === entry.from) continue
+
+      const managed = Array.from(agents.values()).find(agent => agent.config.name === orchestrator.name)
+      if (!managed) continue
+
+      const tagSuffix = entry.tags.length > 0 ? ` with tags [${entry.tags.join(', ')}]` : ''
+      const nudge = `[AgentOrch] New info posted by "${entry.from}"${tagSuffix}. Call read_info() to read it.`
+      if (managed.config.cli === 'codex') {
+        writeToPty(managed, nudge)
+        setTimeout(() => writeToPty(managed, '\r'), CODEX_SUBMIT_DELAY)
+      } else {
+        writeToPty(managed, nudge + '\r')
+      }
+    }
+  }
+}
+
 function setupIPC(): void {
   ipcMain.handle(IPC.GET_HUB_INFO, () => ({
     port: hub.port,
@@ -431,6 +457,7 @@ async function main(): Promise<void> {
     return managed.outputBuffer.getLines(lines)
   })
   setupMessageNudge()
+  setupInfoNudge()
 
   setupIPC()
   mainWindow = createWindow()
