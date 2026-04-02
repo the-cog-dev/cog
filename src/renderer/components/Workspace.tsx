@@ -7,7 +7,7 @@ import { InfoChannelPanel } from './InfoChannelPanel'
 import { ZoomControls } from './ZoomControls'
 import type { WindowState } from '../hooks/useWindowManager'
 import type { AgentState } from '../../shared/types'
-import type { SnapBounds, SnapZoneInfo } from '../hooks/useSnapZones'
+import type { SnapBounds, SnapZoneInfo, WindowBounds } from '../hooks/useSnapZones'
 
 const PANEL_IDS: Record<string, string> = {
   '__pinboard__': 'pinboard',
@@ -253,6 +253,10 @@ export function Workspace({
             content = <TerminalWindow agentId={win.id} />
           }
 
+          const otherWindows: WindowBounds[] = windows
+            .filter(w => w.id !== win.id && !w.minimized)
+            .map(w => ({ id: w.id, x: w.x, y: w.y, width: w.width, height: w.height }))
+
           return (
             <FloatingWindow
               key={win.id}
@@ -270,6 +274,7 @@ export function Workspace({
               maximized={maximizedId === win.id}
               workspaceWidth={workspaceSize.width}
               workspaceHeight={workspaceSize.height}
+              otherWindows={otherWindows}
               restoreBounds={restoreBoundsById.get(win.id) ?? null}
               viewportRef={viewportRef}
               onFocus={() => onFocusWindow(win.id)}

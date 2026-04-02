@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Rnd, type DraggableData, type RndDragEvent } from 'react-rnd'
-import { getSnapZone, type SnapBounds, type SnapZoneInfo } from '../hooks/useSnapZones'
+import { getSnapZone, getWindowSnap, type SnapBounds, type SnapZoneInfo, type WindowBounds } from '../hooks/useSnapZones'
 
 interface FloatingWindowProps {
   id: string
@@ -18,6 +18,7 @@ interface FloatingWindowProps {
   maximized: boolean
   workspaceWidth: number
   workspaceHeight: number
+  otherWindows: WindowBounds[]
   restoreBounds?: SnapBounds | null
   viewportRef?: React.RefObject<HTMLDivElement | null>
   onFocus: () => void
@@ -46,6 +47,7 @@ export function FloatingWindow({
   maximized,
   workspaceWidth,
   workspaceHeight,
+  otherWindows,
   restoreBounds,
   viewportRef,
   onFocus,
@@ -92,22 +94,57 @@ export function FloatingWindow({
     }
   }, [restoreBounds])
 
-  const handleDrag = useCallback((e: RndDragEvent) => {
-    onSnapPreviewChange(getSnapInfo(e))
-  }, [getSnapInfo, onSnapPreviewChange])
+  const handleDrag = useCallback((e: RndDragEvent, data: DraggableData) => {
+    // Edge snap takes priority
+    const edgeSnap = getSnapInfo(e)
+    if (edgeSnap) {
+      onSnapPreviewChange(edgeSnap)
+      return
+    }
+
+    // Window-to-window snap (canvas space)
+    const dragW = dragSizeOverride?.width ?? width
+    const dragH = dragSizeOverride?.height ?? height
+    const winSnap = getWindowSnap(data.x, data.y, dragW, dragH, otherWindows, 20 / zoom)
+    if (winSnap) {
+      onSnapPreviewChange({
+        zone: winSnap.zone,
+        bounds: {
+          x: winSnap.canvasBounds.x * zoom + pan.x,
+          y: winSnap.canvasBounds.y * zoom + pan.y,
+          width: winSnap.canvasBounds.width * zoom,
+          height: winSnap.canvasBounds.height * zoom
+        }
+      })
+      return
+    }
+
+    onSnapPreviewChange(null)
+  }, [dragSizeOverride, getSnapInfo, onSnapPreviewChange, otherWindows, pan.x, pan.y, width, height, zoom])
 
   const handleDragStop = useCallback((e: RndDragEvent, data: DraggableData) => {
-    const snapInfo = getSnapInfo(e)
     onSnapPreviewChange(null)
 
-    if (snapInfo) {
+    // Edge snap takes priority
+    const edgeSnap = getSnapInfo(e)
+    if (edgeSnap) {
       setDragSizeOverride(null)
       onSnap({
-        x: (snapInfo.bounds.x - pan.x) / zoom,
-        y: (snapInfo.bounds.y - pan.y) / zoom,
-        width: snapInfo.bounds.width / zoom,
-        height: snapInfo.bounds.height / zoom
+        x: (edgeSnap.bounds.x - pan.x) / zoom,
+        y: (edgeSnap.bounds.y - pan.y) / zoom,
+        width: edgeSnap.bounds.width / zoom,
+        height: edgeSnap.bounds.height / zoom
       }, activeRestoreBounds)
+      return
+    }
+
+    // Window-to-window snap (already in canvas space)
+    const dragW = dragSizeOverride?.width ?? width
+    const dragH = dragSizeOverride?.height ?? height
+    const winSnap = getWindowSnap(data.x, data.y, dragW, dragH, otherWindows, 20 / zoom)
+    if (winSnap) {
+      setDragSizeOverride(null)
+      onSnap(winSnap.canvasBounds, activeRestoreBounds)
       return
     }
 
@@ -118,7 +155,7 @@ export function FloatingWindow({
     }
 
     onDragStop(data.x, data.y)
-  }, [activeRestoreBounds, dragSizeOverride, getSnapInfo, onDragStop, onResizeStop, onSnap, onSnapPreviewChange, pan.x, pan.y, zoom])
+  }, [activeRestoreBounds, dragSizeOverride, getSnapInfo, onDragStop, onResizeStop, onSnap, onSnapPreviewChange, otherWindows, pan.x, pan.y, width, height, zoom])
 
   const handleResizeStop = useCallback((_e: any, _dir: any, ref: HTMLElement, _delta: any, position: { x: number; y: number }) => {
     setDragSizeOverride(null)
