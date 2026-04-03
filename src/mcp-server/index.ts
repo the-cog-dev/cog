@@ -135,6 +135,25 @@ server.tool(
 )
 
 server.tool(
+  'update_status',
+  'Update your status in the hub. Use to signal whether you are idle, active (at prompt), or working (processing a task).',
+  {
+    status: z.enum(['idle', 'active', 'working']).describe('Your current status')
+  },
+  async ({ status }) => {
+    try {
+      const result = await hubFetch(`/agents/${encodeURIComponent(AGENT_NAME)}/status`, {
+        method: 'POST',
+        body: JSON.stringify({ status })
+      })
+      return toolResult(result)
+    } catch (err: any) {
+      return toolError(`Failed to update status: ${err.message}`)
+    }
+  }
+)
+
+server.tool(
   'get_agent_output',
   'Peek at another agent\'s recent terminal output. Useful for checking what an agent is doing without messaging them.',
   {

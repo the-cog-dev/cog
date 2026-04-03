@@ -42,6 +42,22 @@ export function createRoutes(
     res.json({ name: agent.name, ceoNotes: agent.ceoNotes, role: agent.role })
   })
 
+  router.post('/agents/:name/status', (req: Request, res: Response) => {
+    const { status } = req.body
+    const validStatuses = ['idle', 'active', 'working']
+    if (!status || !validStatuses.includes(status)) {
+      res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` })
+      return
+    }
+    const agent = registry.get(req.params.name)
+    if (!agent) {
+      res.status(404).json({ error: `Agent '${req.params.name}' not found` })
+      return
+    }
+    registry.updateStatus(req.params.name, status)
+    res.json({ status: 'ok', agentStatus: status })
+  })
+
   router.post('/messages/send', (req: Request, res: Response) => {
     const { from, to, message } = req.body
     const result = messages.send(from, to, message)
