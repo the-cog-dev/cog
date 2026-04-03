@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentState, HubInfo, PinboardTask, InfoEntry, WorkspacePreset } from '../shared/types'
+import type { AgentConfig, AgentState, HubInfo, PinboardTask, InfoEntry, WorkspacePreset, Skill } from '../shared/types'
 
 declare global {
   interface Window {
@@ -22,6 +22,12 @@ declare global {
       onPtyOutput: (callback: (agentId: string, data: string) => void) => () => void
       onPtyExit: (callback: (agentId: string, exitCode: number | undefined) => void) => () => void
       onAgentStateUpdate: (callback: (agents: AgentState[]) => void) => () => void
+      // Skills
+      listSkills: () => Promise<Skill[]>
+      getSkill: (id: string) => Promise<Skill>
+      createSkill: (input: { name: string; description: string; category: string; prompt: string; tags: string[] }) => Promise<Skill>
+      updateSkill: (id: string, updates: unknown) => Promise<Skill>
+      deleteSkill: (id: string) => Promise<boolean>
     }
   }
 }
