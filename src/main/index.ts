@@ -234,20 +234,42 @@ function reconnectAgent(config: AgentConfig): void {
   console.log(`Agent "${config.name}" reconnected successfully`)
 }
 
-// Deliver a nudge to an agent's PTY, but only if they're at a prompt.
-// If the agent is mid-response, queue it for delivery when they next become 'active'.
+// Deliver a nudge to an agent's PTY.
+// If the agent is at prompt (active), deliver immediately.
+// Otherwise, deliver after a short delay — some CLIs (Kimi, Gemini) may not
+// trigger StatusDetector's prompt regex, so 'active' is never reached.
+const NUDGE_FALLBACK_DELAY = 5000
+
 function deliverNudge(agentName: string, nudge: string): void {
   const managed = Array.from(agents.values()).find(a => a.config.name === agentName)
   if (!managed) return
 
   const agent = hub.registry.get(agentName)
-  if (!agent || agent.status !== 'active') {
-    // Queue for later delivery
+  if (!agent || agent.status === 'disconnected') return
+
+  if (agent.status === 'active') {
+    // Agent is at prompt — deliver immediately
+    writeNudgeToPty(managed, nudge)
+  } else {
+    // Agent might be working or status detection doesn't work for this CLI.
+    // Queue it, but also set a fallback timer to force delivery.
     if (!pendingNudges.has(agentName)) pendingNudges.set(agentName, [])
     pendingNudges.get(agentName)!.push(nudge)
-    return
-  }
 
+    // Fallback: deliver after delay even if 'active' is never detected
+    setTimeout(() => {
+      const queued = pendingNudges.get(agentName)
+      if (queued && queued.length > 0) {
+        const latest = queued[queued.length - 1]
+        pendingNudges.delete(agentName)
+        const m = Array.from(agents.values()).find(a => a.config.name === agentName)
+        if (m) writeNudgeToPty(m, latest)
+      }
+    }, NUDGE_FALLBACK_DELAY)
+  }
+}
+
+function writeNudgeToPty(managed: ManagedPty, nudge: string): void {
   if (managed.config.cli === 'codex') {
     writeToPty(managed, nudge)
     setTimeout(() => writeToPty(managed, '\r'), CODEX_SUBMIT_DELAY)
