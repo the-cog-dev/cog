@@ -41,5 +41,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_event: unknown, entries: unknown[]) => callback(entries)
     ipcRenderer.on(IPC.INFO_ENTRY_ADDED, handler)
     return () => ipcRenderer.removeListener(IPC.INFO_ENTRY_ADDED, handler)
+  },
+  // Project management
+  getProject: () => ipcRenderer.invoke(IPC.PROJECT_GET_CURRENT),
+  switchProject: (path: string) => ipcRenderer.invoke(IPC.PROJECT_SWITCH, path),
+  listRecentProjects: () => ipcRenderer.invoke(IPC.PROJECT_LIST_RECENT),
+  openFolderDialog: () => ipcRenderer.invoke(IPC.PROJECT_OPEN_FOLDER),
+  onProjectChanged: (callback: (project: unknown) => void) => {
+    const handler = (_event: unknown, project: unknown) => callback(project)
+    ipcRenderer.on(IPC.PROJECT_CHANGED, handler)
+    return () => ipcRenderer.removeListener(IPC.PROJECT_CHANGED, handler)
   }
 })
