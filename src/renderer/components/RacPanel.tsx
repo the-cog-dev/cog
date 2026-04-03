@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 
 interface RacSlot {
   slot_id: string
@@ -25,14 +25,17 @@ declare const electronAPI: {
   racRent: (slotId: string, renterName: string) => Promise<RacSession & { error?: string }>
   racRelease: (sessionId: string) => Promise<{ status?: string; error?: string }>
   racGetSessions: () => Promise<RacSession[]>
+  getHubInfo: () => Promise<{ port: number; secret: string }>
 }
 
 function formatTimeLeft(ms: number | null): string {
-  if (!ms) return 'No limit'
+  if (!ms || ms <= 0) return 'No limit'
   const hours = Math.floor(ms / 3600000)
   const mins = Math.floor((ms % 3600000) / 60000)
-  if (hours > 0) return `${hours}h ${mins}m left`
-  return `${mins}m left`
+  const secs = Math.floor((ms % 60000) / 1000)
+  if (hours > 0) return `${hours}h ${mins}m`
+  if (mins > 0) return `${mins}m ${secs}s`
+  return `${secs}s`
 }
 
 // R.A.C. is in-house only — password gate for the crew
@@ -43,6 +46,8 @@ async function hashPassword(pw: string): Promise<string> {
   const hash = await crypto.subtle.digest('SHA-256', data)
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
+
+type PanelView = 'list' | 'rent-dialog' | 'session-detail'
 
 export function RacPanel(): React.ReactElement {
   const [unlocked, setUnlocked] = useState(false)
@@ -55,9 +60,23 @@ export function RacPanel(): React.ReactElement {
   const [available, setAvailable] = useState<RacSlot[]>([])
   const [sessions, setSessions] = useState<RacSession[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [renting, setRenting] = useState<string | null>(null) // slot_id being rented
+  const [renting, setRenting] = useState(false)
 
-  // ALL hooks must be above any early return (React rules of hooks)
+  // View state
+  const [view, setView] = useState<PanelView>('list')
+  const [selectedSlot, setSelectedSlot] = useState<RacSlot | null>(null)
+  const [selectedSession, setSelectedSession] = useState<RacSession | null>(null)
+
+  // Rent dialog form
+  const [rentCeoNotes, setRentCeoNotes] = useState('You are a remote worker rented via R.A.C. You communicate through hub messages only. When given a task, work on it and send results back via send_message().')
+  const [rentGitRepo, setRentGitRepo] = useState('')
+  const [rentName, setRentName] = useState('')
+
+  // Live timer
+  const [now, setNow] = useState(Date.now())
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // ALL hooks above early return
   const refresh = useCallback(async () => {
     try {
       const [avail, sess] = await Promise.all([
@@ -77,14 +96,12 @@ export function RacPanel(): React.ReactElement {
     }
   }, [])
 
-  // Check if already unlocked this session
   useEffect(() => {
     if (sessionStorage.getItem('rac-unlocked') === 'true') {
       setUnlocked(true)
     }
   }, [])
 
-  // Only poll when unlocked
   useEffect(() => {
     if (!unlocked) return
     electronAPI.racGetServer().then(url => {
@@ -95,6 +112,14 @@ export function RacPanel(): React.ReactElement {
     const interval = setInterval(refresh, 5000)
     return () => clearInterval(interval)
   }, [unlocked, refresh])
+
+  // Live countdown timer (updates every second when sessions exist)
+  useEffect(() => {
+    if (sessions.length > 0 || available.length > 0) {
+      timerRef.current = setInterval(() => setNow(Date.now()), 1000)
+      return () => { if (timerRef.current) clearInterval(timerRef.current) }
+    }
+  }, [sessions.length, available.length])
 
   const handleUnlock = async () => {
     const hash = await hashPassword(passwordInput)
@@ -107,6 +132,7 @@ export function RacPanel(): React.ReactElement {
     }
   }
 
+  // --- Lock screen ---
   if (!unlocked) {
     return (
       <div style={{
@@ -134,20 +160,36 @@ export function RacPanel(): React.ReactElement {
           padding: '6px 20px', backgroundColor: '#2d5a2d', border: '1px solid #4caf50',
           borderRadius: '4px', color: '#4caf50', cursor: 'pointer', fontSize: '12px'
         }}>Unlock</button>
-        {passwordError && (
-          <div style={{ color: '#f44336', fontSize: '11px' }}>Wrong password</div>
-        )}
+        {passwordError && <div style={{ color: '#f44336', fontSize: '11px' }}>Wrong password</div>}
       </div>
     )
   }
 
-  const handleRent = async (slotId: string) => {
-    setRenting(slotId)
-    const result = await electronAPI.racRent(slotId, 'AgentOrch')
+  // --- Rent dialog ---
+  const handleOpenRentDialog = (slot: RacSlot) => {
+    setSelectedSlot(slot)
+    setRentName(slot.parker_name)
+    setView('rent-dialog')
+  }
+
+  const handleConfirmRent = async () => {
+    if (!selectedSlot) return
+    setRenting(true)
+
+    // Build CEO notes with git repo if provided
+    let fullNotes = rentCeoNotes
+    if (rentGitRepo.trim()) {
+      fullNotes += `\n\nGit repository: ${rentGitRepo.trim()}\nClone the repo to get the codebase. Work on a feature branch and push when done.`
+    }
+
+    const result = await electronAPI.racRent(selectedSlot.slot_id, rentName || 'AgentOrch')
     if (result.error) {
       setError(result.error)
+    } else {
+      // TODO: Send CEO notes to the rented agent via hub message
+      setView('list')
     }
-    setRenting(null)
+    setRenting(false)
     refresh()
   }
 
@@ -156,6 +198,7 @@ export function RacPanel(): React.ReactElement {
     if (result.error) {
       setError(result.error)
     }
+    setView('list')
     refresh()
   }
 
@@ -166,6 +209,96 @@ export function RacPanel(): React.ReactElement {
     refresh()
   }
 
+  const liveTimeLeft = (slot: RacSlot): string => {
+    if (!slot.expires_at) return 'No limit'
+    const remaining = slot.expires_at - now
+    if (remaining <= 0) return 'Expired'
+    return formatTimeLeft(remaining)
+  }
+
+  // --- Rent dialog view ---
+  if (view === 'rent-dialog' && selectedSlot) {
+    return (
+      <div style={{
+        height: '100%', display: 'flex', flexDirection: 'column',
+        backgroundColor: '#1e1e1e', color: '#e0e0e0', fontSize: '13px'
+      }}>
+        <div style={{
+          padding: '8px 12px', borderBottom: '1px solid #333',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+        }}>
+          <span style={{ fontSize: '12px', color: '#888', fontWeight: 500 }}>
+            Rent {selectedSlot.parker_name}'s Claude
+          </span>
+          <button onClick={() => setView('list')} style={{
+            background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '14px'
+          }}>x</button>
+        </div>
+
+        <div style={{ flex: 1, overflow: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {/* Slot info */}
+          <div style={{ padding: '8px', backgroundColor: '#252525', borderRadius: '4px', border: '1px solid #333' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span><span style={{ color: '#4caf50' }}>{'\u25CF'}</span> {selectedSlot.parker_name}</span>
+              <span style={{ color: '#888', fontSize: '11px' }}>{selectedSlot.tier}</span>
+            </div>
+            <div style={{ color: '#ffc107', fontSize: '12px', marginTop: '4px' }}>
+              Time remaining: {liveTimeLeft(selectedSlot)}
+            </div>
+            {selectedSlot.note && (
+              <div style={{ color: '#888', fontSize: '11px', marginTop: '4px', fontStyle: 'italic' }}>"{selectedSlot.note}"</div>
+            )}
+          </div>
+
+          {/* Renter name */}
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#aaa' }}>
+            Your Name
+            <input value={rentName} onChange={e => setRentName(e.target.value)} style={{
+              backgroundColor: '#2a2a2a', border: '1px solid #444', borderRadius: '4px',
+              padding: '6px 8px', color: '#e0e0e0', fontSize: '12px'
+            }} />
+          </label>
+
+          {/* Git repo */}
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#aaa' }}>
+            Git Repository (optional)
+            <input value={rentGitRepo} onChange={e => setRentGitRepo(e.target.value)} placeholder="https://github.com/you/repo.git" style={{
+              backgroundColor: '#2a2a2a', border: '1px solid #444', borderRadius: '4px',
+              padding: '6px 8px', color: '#e0e0e0', fontSize: '12px'
+            }} />
+            <span style={{ color: '#555', fontSize: '10px' }}>The rented agent will clone this repo to access your codebase</span>
+          </label>
+
+          {/* CEO Notes */}
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: '#aaa' }}>
+            Instructions for Rented Agent
+            <textarea value={rentCeoNotes} onChange={e => setRentCeoNotes(e.target.value)} rows={5} style={{
+              backgroundColor: '#2a2a2a', border: '1px solid #444', borderRadius: '4px',
+              padding: '6px 8px', color: '#e0e0e0', fontSize: '12px', resize: 'vertical', fontFamily: 'inherit'
+            }} />
+          </label>
+
+          {/* Info box */}
+          <div style={{ padding: '8px', backgroundColor: '#1a2a3a', borderRadius: '4px', border: '1px solid #2a4a6a', fontSize: '11px', color: '#8cb4e0' }}>
+            This agent runs remotely in a Docker container. It communicates through hub messages — your orchestrator can send_message() to it and receive results back. It cannot access your local files directly.
+          </div>
+        </div>
+
+        <div style={{ padding: '8px 12px', borderTop: '1px solid #333', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button onClick={() => setView('list')} style={{
+            padding: '6px 16px', backgroundColor: '#2a2a2a', border: '1px solid #444',
+            borderRadius: '4px', color: '#aaa', cursor: 'pointer', fontSize: '12px'
+          }}>Cancel</button>
+          <button onClick={handleConfirmRent} disabled={renting} style={{
+            padding: '6px 16px', backgroundColor: '#2d5a2d', border: '1px solid #4caf50',
+            borderRadius: '4px', color: '#4caf50', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold'
+          }}>{renting ? 'Renting...' : 'RENT'}</button>
+        </div>
+      </div>
+    )
+  }
+
+  // --- Main list view ---
   return (
     <div style={{
       height: '100%', display: 'flex', flexDirection: 'column',
@@ -229,31 +362,28 @@ export function RacPanel(): React.ReactElement {
                 <span style={{ color: '#4caf50', marginRight: '6px' }}>{'\u25CF'}</span>
                 <span style={{ fontWeight: 500 }}>{slot.parker_name}</span>
                 <span style={{ color: '#666', fontSize: '11px', marginLeft: '8px' }}>{slot.tier}</span>
-                <span style={{ color: '#555', fontSize: '11px', marginLeft: '8px' }}>
-                  {formatTimeLeft(slot.time_left_ms)}
-                </span>
               </div>
               <button
-                onClick={() => handleRent(slot.slot_id)}
-                disabled={renting === slot.slot_id}
+                onClick={() => handleOpenRentDialog(slot)}
                 style={{
                   padding: '3px 10px', fontSize: '11px', borderRadius: '4px', cursor: 'pointer',
                   border: '1px solid #4caf50', backgroundColor: '#2d5a2d', color: '#4caf50',
                   fontWeight: 'bold'
                 }}
               >
-                {renting === slot.slot_id ? '...' : 'RENT'}
+                RENT
               </button>
             </div>
-            {slot.note && (
-              <div style={{ color: '#888', fontSize: '11px', marginTop: '4px', fontStyle: 'italic' }}>
-                "{slot.note}"
-              </div>
-            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+              {slot.note && (
+                <span style={{ color: '#888', fontSize: '11px', fontStyle: 'italic' }}>"{slot.note}"</span>
+              )}
+              <span style={{ color: '#ffc107', fontSize: '11px' }}>{liveTimeLeft(slot)}</span>
+            </div>
           </div>
         ))}
 
-        {/* Active sessions */}
+        {/* Rented sessions */}
         {sessions.length > 0 && (
           <>
             <div style={{
@@ -285,6 +415,9 @@ export function RacPanel(): React.ReactElement {
                   >
                     RELEASE
                   </button>
+                </div>
+                <div style={{ fontSize: '10px', color: '#555', marginTop: '4px' }}>
+                  Session: {session.session_id} | Status: {session.status}
                 </div>
               </div>
             ))}
