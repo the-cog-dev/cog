@@ -356,6 +356,21 @@ async function openProject(projectPath: string): Promise<void> {
   hub = await createHubServer()
   hub.setProjectPath(projectPath)
   hub.setMessageStore(messageStore)
+
+  // Register a virtual "user" agent so the UI can send/receive messages
+  // (R.A.C. bridge sends replies to "user" — needs to exist in registry)
+  hub.registry.register({
+    id: 'user',
+    name: 'user',
+    cli: 'none',
+    cwd: projectPath,
+    role: 'human',
+    ceoNotes: '',
+    shell: 'powershell',
+    admin: false,
+    autoMode: false
+  })
+
   console.log(`Hub server running on port ${hub.port} for project: ${projectManager.currentProject!.name}`)
 
   // Restore persisted state
