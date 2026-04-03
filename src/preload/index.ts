@@ -62,4 +62,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listFiles: (dirPath?: string) => ipcRenderer.invoke(IPC.FILE_LIST, dirPath),
   readFile: (filePath: string) => ipcRenderer.invoke(IPC.FILE_READ, filePath),
   writeFile: (filePath: string, content: string) => ipcRenderer.invoke(IPC.FILE_WRITE, filePath, content),
+  // Skills
+  listSkills: () => ipcRenderer.invoke(IPC.SKILL_LIST),
+  getSkill: (id: string) => ipcRenderer.invoke(IPC.SKILL_GET, id),
+  createSkill: (input: unknown) => ipcRenderer.invoke(IPC.SKILL_CREATE, input),
+  updateSkill: (id: string, updates: unknown) => ipcRenderer.invoke(IPC.SKILL_UPDATE, id, updates),
+  deleteSkill: (id: string) => ipcRenderer.invoke(IPC.SKILL_DELETE, id),
 })

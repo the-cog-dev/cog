@@ -11,12 +11,14 @@ import { buildCliLaunchCommands as buildCliLaunchCommandsForConfig } from './cli
 import { writeAgentMcpConfig, cleanupConfig } from './mcp/config-writer'
 import { savePreset, loadPreset, listPresets, deletePreset, setPresetsDir } from './presets/preset-manager'
 import { ProjectManager } from './project/project-manager'
+import { SkillManager } from './skills/skill-manager'
 import type { AgentConfig } from '../shared/types'
 import { IPC } from '../shared/types'
 
 let hub: HubServer
 let mainWindow: BrowserWindow
 let projectManager: ProjectManager
+let skillManager: SkillManager
 let currentDb: import('better-sqlite3').Database | null = null
 const agents = new Map<string, ManagedPty>()
 const hasReceivedInitialPrompt = new Set<string>()
@@ -457,6 +459,18 @@ function setupIPC(): void {
     }
 
     hub.registry.register(config)
+
+    // Compose skill prompts into ceoNotes
+    if (config.skills && config.skills.length > 0) {
+      const skillPrompt = skillManager.resolveSkillPrompts(config.skills)
+      if (skillPrompt) {
+        const registered = hub.registry.get(config.name)
+        if (registered) {
+          registered.ceoNotes = [skillPrompt, registered.ceoNotes].filter(Boolean).join('\n\n')
+        }
+      }
+    }
+
     const initialPrompt = buildInitialPrompt(config)
     initialPrompts.set(config.id, initialPrompt)
     // Block prompt injection until CLI commands are sent
@@ -692,6 +706,19 @@ function setupIPC(): void {
       return false
     }
   })
+
+  // Skills IPC
+  ipcMain.handle(IPC.SKILL_LIST, () => skillManager.listSkills())
+  ipcMain.handle(IPC.SKILL_GET, (_event, id: string) => skillManager.getSkill(id))
+  ipcMain.handle(IPC.SKILL_CREATE, (_event, input: { name: string; description: string; category: string; prompt: string; tags: string[] }) => {
+    return skillManager.createSkill(input)
+  })
+  ipcMain.handle(IPC.SKILL_UPDATE, (_event, id: string, updates: any) => {
+    return skillManager.updateSkill(id, updates)
+  })
+  ipcMain.handle(IPC.SKILL_DELETE, (_event, id: string) => {
+    return skillManager.deleteSkill(id)
+  })
 }
 
 async function main(): Promise<void> {
@@ -702,6 +729,13 @@ async function main(): Promise<void> {
   // Global presets directory — follows user across projects
   const globalPresetsDir = path.join(app.getPath('userData'), 'presets')
   setPresetsDir(globalPresetsDir)
+
+  // Skills: built-in from app resources, user skills in userData
+  const builtInSkillsDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'data', 'skills')
+    : path.join(__dirname, '../data/skills')
+  const userSkillsDir = path.join(app.getPath('userData'), 'skills')
+  skillManager = new SkillManager(builtInSkillsDir, userSkillsDir)
 
   setupIPC()
   mainWindow = createWindow()
