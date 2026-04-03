@@ -115,11 +115,11 @@ const BUILT_IN_TEMPLATES: PresetTemplate[] = [
   },
   {
     name: 'Claude + Kimi',
-    description: 'Claude plans and coordinates, Kimi K2.5 researches. Dual-brain research team.',
+    description: 'Claude plans and coordinates, Kimi researches. Dual-brain research team.',
     requiredClis: ['claude', 'kimi'],
     agents: [
       { name: 'planner', cli: 'claude', role: 'orchestrator', ceoNotes: 'You plan research strategy. Break questions into sub-questions. Delegate to the researcher via post_task().', shell: 'powershell', admin: false, autoMode: true, model: 'opus' },
-      { name: 'researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research deeply. Check read_tasks() for assignments. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
+      { name: 'researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research deeply. Check read_tasks() for assignments. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: '' },
     ]
   },
   {
@@ -228,10 +228,10 @@ const BUILT_IN_TEMPLATES: PresetTemplate[] = [
   // --- Kimi-only ---
   {
     name: 'Solo Kimi',
-    description: '1 Kimi K2.5 agent. Moonshot-powered, strong at research and Chinese language tasks.',
+    description: '1 Kimi agent. Moonshot-powered, strong at research and Chinese language tasks.',
     requiredClis: ['kimi'],
     agents: [
-      { name: 'agent', cli: 'kimi', role: 'worker', ceoNotes: 'You are a solo agent. Check read_tasks() and get_messages() for work.', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
+      { name: 'agent', cli: 'kimi', role: 'worker', ceoNotes: 'You are a solo agent. Check read_tasks() and get_messages() for work.', shell: 'powershell', admin: false, autoMode: true, model: '' },
     ]
   },
   {
@@ -239,8 +239,8 @@ const BUILT_IN_TEMPLATES: PresetTemplate[] = [
     description: '1 orchestrator + 1 researcher. Kimi-native deep research team.',
     requiredClis: ['kimi'],
     agents: [
-      { name: 'lead', cli: 'kimi', role: 'orchestrator', ceoNotes: 'You plan research. Break questions into sub-questions. Delegate via post_task(). Synthesize findings.', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
-      { name: 'researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research deeply. Check read_tasks() for assignments. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
+      { name: 'lead', cli: 'kimi', role: 'orchestrator', ceoNotes: 'You plan research. Break questions into sub-questions. Delegate via post_task(). Synthesize findings.', shell: 'powershell', admin: false, autoMode: true, model: '' },
+      { name: 'researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research deeply. Check read_tasks() for assignments. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: '' },
     ]
   },
   {
@@ -248,8 +248,8 @@ const BUILT_IN_TEMPLATES: PresetTemplate[] = [
     description: '1 coder + 1 reviewer. Kimi-native code review workflow.',
     requiredClis: ['kimi'],
     agents: [
-      { name: 'coder', cli: 'kimi', role: 'worker', ceoNotes: 'You write code. After each change, send_message() to the reviewer.', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
-      { name: 'reviewer', cli: 'kimi', role: 'reviewer', ceoNotes: 'You review code. Use get_agent_output() to inspect work. send_message() back with feedback.', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
+      { name: 'coder', cli: 'kimi', role: 'worker', ceoNotes: 'You write code. After each change, send_message() to the reviewer.', shell: 'powershell', admin: false, autoMode: true, model: '' },
+      { name: 'reviewer', cli: 'kimi', role: 'reviewer', ceoNotes: 'You review code. Use get_agent_output() to inspect work. send_message() back with feedback.', shell: 'powershell', admin: false, autoMode: true, model: '' },
     ]
   },
   // --- Gemini-only ---
@@ -287,7 +287,7 @@ const BUILT_IN_TEMPLATES: PresetTemplate[] = [
     requiredClis: ['codex', 'kimi'],
     agents: [
       { name: 'coder', cli: 'codex', role: 'worker', ceoNotes: 'You implement code. Check read_tasks() and get_messages() for assignments. Report back when done.', shell: 'powershell', admin: false, autoMode: true, model: '' },
-      { name: 'researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research and provide context. Check read_tasks() for assignments. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
+      { name: 'researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research and provide context. Check read_tasks() for assignments. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: '' },
     ]
   },
   {
@@ -304,7 +304,7 @@ const BUILT_IN_TEMPLATES: PresetTemplate[] = [
     description: 'Kimi + Gemini dual research. Two knowledge bases, one team.',
     requiredClis: ['kimi', 'gemini'],
     agents: [
-      { name: 'kimi-researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research from the Moonshot perspective. Check read_tasks() for assignments. Post findings to post_info() with tags.', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
+      { name: 'kimi-researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research from the Moonshot perspective. Check read_tasks() for assignments. Post findings to post_info() with tags.', shell: 'powershell', admin: false, autoMode: true, model: '' },
       { name: 'gemini-researcher', cli: 'gemini', role: 'researcher', ceoNotes: 'You research from the Google perspective. Check read_tasks() for assignments. Post findings to post_info() with tags.', shell: 'powershell', admin: false, autoMode: true, model: 'gemini-2.5-pro' },
     ]
   },
@@ -314,7 +314,7 @@ const BUILT_IN_TEMPLATES: PresetTemplate[] = [
     requiredClis: ['codex', 'kimi', 'gemini'],
     agents: [
       { name: 'coder', cli: 'codex', role: 'worker', ceoNotes: 'You implement code. Check read_tasks() and get_messages() for assignments.', shell: 'powershell', admin: false, autoMode: true, model: 'o3' },
-      { name: 'researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research. Check read_tasks() for assignments. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
+      { name: 'researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research. Check read_tasks() for assignments. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: '' },
       { name: 'analyst', cli: 'gemini', role: 'researcher', ceoNotes: 'You analyze and verify. Check read_tasks() for assignments. Cross-reference findings in read_info().', shell: 'powershell', admin: false, autoMode: true, model: 'gemini-2.5-pro' },
     ]
   },
@@ -326,7 +326,7 @@ const BUILT_IN_TEMPLATES: PresetTemplate[] = [
     agents: [
       { name: 'orchestrator', cli: 'claude', role: 'orchestrator', ceoNotes: 'You coordinate. Delegate coding to the coder and research to the researcher via post_task() and send_message().', shell: 'powershell', admin: false, autoMode: true, model: 'opus' },
       { name: 'coder', cli: 'codex', role: 'worker', ceoNotes: 'You implement code. Check read_tasks() and get_messages() for assignments.', shell: 'powershell', admin: false, autoMode: true, model: '' },
-      { name: 'researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research. Check read_tasks() for assignments. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
+      { name: 'researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research. Check read_tasks() for assignments. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: '' },
     ]
   },
   {
@@ -345,7 +345,7 @@ const BUILT_IN_TEMPLATES: PresetTemplate[] = [
     requiredClis: ['claude', 'kimi', 'gemini'],
     agents: [
       { name: 'lead', cli: 'claude', role: 'orchestrator', ceoNotes: 'You coordinate dual researchers. Give each different angles on the same question. Synthesize their findings.', shell: 'powershell', admin: false, autoMode: true, model: 'opus' },
-      { name: 'kimi-researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research from the Moonshot perspective. Post findings to post_info() with tags.', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
+      { name: 'kimi-researcher', cli: 'kimi', role: 'researcher', ceoNotes: 'You research from the Moonshot perspective. Post findings to post_info() with tags.', shell: 'powershell', admin: false, autoMode: true, model: '' },
       { name: 'gemini-researcher', cli: 'gemini', role: 'researcher', ceoNotes: 'You research from the Google perspective. Post findings to post_info() with tags.', shell: 'powershell', admin: false, autoMode: true, model: 'gemini-2.5-pro' },
     ]
   },
@@ -357,7 +357,7 @@ const BUILT_IN_TEMPLATES: PresetTemplate[] = [
     agents: [
       { name: 'orchestrator', cli: 'claude', role: 'orchestrator', ceoNotes: 'You lead a multi-ecosystem team. Delegate implementation to Codex, research to Kimi and Gemini. Synthesize everything.', shell: 'powershell', admin: false, autoMode: true, model: 'opus' },
       { name: 'coder', cli: 'codex', role: 'worker', ceoNotes: 'You implement code. Check read_tasks() and get_messages() for assignments from the orchestrator.', shell: 'powershell', admin: false, autoMode: true, model: 'o3' },
-      { name: 'researcher-east', cli: 'kimi', role: 'researcher', ceoNotes: 'You research. Focus on technical depth and implementation patterns. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
+      { name: 'researcher-east', cli: 'kimi', role: 'researcher', ceoNotes: 'You research. Focus on technical depth and implementation patterns. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: '' },
       { name: 'researcher-west', cli: 'gemini', role: 'researcher', ceoNotes: 'You research. Focus on broad context and documentation. Post findings to post_info().', shell: 'powershell', admin: false, autoMode: true, model: 'gemini-2.5-pro' },
     ]
   },
@@ -387,7 +387,7 @@ const BUILT_IN_TEMPLATES: PresetTemplate[] = [
     description: 'Kimi orchestrates, Codex workers implement. Moonshot planning + OpenAI execution.',
     requiredClis: ['kimi', 'codex'],
     agents: [
-      { name: 'lead', cli: 'kimi', role: 'orchestrator', ceoNotes: 'You plan and delegate. Break work into tasks. Review completed work.', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
+      { name: 'lead', cli: 'kimi', role: 'orchestrator', ceoNotes: 'You plan and delegate. Break work into tasks. Review completed work.', shell: 'powershell', admin: false, autoMode: true, model: '' },
       { name: 'worker-1', cli: 'codex', role: 'worker', ceoNotes: 'Check read_tasks() and get_messages() for assignments.', shell: 'powershell', admin: false, autoMode: true, model: '' },
       { name: 'worker-2', cli: 'codex', role: 'worker', ceoNotes: 'Check read_tasks() and get_messages() for assignments.', shell: 'powershell', admin: false, autoMode: true, model: '' },
     ]
@@ -399,7 +399,7 @@ const BUILT_IN_TEMPLATES: PresetTemplate[] = [
     agents: [
       { name: 'coder', cli: 'claude', role: 'worker', ceoNotes: 'You write code. After each change, broadcast() to all reviewers and wait for feedback from all three before proceeding.', shell: 'powershell', admin: false, autoMode: true, model: 'sonnet' },
       { name: 'reviewer-openai', cli: 'codex', role: 'reviewer', ceoNotes: 'You review code from the OpenAI perspective. Use get_agent_output() to inspect. send_message() back with feedback.', shell: 'powershell', admin: false, autoMode: true, model: 'o3' },
-      { name: 'reviewer-kimi', cli: 'kimi', role: 'reviewer', ceoNotes: 'You review code from the Moonshot perspective. Use get_agent_output() to inspect. send_message() back with feedback.', shell: 'powershell', admin: false, autoMode: true, model: 'kimi-k2.5' },
+      { name: 'reviewer-kimi', cli: 'kimi', role: 'reviewer', ceoNotes: 'You review code from the Moonshot perspective. Use get_agent_output() to inspect. send_message() back with feedback.', shell: 'powershell', admin: false, autoMode: true, model: '' },
       { name: 'reviewer-gemini', cli: 'gemini', role: 'reviewer', ceoNotes: 'You review code from the Google perspective. Use get_agent_output() to inspect. send_message() back with feedback.', shell: 'powershell', admin: false, autoMode: true, model: 'gemini-2.5-pro' },
     ]
   },
