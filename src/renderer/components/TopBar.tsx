@@ -16,6 +16,8 @@ interface TopBarProps {
   onToggleBuddy: () => void
   filesOpen: boolean
   onToggleFiles: () => void
+  racOpen: boolean
+  onToggleRac: () => void
   onPresetsClick: () => void
 }
 
@@ -31,7 +33,7 @@ const toggleBtnStyle = (active: boolean): React.CSSProperties => ({
   whiteSpace: 'nowrap'
 })
 
-export function TopBar({ projectName, onSwitchProject, agents, onSpawnClick, onAgentClick, pinboardOpen, onTogglePinboard, infoOpen, onToggleInfo, buddyOpen, onToggleBuddy, filesOpen, onToggleFiles, onPresetsClick }: TopBarProps): React.ReactElement {
+export function TopBar({ projectName, onSwitchProject, agents, onSpawnClick, onAgentClick, pinboardOpen, onTogglePinboard, infoOpen, onToggleInfo, buddyOpen, onToggleBuddy, filesOpen, onToggleFiles, racOpen, onToggleRac, onPresetsClick }: TopBarProps): React.ReactElement {
   return (
     <div style={{
       height: '44px',
@@ -98,6 +100,7 @@ export function TopBar({ projectName, onSwitchProject, agents, onSpawnClick, onA
         <span style={{ color: '#555', fontSize: '13px' }}>Click + to spawn an agent</span>
       )}
       <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <button onClick={onToggleRac} style={toggleBtnStyle(racOpen)}>R.A.C.</button>
         <button onClick={onToggleFiles} style={toggleBtnStyle(filesOpen)}>Files</button>
         <button onClick={onTogglePinboard} style={toggleBtnStyle(pinboardOpen)}>Pinboard</button>
         <button onClick={onToggleInfo} style={toggleBtnStyle(infoOpen)}>Info</button>
