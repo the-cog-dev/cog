@@ -2,10 +2,15 @@ import type { AgentConfig, AgentState, AgentStatus } from '../../shared/types'
 
 export class AgentRegistry {
   private agents = new Map<string, AgentState>()
+  private lastHeartbeat = new Map<string, number>() // name → timestamp ms
 
   register(config: AgentConfig): AgentState {
-    if (this.agents.has(config.name)) {
-      throw new Error(`Agent '${config.name}' already exists`)
+    const existing = this.agents.get(config.name)
+    if (existing) {
+      // Upsert: update config fields but preserve runtime state
+      Object.assign(existing, config)
+      existing.status = 'idle'
+      return existing
     }
     const state: AgentState = {
       ...config,
@@ -33,5 +38,20 @@ export class AgentRegistry {
 
   remove(name: string): void {
     this.agents.delete(name)
+    this.lastHeartbeat.delete(name)
+  }
+
+  recordHeartbeat(name: string): void {
+    this.lastHeartbeat.set(name, Date.now())
+  }
+
+  getLastHeartbeat(name: string): number | null {
+    return this.lastHeartbeat.get(name) ?? null
+  }
+
+  isHealthy(name: string, maxAge = 60000): boolean {
+    const last = this.lastHeartbeat.get(name)
+    if (!last) return true // No heartbeats expected yet
+    return Date.now() - last < maxAge
   }
 }

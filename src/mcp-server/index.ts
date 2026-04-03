@@ -49,6 +49,25 @@ const server = new McpServer({
   version: '1.0.0'
 })
 
+// Heartbeat: ping hub every 30s so it knows this MCP server is alive
+const HEARTBEAT_INTERVAL_MS = 30_000
+setInterval(async () => {
+  try {
+    await hubFetch(`/agents/${encodeURIComponent(AGENT_NAME)}/heartbeat`, {
+      method: 'POST',
+      body: JSON.stringify({})
+    })
+  } catch {
+    // Hub unreachable — nothing we can do, just keep trying
+  }
+}, HEARTBEAT_INTERVAL_MS)
+
+// Initial heartbeat on startup
+hubFetch(`/agents/${encodeURIComponent(AGENT_NAME)}/heartbeat`, {
+  method: 'POST',
+  body: JSON.stringify({})
+}).catch(() => {})
+
 server.tool(
   'send_message',
   'Send a message to another agent in the workspace. The message will be queued and the target agent will receive it when they call get_messages().',

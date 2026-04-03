@@ -21,7 +21,10 @@ export function createRoutes(
   const router = Router()
 
   router.get('/agents', (_req: Request, res: Response) => {
-    const agents = registry.list().map(({ ceoNotes, ...rest }) => rest)
+    const agents = registry.list().map(({ ceoNotes, ...rest }) => ({
+      ...rest,
+      healthy: registry.isHealthy(rest.name)
+    }))
     res.json(agents)
   })
 
@@ -42,6 +45,16 @@ export function createRoutes(
       return
     }
     res.json({ name: agent.name, ceoNotes: agent.ceoNotes, role: agent.role })
+  })
+
+  router.post('/agents/:name/heartbeat', (req: Request, res: Response) => {
+    const agent = registry.get(req.params.name)
+    if (!agent) {
+      res.status(404).json({ error: `Agent '${req.params.name}' not found` })
+      return
+    }
+    registry.recordHeartbeat(req.params.name)
+    res.json({ status: 'ok' })
   })
 
   router.post('/agents/:name/status', (req: Request, res: Response) => {
