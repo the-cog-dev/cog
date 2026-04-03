@@ -5,6 +5,7 @@ import { TerminalWindow } from './TerminalWindow'
 import { PinboardPanel } from './PinboardPanel'
 import { InfoChannelPanel } from './InfoChannelPanel'
 import { BuddyRoomPanel } from './BuddyRoomPanel'
+import { FilePanel } from './FilePanel'
 import { ZoomControls } from './ZoomControls'
 import type { WindowState } from '../hooks/useWindowManager'
 import type { AgentState } from '../../shared/types'
@@ -13,7 +14,8 @@ import type { SnapBounds, SnapZoneInfo, WindowBounds } from '../hooks/useSnapZon
 const PANEL_IDS: Record<string, string> = {
   '__pinboard__': 'pinboard',
   '__info__': 'info',
-  '__buddy__': 'buddy'
+  '__buddy__': 'buddy',
+  '__files__': 'files'
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -253,6 +255,8 @@ export function Workspace({
             content = <InfoChannelPanel />
           } else if (panelType === 'buddy') {
             content = <BuddyRoomPanel />
+          } else if (panelType === 'files') {
+            content = <FilePanel />
           } else {
             content = <TerminalWindow agentId={win.id} />
           }
