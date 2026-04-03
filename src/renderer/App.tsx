@@ -3,9 +3,16 @@ import { TopBar } from './components/TopBar'
 import { Workspace } from './components/Workspace'
 import { SpawnDialog } from './components/SpawnDialog'
 import { PresetDialog } from './components/PresetDialog'
+import { ProjectPickerDialog } from './components/ProjectPickerDialog'
 import { useWindowManager } from './hooks/useWindowManager'
 import { useAgents } from './hooks/useAgents'
-import type { AgentConfig } from '../shared/types'
+import type { AgentConfig, RecentProject } from '../shared/types'
+
+declare const electronAPI: {
+  getProject: () => Promise<RecentProject | null>
+  onProjectChanged: (callback: (project: unknown) => void) => () => void
+  [key: string]: any
+}
 
 const PINBOARD_ID = '__pinboard__'
 const INFO_ID = '__info__'
@@ -13,6 +20,9 @@ const INFO_ID = '__info__'
 export function App(): React.ReactElement {
   const [showSpawnDialog, setShowSpawnDialog] = useState(false)
   const [showPresetDialog, setShowPresetDialog] = useState(false)
+  const [project, setProject] = useState<RecentProject | null>(null)
+  const [projectLoading, setProjectLoading] = useState(true)
+  const [showProjectPicker, setShowProjectPicker] = useState(false)
   const {
     windows, zoom, pan,
     addWindow, removeWindow, focusWindow, minimizeWindow,
@@ -94,53 +104,85 @@ export function App(): React.ReactElement {
     return () => window.removeEventListener('keydown', handler)
   }, [windows, focusWindow, setZoom, setPan, zoomToFit])
 
+  useEffect(() => {
+    electronAPI.getProject().then((p: RecentProject | null) => {
+      setProject(p)
+      setProjectLoading(false)
+    })
+    const unsub = electronAPI.onProjectChanged((p: unknown) => {
+      setProject(p as RecentProject | null)
+      setProjectLoading(false)
+    })
+    return unsub
+  }, [])
+
+  const handleProjectOpened = useCallback((p: RecentProject) => {
+    setProject(p)
+    setShowProjectPicker(false)
+  }, [])
+
   return (
     <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <TopBar
-        agents={agents}
-        onSpawnClick={() => setShowSpawnDialog(true)}
-        onAgentClick={handleAgentPillClick}
-        pinboardOpen={pinboardOpen}
-        onTogglePinboard={togglePinboard}
-        infoOpen={infoOpen}
-        onToggleInfo={toggleInfo}
-        onPresetsClick={() => setShowPresetDialog(true)}
-      />
-      <Workspace
-        windows={windows}
-        agents={agents}
-        zoom={zoom}
-        pan={pan}
-        onSetZoom={setZoom}
-        onSetPan={setPan}
-        onZoomToFit={zoomToFit}
-        onFocusWindow={focusWindow}
-        onMinimizeWindow={minimizeWindow}
-        onCloseWindow={handleClose}
-        onDragStop={updateWindowPosition}
-        onResizeStop={(id, x, y, w, h) => {
-          updateWindowPosition(id, x, y)
-          updateWindowSize(id, w, h)
-        }}
-      />
-      {showSpawnDialog && (
-        <SpawnDialog
-          onSpawn={handleSpawn}
-          onCancel={() => setShowSpawnDialog(false)}
-        />
-      )}
-      {showPresetDialog && (
-        <PresetDialog
-          agents={agents}
-          windows={windows}
-          zoom={zoom}
-          pan={pan}
-          onLoadAgents={(configs) => {
-            setShowPresetDialog(false)
-            configs.forEach(config => handleSpawn(config))
-          }}
-          onClose={() => setShowPresetDialog(false)}
-        />
+      {projectLoading ? null : !project ? (
+        <ProjectPickerDialog isFullScreen onProjectOpened={handleProjectOpened} />
+      ) : (
+        <>
+          <TopBar
+            projectName={project.name}
+            onSwitchProject={() => setShowProjectPicker(true)}
+            agents={agents}
+            onSpawnClick={() => setShowSpawnDialog(true)}
+            onAgentClick={handleAgentPillClick}
+            pinboardOpen={pinboardOpen}
+            onTogglePinboard={togglePinboard}
+            infoOpen={infoOpen}
+            onToggleInfo={toggleInfo}
+            onPresetsClick={() => setShowPresetDialog(true)}
+          />
+          <Workspace
+            windows={windows}
+            agents={agents}
+            zoom={zoom}
+            pan={pan}
+            onSetZoom={setZoom}
+            onSetPan={setPan}
+            onZoomToFit={zoomToFit}
+            onFocusWindow={focusWindow}
+            onMinimizeWindow={minimizeWindow}
+            onCloseWindow={handleClose}
+            onDragStop={updateWindowPosition}
+            onResizeStop={(id, x, y, w, h) => {
+              updateWindowPosition(id, x, y)
+              updateWindowSize(id, w, h)
+            }}
+          />
+          {showSpawnDialog && (
+            <SpawnDialog
+              onSpawn={handleSpawn}
+              onCancel={() => setShowSpawnDialog(false)}
+            />
+          )}
+          {showPresetDialog && (
+            <PresetDialog
+              agents={agents}
+              windows={windows}
+              zoom={zoom}
+              pan={pan}
+              onLoadAgents={(configs) => {
+                setShowPresetDialog(false)
+                configs.forEach(config => handleSpawn(config))
+              }}
+              onClose={() => setShowPresetDialog(false)}
+            />
+          )}
+          {showProjectPicker && (
+            <ProjectPickerDialog
+              isFullScreen={false}
+              onProjectOpened={handleProjectOpened}
+              onCancel={() => setShowProjectPicker(false)}
+            />
+          )}
+        </>
       )}
     </div>
   )
