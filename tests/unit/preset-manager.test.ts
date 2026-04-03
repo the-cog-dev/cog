@@ -1,20 +1,12 @@
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 
 let tmpDir: string
 
-vi.mock('electron', () => ({
-  app: {
-    getPath: vi.fn((name: string) => {
-      if (name === 'userData') return tmpDir
-      return ''
-    })
-  }
-}))
-
 import {
+  setPresetsDir,
   savePreset,
   loadPreset,
   listPresets,
@@ -47,6 +39,9 @@ function makePresetData(name: string) {
 describe('preset-manager', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'preset-manager-test-'))
+    const presetsPath = path.join(tmpDir, 'presets')
+    fs.mkdirSync(presetsPath, { recursive: true })
+    setPresetsDir(presetsPath)
   })
 
   afterEach(() => {

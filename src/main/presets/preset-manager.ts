@@ -1,23 +1,24 @@
-import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { WorkspacePreset, AgentConfig, WindowPosition, CanvasState } from '../../shared/types'
 
-const PRESETS_DIR = 'presets'
 const MAX_PRESET_NAME_LENGTH = 50
 
+let _presetsDir: string | null = null
+
+export function setPresetsDir(dir: string): void {
+  _presetsDir = dir
+}
+
 function getPresetsDir(): string {
-  const userData = app.getPath('userData')
-  const presetsDir = path.join(userData, PRESETS_DIR)
-  if (!fs.existsSync(presetsDir)) {
-    fs.mkdirSync(presetsDir, { recursive: true })
+  if (!_presetsDir) throw new Error('Presets directory not configured — open a project first')
+  if (!fs.existsSync(_presetsDir)) {
+    fs.mkdirSync(_presetsDir, { recursive: true })
   }
-  return presetsDir
+  return _presetsDir
 }
 
 function sanitizePresetName(name: string): string {
-  // Remove any characters that aren't alphanumeric, hyphen, or underscore
-  // Then replace underscores with hyphens for consistency
   return name
     .trim()
     .toLowerCase()
@@ -55,7 +56,7 @@ export function savePreset(
 
 export function loadPreset(name: string): WorkspacePreset {
   const presetPath = getPresetPath(name)
-  
+
   if (!fs.existsSync(presetPath)) {
     throw new Error(`Preset '${name}' not found`)
   }
@@ -67,7 +68,7 @@ export function loadPreset(name: string): WorkspacePreset {
 export function listPresets(): string[] {
   const presetsDir = getPresetsDir()
   const files = fs.readdirSync(presetsDir)
-  
+
   return files
     .filter(f => f.endsWith('.json'))
     .map(f => path.basename(f, '.json'))
@@ -76,7 +77,7 @@ export function listPresets(): string[] {
 
 export function deletePreset(name: string): void {
   const presetPath = getPresetPath(name)
-  
+
   if (!fs.existsSync(presetPath)) {
     throw new Error(`Preset '${name}' not found`)
   }
