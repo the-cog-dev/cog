@@ -12,6 +12,7 @@ export interface AgentConfig {
   autoMode: boolean    // --dangerously-skip-permissions (Claude), --yolo (Codex), etc.
   promptRegex?: string
   model?: string  // e.g. 'sonnet', 'opus', 'haiku', 'o4-mini', 'gpt-4.1'
+  experimental?: boolean
 }
 
 export interface AgentState extends AgentConfig {
@@ -49,6 +50,7 @@ export interface PinboardTask {
   description: string
   priority: 'low' | 'medium' | 'high'
   status: 'open' | 'in_progress' | 'completed'
+  createdBy: string | null
   claimedBy: string | null
   result: string | null
   createdAt: string
@@ -70,7 +72,12 @@ export const IPC = {
   PINBOARD_GET_TASKS: 'pinboard:get-tasks',
   PINBOARD_TASK_UPDATE: 'pinboard:task-update',
   INFO_GET_ENTRIES: 'info:get-entries',
-  INFO_ENTRY_ADDED: 'info:entry-added'
+  INFO_ENTRY_ADDED: 'info:entry-added',
+  PROJECT_GET_CURRENT: 'project:get-current',
+  PROJECT_SWITCH: 'project:switch',
+  PROJECT_LIST_RECENT: 'project:list-recent',
+  PROJECT_OPEN_FOLDER: 'project:open-folder',
+  PROJECT_CHANGED: 'project:changed',
 } as const
 
 export interface InfoEntry {
@@ -79,6 +86,12 @@ export interface InfoEntry {
   note: string
   tags: string[]
   createdAt: string
+}
+
+export interface RecentProject {
+  path: string
+  name: string
+  lastOpened: string
 }
 
 export interface WindowPosition {
