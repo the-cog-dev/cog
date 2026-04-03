@@ -54,7 +54,7 @@ export function App(): React.ReactElement {
     // R.A.C. agents: release the rental instead of killing a PTY
     const agent = agents.find(a => a.id === windowId)
     if (agent && agent.name.startsWith('rac-')) {
-      // Find the session to release
+      closedRacAgents.current.add(windowId)
       const sessions = await window.electronAPI.racGetSessions()
       const session = sessions.find((s: any) => s.agentorch_agent === agent.name)
       if (session) {
@@ -158,10 +158,13 @@ export function App(): React.ReactElement {
     return unsub
   }, [])
 
+  // Track R.A.C. agents we've manually closed/released so auto-create doesn't re-add them
+  const closedRacAgents = React.useRef(new Set<string>())
+
   // Auto-create windows for R.A.C. agents (they register externally, not via SPAWN_AGENT)
   useEffect(() => {
     for (const agent of agents) {
-      if (agent.name.startsWith('rac-')) {
+      if (agent.name.startsWith('rac-') && !closedRacAgents.current.has(agent.id)) {
         const hasWindow = windows.some(w => w.id === agent.id)
         if (!hasWindow) {
           addWindow(agent.id, `${agent.name} (R.A.C.)`, '#4a9eff')

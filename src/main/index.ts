@@ -22,6 +22,7 @@ let projectManager: ProjectManager
 let skillManager: SkillManager
 let racClient: RacClient
 let currentDb: import('better-sqlite3').Database | null = null
+let currentMessageStore: MessageStore | null = null
 const agents = new Map<string, ManagedPty>()
 const hasReceivedInitialPrompt = new Set<string>()
 const initialPrompts = new Map<string, string>()
@@ -348,6 +349,7 @@ async function openProject(projectPath: string): Promise<void> {
   const db = createDatabase(projectManager.dbPath)
   currentDb = db
   const messageStore = new MessageStore(db)
+  currentMessageStore = messageStore
   const pinboardStore = new PinboardStore(db)
   const infoStore = new InfoStore(db)
 
@@ -416,6 +418,7 @@ async function closeProject(): Promise<void> {
   if (currentDb) {
     currentDb.close()
     currentDb = null
+    currentMessageStore = null
   }
 
   // Notify renderer
@@ -774,10 +777,8 @@ function setupIPC(): void {
   })
 
   ipcMain.handle(IPC.HUB_GET_MESSAGE_HISTORY, (_event, agent?: string, limit?: number) => {
-    if (!hub || !currentDb) return []
-    const { MessageStore } = require('./db/message-store')
-    const store = new MessageStore(currentDb)
-    return store.getMessageHistory(agent, limit || 50)
+    if (!currentMessageStore) return []
+    return currentMessageStore.getMessageHistory(agent, limit || 50)
   })
 }
 
