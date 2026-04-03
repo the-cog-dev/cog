@@ -36,7 +36,7 @@ function formatTimeLeft(ms: number | null): string {
 }
 
 // R.A.C. is in-house only — password gate for the crew
-const RAC_ACCESS_HASH = '2036df8e66322febeadf5c84fb7ba662cc3375959a2a65113fcc061e7e25013e' // sha256 — change this to your crew's password hash
+const RAC_ACCESS_HASH = '368fa83a780bba3be2be74ed7560b7a5d8dc46639f4646c997d631bc548ecda9' // sha256 of crew password
 
 async function hashPassword(pw: string): Promise<string> {
   const data = new TextEncoder().encode(pw)
