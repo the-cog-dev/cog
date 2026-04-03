@@ -78,7 +78,11 @@ function buildInitialPrompt(config: AgentConfig): string {
   const lines = [
     `You are "${config.name}" (role: ${config.role}) in an AgentOrch workspace.`,
     `You have AgentOrch MCP tools: send_message, get_messages, get_agents, read_ceo_notes, get_agent_output, post_task, read_tasks, claim_task, complete_task, abandon_task, get_task, post_info, read_info, delete_info, update_info, update_status, get_message_history, ack_messages, read_file, write_file, list_directory.`,
-    `Call read_ceo_notes() now for your instructions, then get_messages() to check for tasks from the orchestrator.`,
+    `IMPORTANT: Do these steps NOW in order:`,
+    `1. Call read_ceo_notes() to get your instructions.`,
+    `2. Call get_messages() to check for messages from other agents.`,
+    `3. Call read_tasks() to check for open tasks you can claim.`,
+    `After completing any task, ALWAYS call get_messages() and read_tasks() again to check for new work. Never idle — keep polling for work.`,
   ]
   return lines.join(' ')
 }
@@ -272,8 +276,25 @@ function setupMessageNudge(): void {
     const target = hub.registry.get(msg.to)
     if (!target) return
 
-    const nudge = `[AgentOrch] New message from "${msg.from}". Call get_messages() now to read it.`
+    const nudge = `[AgentOrch] New message from "${msg.from}". You MUST call get_messages() now to read it, then act on it immediately.`
     deliverNudge(msg.to, nudge)
+  }
+}
+
+// When a task is posted to the pinboard, nudge worker/researcher agents to check for it.
+function setupTaskNudge(): void {
+  const existingCallback = hub.pinboard.onTaskCreated
+  hub.pinboard.onTaskCreated = (task) => {
+    existingCallback?.(task)
+
+    // Nudge all non-orchestrator agents (workers, researchers, reviewers) to check for tasks
+    const workers = hub.registry.list().filter(agent =>
+      agent.role !== 'orchestrator' && agent.status !== 'disconnected'
+    )
+    for (const worker of workers) {
+      const nudge = `[AgentOrch] New task posted: "${task.title}" (${task.priority} priority). Call read_tasks() to see open tasks, then claim_task() to pick one up.`
+      deliverNudge(worker.name, nudge)
+    }
   }
 }
 
@@ -341,6 +362,7 @@ async function openProject(projectPath: string): Promise<void> {
     return managed.outputBuffer.getLines(lines)
   })
   setupMessageNudge()
+  setupTaskNudge()
   setupInfoNudge()
 
   // Update window title
