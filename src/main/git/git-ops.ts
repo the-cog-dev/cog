@@ -3,7 +3,7 @@ import type { GitStatus, GitFileStatus, GitLogEntry } from '../../shared/types'
 
 function run(cmd: string, cwd: string): string {
   try {
-    return execSync(cmd, { cwd, encoding: 'utf-8', timeout: 10000 }).trim()
+    return execSync(cmd, { cwd, encoding: 'utf-8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] }).trim()
   } catch {
     return ''
   }

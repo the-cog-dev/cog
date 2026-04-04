@@ -211,7 +211,7 @@ export function GitPanel(): React.ReactElement {
   useEffect(() => {
     refreshStatus()
     refreshLog()
-    const interval = setInterval(refreshStatus, 5000)
+    const interval = setInterval(refreshStatus, 15000)
     return () => clearInterval(interval)
   }, [refreshStatus, refreshLog])
 
