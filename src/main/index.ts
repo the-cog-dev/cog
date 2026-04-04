@@ -13,6 +13,7 @@ import { savePreset, loadPreset, listPresets, deletePreset, setPresetsDir } from
 import { ProjectManager } from './project/project-manager'
 import { SkillManager } from './skills/skill-manager'
 import { RacClient } from './rac/rac-client'
+import { UpdateChecker } from './updater/update-checker'
 import type { AgentConfig } from '../shared/types'
 import { IPC } from '../shared/types'
 
@@ -21,6 +22,7 @@ let mainWindow: BrowserWindow
 let projectManager: ProjectManager
 let skillManager: SkillManager
 let racClient: RacClient
+let updateChecker: UpdateChecker
 let currentDb: import('better-sqlite3').Database | null = null
 let currentMessageStore: MessageStore | null = null
 const agents = new Map<string, ManagedPty>()
@@ -810,6 +812,15 @@ function setupIPC(): void {
     if (!currentMessageStore) return []
     return currentMessageStore.getMessageHistory(agent, limit || 50)
   })
+
+  // Update IPC
+  ipcMain.handle(IPC.UPDATE_CHECK, async () => {
+    return await updateChecker.check()
+  })
+
+  ipcMain.handle(IPC.UPDATE_PERFORM, async () => {
+    return await updateChecker.performUpdate()
+  })
 }
 
 async function main(): Promise<void> {
@@ -832,6 +843,13 @@ async function main(): Promise<void> {
 
   setupIPC()
   mainWindow = createWindow()
+
+  // Auto-update checker
+  updateChecker = new UpdateChecker(app.isPackaged ? process.resourcesPath : path.join(__dirname, '../..'))
+  updateChecker.onUpdateAvailable = (info) => {
+    mainWindow?.webContents.send(IPC.UPDATE_AVAILABLE, info)
+  }
+  updateChecker.start()
 
   // Auto-open last project, or let renderer show project picker
   const lastProject = projectManager.getLastProject()

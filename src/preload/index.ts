@@ -78,4 +78,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Hub messaging (for R.A.C. chat panel)
   hubSendMessage: (from: string, to: string, message: string) => ipcRenderer.invoke(IPC.HUB_SEND_MESSAGE, from, to, message),
   hubGetMessageHistory: (agent?: string, limit?: number) => ipcRenderer.invoke(IPC.HUB_GET_MESSAGE_HISTORY, agent, limit),
+  // Updates
+  checkForUpdate: () => ipcRenderer.invoke(IPC.UPDATE_CHECK),
+  performUpdate: () => ipcRenderer.invoke(IPC.UPDATE_PERFORM),
+  onUpdateAvailable: (callback: (info: unknown) => void) => {
+    const handler = (_event: unknown, info: unknown) => callback(info)
+    ipcRenderer.on(IPC.UPDATE_AVAILABLE, handler)
+    return () => ipcRenderer.removeListener(IPC.UPDATE_AVAILABLE, handler)
+  },
 })

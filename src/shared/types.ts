@@ -100,6 +100,9 @@ export const IPC = {
   RAC_GET_SERVER: 'rac:get-server',
   HUB_SEND_MESSAGE: 'hub:send-message',
   HUB_GET_MESSAGE_HISTORY: 'hub:get-message-history',
+  UPDATE_CHECK: 'update:check',
+  UPDATE_AVAILABLE: 'update:available',
+  UPDATE_PERFORM: 'update:perform',
 } as const
 
 export interface BuddyMessage {

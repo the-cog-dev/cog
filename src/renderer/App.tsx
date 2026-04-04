@@ -6,6 +6,7 @@ import { PresetDialog } from './components/PresetDialog'
 import { ProjectPickerDialog } from './components/ProjectPickerDialog'
 import { useWindowManager } from './hooks/useWindowManager'
 import { useAgents } from './hooks/useAgents'
+import { UpdateNotice } from './components/UpdateNotice'
 import type { AgentConfig, RecentProject } from '../shared/types'
 
 declare const electronAPI: {
@@ -245,6 +246,7 @@ export function App(): React.ReactElement {
               onCancel={() => setShowProjectPicker(false)}
             />
           )}
+          <UpdateNotice />
         </>
       )}
     </div>
