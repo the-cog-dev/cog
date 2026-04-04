@@ -88,6 +88,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Updates
   checkForUpdate: () => ipcRenderer.invoke(IPC.UPDATE_CHECK),
   performUpdate: () => ipcRenderer.invoke(IPC.UPDATE_PERFORM),
+  getUpdateChangelog: () => ipcRenderer.invoke(IPC.UPDATE_GET_CHANGELOG),
   onUpdateAvailable: (callback: (info: unknown) => void) => {
     const handler = (_event: unknown, info: unknown) => callback(info)
     ipcRenderer.on(IPC.UPDATE_AVAILABLE, handler)

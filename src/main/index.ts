@@ -1033,6 +1033,10 @@ function setupIPC(): void {
     return await updateChecker.performUpdate()
   })
 
+  ipcMain.handle(IPC.UPDATE_GET_CHANGELOG, () => {
+    return updateChecker.getPendingChangelog()
+  })
+
   ipcMain.handle(IPC.APP_RESTART, async () => {
     await closeProject()
     app.relaunch()

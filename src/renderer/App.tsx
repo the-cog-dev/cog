@@ -9,6 +9,7 @@ import { ProjectPickerDialog } from './components/ProjectPickerDialog'
 import { useWindowManager } from './hooks/useWindowManager'
 import { useAgents } from './hooks/useAgents'
 import { UpdateNotice } from './components/UpdateNotice'
+import { WhatsNewDialog } from './components/WhatsNewDialog'
 import type { AgentConfig, AgentGroup, RecentProject } from '../shared/types'
 
 declare const electronAPI: {
@@ -346,6 +347,7 @@ export function App(): React.ReactElement {
             />
           )}
           <UpdateNotice />
+          <WhatsNewDialog />
         </>
       )}
     </div>

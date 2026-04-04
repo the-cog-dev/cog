@@ -107,6 +107,7 @@ export const IPC = {
   UPDATE_CHECK: 'update:check',
   UPDATE_AVAILABLE: 'update:available',
   UPDATE_PERFORM: 'update:perform',
+  UPDATE_GET_CHANGELOG: 'update:get-changelog',
   APP_RESTART: 'app:restart',
   BUG_REPORT_SUBMIT: 'bug:submit',
   GROUP_GET_ALL: 'group:get-all',
