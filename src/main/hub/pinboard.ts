@@ -11,6 +11,7 @@ export interface PinboardTask {
   result: string | null
   createdAt: string
   groupId?: string
+  targetRole?: string  // only nudge agents with this role (e.g., 'reviewer', 'worker')
 }
 
 export class Pinboard {
@@ -19,7 +20,7 @@ export class Pinboard {
   onTaskUpdated?: (task: PinboardTask) => void
   onTaskDeleted?: (taskId: string) => void
 
-  postTask(title: string, description: string, priority: 'low' | 'medium' | 'high' = 'medium', createdBy?: string, groupId?: string): PinboardTask {
+  postTask(title: string, description: string, priority: 'low' | 'medium' | 'high' = 'medium', createdBy?: string, groupId?: string, targetRole?: string): PinboardTask {
     const task: PinboardTask = {
       id: uuid(),
       title,
@@ -29,6 +30,7 @@ export class Pinboard {
       createdBy: createdBy ?? null,
       claimedBy: null,
       result: null,
+      targetRole: targetRole ?? undefined,
       createdAt: new Date().toISOString(),
       groupId: groupId ?? undefined
     }

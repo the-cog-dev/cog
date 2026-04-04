@@ -59,6 +59,7 @@ export interface PinboardTask {
   result: string | null
   createdAt: string
   groupId?: string
+  targetRole?: string
 }
 
 export const IPC = {

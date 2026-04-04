@@ -118,13 +118,13 @@ export function createRoutes(
   // --- Pinboard routes ---
 
   router.post('/pinboard/tasks', (req: Request, res: Response) => {
-    const { title, description, priority, from } = req.body
+    const { title, description, priority, from, targetRole } = req.body
     if (!title || !description) {
       res.status(400).json({ error: 'title and description are required' })
       return
     }
-    const task = pinboard.postTask(title, description, priority, from)
-    res.json({ id: task.id, title: task.title, createdBy: task.createdBy })
+    const task = pinboard.postTask(title, description, priority, from, undefined, targetRole)
+    res.json({ id: task.id, title: task.title, createdBy: task.createdBy, targetRole: task.targetRole })
   })
 
   router.get('/pinboard/tasks', (_req: Request, res: Response) => {

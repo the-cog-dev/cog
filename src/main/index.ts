@@ -452,13 +452,19 @@ function setupTaskNudge(): void {
   hub.pinboard.onTaskCreated = (task) => {
     existingCallback?.(task)
 
-    // Nudge all non-orchestrator agents (workers, researchers, reviewers) to check for tasks
-    const workers = hub.registry.list().filter(agent =>
-      agent.role !== 'orchestrator' && agent.status !== 'disconnected'
-    )
-    for (const worker of workers) {
-      const nudge = `[AgentOrch] New task posted: "${task.title}" (${task.priority} priority). Call read_tasks() to see open tasks, then claim_task() to pick one up.`
-      deliverNudge(worker.name, nudge)
+    // Filter agents by targetRole if specified, otherwise nudge all non-orchestrators
+    const candidates = hub.registry.list().filter(agent => {
+      if (agent.status === 'disconnected' || agent.name === 'user') return false
+      if (task.targetRole) {
+        return agent.role === task.targetRole
+      }
+      return agent.role !== 'orchestrator'
+    })
+
+    const roleLabel = task.targetRole ? ` for ${task.targetRole}s` : ''
+    for (const agent of candidates) {
+      const nudge = `[AgentOrch] New task posted${roleLabel}: "${task.title}" ${task.priority} priority. Call read_tasks to see open tasks, then claim_task to pick one up.`
+      deliverNudge(agent.name, nudge)
     }
   }
 }

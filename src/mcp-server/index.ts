@@ -191,17 +191,18 @@ server.tool(
 
 server.tool(
   'post_task',
-  'Post a task to the shared pinboard for other agents to pick up.',
+  'Post a task to the shared pinboard. Use target_role to only nudge agents with a specific role (e.g., "reviewer", "worker", "researcher"). If omitted, all non-orchestrator agents are nudged.',
   {
     title: z.string().describe('Short title for the task'),
     description: z.string().describe('Detailed description of what needs to be done'),
-    priority: z.enum(['low', 'medium', 'high']).optional().default('medium').describe('Task priority (default: medium)')
+    priority: z.enum(['low', 'medium', 'high']).optional().default('medium').describe('Task priority (default: medium)'),
+    target_role: z.string().optional().describe('Only nudge agents with this role (e.g., "reviewer", "worker"). Omit to nudge all.')
   },
-  async ({ title, description, priority }) => {
+  async ({ title, description, priority, target_role }) => {
     try {
       const result = await hubFetch('/pinboard/tasks', {
         method: 'POST',
-        body: JSON.stringify({ title, description, priority, from: AGENT_NAME })
+        body: JSON.stringify({ title, description, priority, from: AGENT_NAME, targetRole: target_role })
       })
       return toolResult(result)
     } catch (err: any) {
