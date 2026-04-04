@@ -14,22 +14,85 @@ interface LinkOverlayProps {
   onRemoveLink?: (from: string, to: string) => void
 }
 
+const MARGIN = 30 // spacing between lines and windows
+
+interface Rect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+// Build an orthogonal (90-degree only) path from A to B that routes around windows
+function buildOrthogonalPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  windows: Rect[],
+  linkIndex: number
+): string {
+  // Exit right from source, enter left on target
+  const exitX = from.x + MARGIN
+  const enterX = to.x - MARGIN
+
+  // Offset parallel lines so they don't overlap when multiple links exist
+  const offset = (linkIndex % 5) * 8 - 16
+
+  if (exitX < enterX) {
+    // Simple case: target is to the right
+    // Route: right → down/up → right → arrive
+    const midX = (exitX + enterX) / 2 + offset
+    return [
+      `M ${from.x} ${from.y}`,
+      `H ${midX}`,           // go right to midpoint
+      `V ${to.y}`,           // go up/down to target height
+      `H ${to.x}`,           // go right to target
+    ].join(' ')
+  } else {
+    // Target is to the left or overlapping — route around
+    // Go right, then up/down to clear both windows, then left, then down to target
+    const clearY = Math.min(from.y, to.y) - 60 - Math.abs(offset)
+
+    // If both are at similar height, route below instead
+    const routeBelow = Math.abs(from.y - to.y) < 80
+    const bypassY = routeBelow
+      ? Math.max(from.y, to.y) + 80 + Math.abs(offset)
+      : clearY
+
+    return [
+      `M ${from.x} ${from.y}`,
+      `H ${exitX}`,           // exit right
+      `V ${bypassY}`,         // go up/down to clear
+      `H ${enterX}`,          // go left to target column
+      `V ${to.y}`,            // go down/up to target height
+      `H ${to.x}`,            // enter target
+    ].join(' ')
+  }
+}
+
 export function LinkOverlay({
   links, groups, windows, agents, zoom, pan,
   drawing, drawFrom, drawTo, onRemoveLink
 }: LinkOverlayProps): React.ReactElement {
   const [hoveredLink, setHoveredLink] = useState<number | null>(null)
 
-  const getPortPosition = (agentName: string): { x: number; y: number } | null => {
+  const getWindowRect = (agentName: string): Rect | null => {
     const agent = agents.find(a => a.name === agentName)
     if (!agent) return null
     const win = windows.find(w => w.id === agent.id)
     if (!win) return null
-    // Raw coordinates — the SVG is inside the transform container so zoom/pan is already applied
-    return {
-      x: win.x + win.width,
-      y: win.y + win.height / 2
-    }
+    return { x: win.x, y: win.y, w: win.width, h: win.height }
+  }
+
+  const getRightPort = (agentName: string): { x: number; y: number } | null => {
+    const rect = getWindowRect(agentName)
+    if (!rect) return null
+    return { x: rect.x + rect.w, y: rect.y + rect.h / 2 }
+  }
+
+  const getLeftPort = (agentName: string): { x: number; y: number } | null => {
+    const rect = getWindowRect(agentName)
+    if (!rect) return null
+    return { x: rect.x, y: rect.y + rect.h / 2 }
   }
 
   const getGroupColor = (from: string, to: string): string => {
@@ -41,48 +104,57 @@ export function LinkOverlay({
     return '#666'
   }
 
+  // Collect all window rects for obstacle avoidance
+  const allRects: Rect[] = windows.map(w => ({ x: w.x, y: w.y, w: w.width, h: w.height }))
+
   return (
     <svg style={{
       position: 'absolute', top: 0, left: 0, width: '10000px', height: '10000px',
       pointerEvents: 'none', zIndex: 9999, overflow: 'visible'
     }}>
       {links.map((link, i) => {
-        const fromPos = getPortPosition(link.from)
-        const toPos = getPortPosition(link.to)
+        const fromPos = getRightPort(link.from)
+        const toPos = getLeftPort(link.to)
         if (!fromPos || !toPos) return null
+
         const color = getGroupColor(link.from, link.to)
-        const cpOffset = Math.abs(toPos.x - fromPos.x) * 0.4 + 40
+        const pathD = buildOrthogonalPath(fromPos, toPos, allRects, i)
+        const isHovered = hoveredLink === i
+
+        // Midpoint for delete button (approximate — use average of from/to)
         const midX = (fromPos.x + toPos.x) / 2
         const midY = (fromPos.y + toPos.y) / 2
-        const isHovered = hoveredLink === i
 
         return (
           <g key={`${link.from}-${link.to}-${i}`}>
-            {/* Invisible fat hitbox for hover/click */}
+            {/* Invisible fat hitbox */}
             <path
-              d={`M ${fromPos.x} ${fromPos.y} C ${fromPos.x + cpOffset} ${fromPos.y}, ${toPos.x - cpOffset} ${toPos.y}, ${toPos.x} ${toPos.y}`}
+              d={pathD}
               stroke="transparent"
-              strokeWidth={16}
+              strokeWidth={14}
               fill="none"
+              strokeLinejoin="round"
               style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
               onMouseEnter={() => setHoveredLink(i)}
               onMouseLeave={() => setHoveredLink(null)}
             />
-            {/* Visible line */}
+            {/* Visible orthogonal line */}
             <path
-              d={`M ${fromPos.x} ${fromPos.y} C ${fromPos.x + cpOffset} ${fromPos.y}, ${toPos.x - cpOffset} ${toPos.y}, ${toPos.x} ${toPos.y}`}
+              d={pathD}
               stroke={color}
-              strokeWidth={isHovered ? 3 : 2}
+              strokeWidth={isHovered ? 2.5 : 1.5}
               fill="none"
-              opacity={isHovered ? 0.9 : 0.6}
+              opacity={isHovered ? 0.9 : 0.4}
+              strokeLinejoin="round"
+              strokeLinecap="round"
               style={{ pointerEvents: 'none', transition: 'stroke-width 0.15s, opacity 0.15s' }}
             />
-            {/* Delete button at midpoint — shows on hover */}
+            {/* Delete button at midpoint */}
             {isHovered && onRemoveLink && (
               <>
                 <circle
-                  cx={midX} cy={midY} r={10}
-                  fill="#3a1a1a" stroke="#f44336" strokeWidth={1.5}
+                  cx={midX} cy={midY} r={9}
+                  fill="#2a1a1a" stroke="#f44336" strokeWidth={1.5}
                   style={{ pointerEvents: 'all', cursor: 'pointer' }}
                   onClick={() => onRemoveLink(link.from, link.to)}
                   onMouseEnter={() => setHoveredLink(i)}
@@ -90,7 +162,7 @@ export function LinkOverlay({
                 <text
                   x={midX} y={midY + 1}
                   textAnchor="middle" dominantBaseline="middle"
-                  fontSize={12} fill="#f44336" fontWeight="bold"
+                  fontSize={11} fill="#f44336" fontWeight="bold"
                   style={{ pointerEvents: 'none' }}
                 >
                   x
@@ -100,11 +172,12 @@ export function LinkOverlay({
           </g>
         )
       })}
+      {/* Drawing preview — orthogonal too */}
       {drawing && drawFrom && drawTo && (
-        <line
-          x1={drawFrom.x} y1={drawFrom.y}
-          x2={drawTo.x} y2={drawTo.y}
+        <path
+          d={`M ${drawFrom.x} ${drawFrom.y} H ${(drawFrom.x + drawTo.x) / 2} V ${drawTo.y} H ${drawTo.x}`}
           stroke="#4a9eff" strokeWidth={2} strokeDasharray="5,5" opacity={0.8}
+          fill="none" strokeLinejoin="round"
         />
       )}
     </svg>
