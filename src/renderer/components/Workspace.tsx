@@ -37,6 +37,7 @@ interface WorkspaceProps {
   links: Array<{ from: string; to: string }>
   groups: Array<{ id: string; color: string; members: string[] }>
   onAddLink: (from: string, to: string) => void
+  onRemoveLink: (from: string, to: string) => void
   onSetZoom: (level: number) => void
   onSetPan: (x: number, y: number) => void
   onZoomToFit: (viewportWidth: number, viewportHeight: number) => void
@@ -55,6 +56,7 @@ export function Workspace({
   links,
   groups,
   onAddLink,
+  onRemoveLink,
   onSetZoom,
   onSetPan,
   onZoomToFit,
@@ -301,6 +303,7 @@ export function Workspace({
           drawing={linkDrawing}
           drawFrom={linkFromPos}
           drawTo={linkMousePos}
+          onRemoveLink={onRemoveLink}
         />
         {windows.map(win => {
           const panelType = PANEL_IDS[win.id]

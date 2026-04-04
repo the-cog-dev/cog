@@ -264,6 +264,7 @@ export function App(): React.ReactElement {
             links={links}
             groups={groups}
             onAddLink={handleAddLink}
+            onRemoveLink={handleRemoveLink}
             onSetZoom={setZoom}
             onSetPan={setPan}
             onZoomToFit={zoomToFit}
