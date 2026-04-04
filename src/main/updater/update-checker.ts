@@ -75,6 +75,7 @@ export class UpdateChecker {
       try { execSync('git clean -fd', { cwd: this.appPath, encoding: 'utf-8', timeout: 5000 }) } catch { /* clean */ }
       execSync('git pull origin main', { cwd: this.appPath, encoding: 'utf-8', timeout: 30000 })
       execSync('npm install', { cwd: this.appPath, encoding: 'utf-8', timeout: 120000 })
+      execSync('npm run build', { cwd: this.appPath, encoding: 'utf-8', timeout: 120000 })
       return { success: true }
     } catch (err: any) {
       const msg = err.message?.split('\n')[0] || 'Update failed'
