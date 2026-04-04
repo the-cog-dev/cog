@@ -218,7 +218,7 @@ function buildInitialPrompt(config: AgentConfig): string {
     `You are "${config.name}" (role: ${config.role}) in an AgentOrch workspace.`,
     `You have AgentOrch MCP tools: send_message, get_messages, get_agents, read_ceo_notes, get_agent_output, post_task, read_tasks, claim_task, complete_task, abandon_task, get_task, post_info, read_info, delete_info, update_info, update_status, get_message_history, ack_messages, read_file, write_file, list_directory.`,
     `Do these steps NOW: 1) Call read_ceo_notes() for your instructions. 2) Call get_messages() to check for messages. 3) Call read_tasks() to check for open tasks you can claim.`,
-    `After that, WAIT. You will be nudged automatically when new messages arrive or tasks are posted — no need to poll.`,
+    `After completing those 3 steps, you MUST STOP and WAIT silently. Do NOT call get_messages() or read_tasks() again until you see a nudge starting with [AgentOrch] in your terminal. You will be nudged automatically — polling is forbidden.`,
   ]
   return lines.join(' ')
 }
