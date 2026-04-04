@@ -69,8 +69,10 @@ export class UpdateChecker {
 
   async performUpdate(): Promise<{ success: boolean; error?: string }> {
     try {
-      // Stash any local changes (linter modifications, etc.) before pulling
-      try { execSync('git stash', { cwd: this.appPath, encoding: 'utf-8', timeout: 5000 }) } catch { /* nothing to stash */ }
+      // Force-reset any local changes (linter mods, built files, etc.) before pulling
+      // This is safe because the user's actual work is in their project folder, not the app source
+      try { execSync('git checkout -- .', { cwd: this.appPath, encoding: 'utf-8', timeout: 5000 }) } catch { /* clean */ }
+      try { execSync('git clean -fd', { cwd: this.appPath, encoding: 'utf-8', timeout: 5000 }) } catch { /* clean */ }
       execSync('git pull origin main', { cwd: this.appPath, encoding: 'utf-8', timeout: 30000 })
       execSync('npm install', { cwd: this.appPath, encoding: 'utf-8', timeout: 120000 })
       return { success: true }
