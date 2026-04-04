@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Notification } from 'electron'
 import path from 'path'
 import * as fs from 'fs'
 import { createDatabase } from './db/database'
@@ -428,6 +428,28 @@ async function openProject(projectPath: string): Promise<void> {
   hub.pinboard.onTaskUpdated = (task) => {
     pinboardStore.updateTask(task)
     mainWindow?.webContents.send(IPC.PINBOARD_TASK_UPDATE, hub.pinboard.readTasks())
+
+    // System notification when a task is completed
+    if (task.status === 'completed') {
+      const notification = new Notification({
+        title: 'Task Completed',
+        body: `"${task.title}" completed${task.claimedBy ? ` by ${task.claimedBy}` : ''}`,
+        icon: undefined
+      })
+      notification.show()
+
+      // Check if ALL tasks are done
+      const allTasks = hub.pinboard.readTasks()
+      const openTasks = allTasks.filter(t => t.status !== 'completed')
+      if (allTasks.length > 0 && openTasks.length === 0) {
+        const allDone = new Notification({
+          title: 'All Tasks Complete!',
+          body: `All ${allTasks.length} tasks on the pinboard are done.`,
+          icon: undefined
+        })
+        allDone.show()
+      }
+    }
   }
   hub.infoChannel.onEntryAdded = (entry) => {
     infoStore.saveEntry(entry)
