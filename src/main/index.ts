@@ -154,7 +154,9 @@ function buildReconnectPrompt(config: AgentConfig): string {
 
 function injectPrompt(managed: ManagedPty, prompt: string, delayMs: number): void {
   setTimeout(() => {
-    if (managed.config.cli === 'codex') {
+    // TUI-based CLIs (Codex, Gemini) need text and Enter sent separately
+    // Their TUI must render the input text before Enter triggers submit
+    if (managed.config.cli === 'codex' || managed.config.cli === 'gemini') {
       writeToPty(managed, prompt)
       setTimeout(() => writeToPty(managed, '\r'), CODEX_SUBMIT_DELAY)
       return
@@ -878,6 +880,37 @@ function setupIPC(): void {
     await closeProject()
     app.relaunch()
     app.exit(0)
+  })
+
+  // Bug report — posts directly to GitHub Issues via API (no user login needed)
+  ipcMain.handle(IPC.BUG_REPORT_SUBMIT, async (_event, report: { title: string; body: string }) => {
+    const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+    if (!token) {
+      return { success: false, method: 'browser', error: 'No GitHub token — opening browser instead' }
+    }
+    try {
+      const res = await fetch('https://api.github.com/repos/natebag/AgentOrch/issues', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: report.title,
+          body: report.body,
+          labels: ['bug']
+        })
+      })
+      if (!res.ok) {
+        const err = await res.text()
+        return { success: false, method: 'api', error: `GitHub API ${res.status}: ${err}` }
+      }
+      const issue = await res.json()
+      return { success: true, method: 'api', issueUrl: issue.html_url, number: issue.number }
+    } catch (err: any) {
+      return { success: false, method: 'api', error: err.message }
+    }
   })
 }
 
