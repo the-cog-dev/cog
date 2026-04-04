@@ -38,9 +38,10 @@ const CLI_MODELS: Record<string, { label: string; value: string }[]> = {
   ],
   codex: [
     { label: 'o4-mini (default)', value: '' },
+    { label: 'GPT-5.4', value: 'gpt-5.4' },
+    { label: 'GPT-5', value: 'gpt-5' },
     { label: 'o3', value: 'o3' },
     { label: 'o3-pro', value: 'o3-pro' },
-    { label: 'GPT-5', value: 'gpt-5' },
     { label: 'GPT-4.1', value: 'gpt-4.1' },
     { label: 'GPT-4.1 mini', value: 'gpt-4.1-mini' },
   ],
@@ -59,6 +60,7 @@ const CLI_MODELS: Record<string, { label: string; value: string }[]> = {
   ],
   copilot: [
     { label: 'Default (Copilot model)', value: '' },
+    { label: 'GPT-5.4', value: 'gpt-5.4' },
     { label: 'GPT-5', value: 'gpt-5' },
     { label: 'GPT-4o', value: 'gpt-4o' },
     { label: 'o3', value: 'o3' },
@@ -72,6 +74,7 @@ const CLI_MODELS: Record<string, { label: string; value: string }[]> = {
   ],
   openclaude: [
     // OpenAI
+    { label: 'GPT-5.4', value: 'gpt-5.4' },
     { label: 'GPT-5', value: 'gpt-5' },
     { label: 'GPT-4o', value: 'gpt-4o' },
     { label: 'GPT-4.1', value: 'gpt-4.1' },
@@ -79,6 +82,9 @@ const CLI_MODELS: Record<string, { label: string; value: string }[]> = {
     { label: 'o3', value: 'o3' },
     { label: 'o3-pro', value: 'o3-pro' },
     { label: 'o4-mini', value: 'o4-mini' },
+    // Google (via OpenRouter/OpenAI-compatible)
+    { label: 'Gemini 2.5 Pro', value: 'gemini-2.5-pro' },
+    { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
     // DeepSeek
     { label: 'DeepSeek V3', value: 'deepseek-chat' },
     { label: 'DeepSeek R1', value: 'deepseek-reasoner' },
