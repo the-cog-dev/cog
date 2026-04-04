@@ -69,11 +69,14 @@ export class UpdateChecker {
 
   async performUpdate(): Promise<{ success: boolean; error?: string }> {
     try {
+      // Stash any local changes (linter modifications, etc.) before pulling
+      try { execSync('git stash', { cwd: this.appPath, encoding: 'utf-8', timeout: 5000 }) } catch { /* nothing to stash */ }
       execSync('git pull origin main', { cwd: this.appPath, encoding: 'utf-8', timeout: 30000 })
       execSync('npm install', { cwd: this.appPath, encoding: 'utf-8', timeout: 120000 })
       return { success: true }
     } catch (err: any) {
-      return { success: false, error: err.message }
+      const msg = err.message?.split('\n')[0] || 'Update failed'
+      return { success: false, error: msg }
     }
   }
 }
