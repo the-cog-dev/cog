@@ -114,6 +114,7 @@ export const IPC = {
   GROUP_GET_LINKS: 'group:get-links',
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
+  AGENT_CLEAR_CONTEXT: 'agent:clear-context',
 } as const
 
 export interface BuddyMessage {

@@ -751,6 +751,18 @@ function setupIPC(): void {
     if (managed) writeToPty(managed, data)
   })
 
+  // Clear an agent's context without respawning — sends /clear to their CLI
+  ipcMain.handle(IPC.AGENT_CLEAR_CONTEXT, (_event, agentId: string) => {
+    const managed = agents.get(agentId)
+    if (!managed) return { error: 'Agent not found' }
+    if (managed.config.cli === 'terminal') return { error: 'Plain terminals cannot be cleared' }
+
+    // Send /clear command to the agent's CLI
+    writeToPty(managed, '/clear\r')
+    // onClearDetected will fire via StatusDetector, which re-injects the initial prompt
+    return { status: 'ok', agent: managed.config.name }
+  })
+
   ipcMain.handle(IPC.KILL_AGENT, (_event, agentId: string) => {
     const managed = agents.get(agentId)
     if (managed) {
