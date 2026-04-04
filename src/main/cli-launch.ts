@@ -26,8 +26,9 @@ export function buildCliLaunchCommands(
   }
 
   if (cliBase === 'codex') {
+    const mcpName = `agentorch-${config.name.replace(/\s+/g, '-')}`
     const cmds = [
-      `codex mcp remove agentorch 2>$null; codex mcp add agentorch -- node "${mcpServerPath}" ${hubPort} ${hubSecret} ${config.id} ${config.name}`,
+      `codex mcp remove ${mcpName} 2>$null; codex mcp add ${mcpName} -- node "${mcpServerPath}" ${hubPort} ${hubSecret} ${config.id} ${config.name}`,
     ]
     let codexCmd = 'codex'
     if (config.model) codexCmd += ` -m ${config.model}`
@@ -44,8 +45,9 @@ export function buildCliLaunchCommands(
   }
 
   if (cliBase === 'gemini') {
+    const mcpName = `agentorch-${config.name.replace(/\s+/g, '-')}`
     const cmds = [
-      `gemini mcp remove agentorch 2>$null; gemini mcp add agentorch node "${mcpServerPath}" ${hubPort} ${hubSecret} ${config.id} ${config.name}`,
+      `gemini mcp remove ${mcpName} 2>$null; gemini mcp add ${mcpName} node "${mcpServerPath}" ${hubPort} ${hubSecret} ${config.id} ${config.name}`,
     ]
     let geminiCmd = 'gemini'
     if (config.model) geminiCmd += ` --model ${config.model}`

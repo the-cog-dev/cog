@@ -286,11 +286,15 @@ function deliverNudge(agentName: string, nudge: string): void {
 }
 
 function writeNudgeToPty(managed: ManagedPty, nudge: string): void {
+  // Strip characters that PowerShell interprets as code: () [] {} $ ` " '
+  // The agent CLI just needs the message text, not shell-valid syntax
+  const safe = nudge.replace(/[()[\]{}$`"']/g, '')
+
   if (managed.config.cli === 'codex') {
-    writeToPty(managed, nudge)
+    writeToPty(managed, safe)
     setTimeout(() => writeToPty(managed, '\r'), CODEX_SUBMIT_DELAY)
   } else {
-    writeToPty(managed, nudge + '\r')
+    writeToPty(managed, safe + '\r')
   }
 }
 
