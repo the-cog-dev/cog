@@ -161,3 +161,4 @@ This is the big one — tests R.A.C. talking to AgentOrch's hub.
 - [ ] Spawn an agent, wait 30s
 - [ ] `GET /agents` should show `healthy: true`
 - [ ] Kill the MCP server process (not the agent) — after 60s, `healthy: false`
+# Update test
