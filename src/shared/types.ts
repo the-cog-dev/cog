@@ -75,6 +75,7 @@ export const IPC = {
   LIST_PRESETS: 'preset:list',
   DELETE_PRESET: 'preset:delete',
   PINBOARD_GET_TASKS: 'pinboard:get-tasks',
+  PINBOARD_CLEAR_COMPLETED: 'pinboard:clear-completed',
   PINBOARD_TASK_UPDATE: 'pinboard:task-update',
   INFO_GET_ENTRIES: 'info:get-entries',
   INFO_ENTRY_ADDED: 'info:entry-added',

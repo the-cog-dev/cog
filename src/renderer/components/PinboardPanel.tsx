@@ -67,8 +67,8 @@ function TaskCard({ task }: { task: PinboardTask }) {
 
 declare const electronAPI: {
   getPinboardTasks: () => Promise<PinboardTask[]>
+  clearCompletedTasks: () => Promise<{ status: string; cleared: number }>
   onPinboardUpdate: (cb: (tasks: PinboardTask[]) => void) => () => void
-  getHubInfo: () => Promise<{ port: number; secret: string }>
 }
 
 export function PinboardPanel() {
@@ -84,12 +84,7 @@ export function PinboardPanel() {
 
   const handleClearCompleted = async () => {
     try {
-      const hubInfo = await electronAPI.getHubInfo()
-      await fetch(`http://127.0.0.1:${hubInfo.port}/pinboard/clear-completed`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${hubInfo.secret}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      })
+      await window.electronAPI.clearCompletedTasks()
       const updated = await window.electronAPI.getPinboardTasks()
       setTasks(updated)
     } catch { /* failed */ }

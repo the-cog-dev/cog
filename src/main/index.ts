@@ -832,6 +832,11 @@ function setupIPC(): void {
     return hub.pinboard.readTasks()
   })
 
+  ipcMain.handle(IPC.PINBOARD_CLEAR_COMPLETED, () => {
+    const cleared = hub.pinboard.clearCompleted()
+    return { status: 'ok', cleared }
+  })
+
   // Info Channel IPC handlers
   ipcMain.handle(IPC.INFO_GET_ENTRIES, () => {
     return hub.infoChannel.readInfo()

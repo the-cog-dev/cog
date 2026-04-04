@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener(IPC.AGENT_STATE_UPDATE, handler)
   },
   getPinboardTasks: () => ipcRenderer.invoke(IPC.PINBOARD_GET_TASKS),
+  clearCompletedTasks: () => ipcRenderer.invoke(IPC.PINBOARD_CLEAR_COMPLETED),
   onPinboardUpdate: (callback: (tasks: unknown[]) => void) => {
     const handler = (_event: unknown, tasks: unknown[]) => callback(tasks)
     ipcRenderer.on(IPC.PINBOARD_TASK_UPDATE, handler)
