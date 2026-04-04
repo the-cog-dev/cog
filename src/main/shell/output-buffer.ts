@@ -26,6 +26,10 @@ export class OutputBuffer {
     this.partial = parts[parts.length - 1]
   }
 
+  get lineCount(): number {
+    return this.lines.length
+  }
+
   getLines(count: number): string[] {
     // Include the current partial line if non-empty
     if (this.partial) {

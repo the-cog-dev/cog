@@ -115,6 +115,8 @@ export const IPC = {
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
   AGENT_CLEAR_CONTEXT: 'agent:clear-context',
+  USAGE_GET_METRICS: 'usage:get-metrics',
+  USAGE_REFRESH_LIMITS: 'usage:refresh-limits',
 } as const
 
 export interface BuddyMessage {
@@ -145,6 +147,25 @@ export interface AgentGroup {
 export interface LinkState {
   links: Array<{ from: string; to: string }>
   groups: AgentGroup[]
+}
+
+export interface AgentMetricsData {
+  agentName: string
+  cli: string
+  model: string
+  messagesSent: number
+  messagesReceived: number
+  tasksPosted: number
+  tasksClaimed: number
+  tasksCompleted: number
+  infoPosted: number
+  spawnedAt: string
+  providerUsage?: {
+    used: number
+    total: number
+    unit: string
+    raw?: string
+  }
 }
 
 export interface RacSlot {
