@@ -884,7 +884,7 @@ function setupIPC(): void {
 
   // Bug report — posts directly to GitHub Issues via API (no user login needed)
   ipcMain.handle(IPC.BUG_REPORT_SUBMIT, async (_event, report: { title: string; body: string }) => {
-    const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+    const token = process.env.AGENTORCH_BUG_TOKEN || process.env.GITHUB_TOKEN || process.env.GH_TOKEN
     if (!token) {
       return { success: false, method: 'browser', error: 'No GitHub token — opening browser instead' }
     }

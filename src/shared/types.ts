@@ -107,6 +107,7 @@ export const IPC = {
   UPDATE_AVAILABLE: 'update:available',
   UPDATE_PERFORM: 'update:perform',
   APP_RESTART: 'app:restart',
+  BUG_REPORT_SUBMIT: 'bug:submit',
   GROUP_GET_ALL: 'group:get-all',
   GROUP_ADD_LINK: 'group:add-link',
   GROUP_REMOVE_LINK: 'group:remove-link',

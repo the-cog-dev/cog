@@ -4,6 +4,7 @@ declare const electronAPI: {
   getAgents: () => Promise<any[]>
   getProject: () => Promise<{ path: string; name: string } | null>
   getHubInfo: () => Promise<{ port: number }>
+  submitBugReport: (title: string, body: string) => Promise<{ success: boolean; method: string; issueUrl?: string; error?: string }>
 }
 
 export function BugReportDialog({ onClose }: { onClose: () => void }): React.ReactElement {
@@ -33,9 +34,12 @@ export function BugReportDialog({ onClose }: { onClose: () => void }): React.Rea
     collectInfo()
   }, [])
 
-  const handleSubmit = () => {
-    const title = encodeURIComponent(description.slice(0, 80))
-    const body = encodeURIComponent([
+  const [submitting, setSubmitting] = useState(false)
+  const [submitResult, setSubmitResult] = useState<string | null>(null)
+
+  const handleSubmit = async () => {
+    const title = description.slice(0, 80)
+    const body = [
       `## Bug Description`,
       description,
       ``,
@@ -47,10 +51,25 @@ export function BugReportDialog({ onClose }: { onClose: () => void }): React.Rea
       ``,
       `## System Info`,
       systemInfo,
-    ].join('\n'))
+    ].join('\n')
 
-    window.open(`https://github.com/natebag/AgentOrch/issues/new?title=${title}&body=${body}&labels=bug`, '_blank')
-    onClose()
+    setSubmitting(true)
+
+    // Try API first (no login needed), fall back to browser
+    const result = await electronAPI.submitBugReport(title, body)
+    if (result.success) {
+      setSubmitResult(`Bug #${result.issueUrl?.split('/').pop()} submitted!`)
+      setTimeout(onClose, 2000)
+    } else if (result.method === 'browser') {
+      // No token — fall back to browser (user needs GitHub login)
+      const encodedTitle = encodeURIComponent(title)
+      const encodedBody = encodeURIComponent(body)
+      window.open(`https://github.com/natebag/AgentOrch/issues/new?title=${encodedTitle}&body=${encodedBody}&labels=bug`, '_blank')
+      onClose()
+    } else {
+      setSubmitResult(`Failed: ${result.error}`)
+    }
+    setSubmitting(false)
   }
 
   return (
@@ -117,19 +136,30 @@ export function BugReportDialog({ onClose }: { onClose: () => void }): React.Rea
           <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '10px', color: '#666' }}>{systemInfo}</pre>
         </div>
 
+        {submitResult && (
+          <div style={{
+            padding: '8px', borderRadius: '4px', fontSize: '12px', textAlign: 'center',
+            backgroundColor: submitResult.startsWith('Bug') ? '#1a3a1a' : '#3a1a1a',
+            color: submitResult.startsWith('Bug') ? '#4caf50' : '#f44336',
+            border: submitResult.startsWith('Bug') ? '1px solid #4caf50' : '1px solid #f44336'
+          }}>
+            {submitResult}
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{
             padding: '8px 16px', backgroundColor: '#2a2a2a', border: '1px solid #444',
             borderRadius: '4px', color: '#aaa', cursor: 'pointer', fontSize: '13px'
           }}>Cancel</button>
-          <button onClick={handleSubmit} disabled={!description.trim()} style={{
+          <button onClick={handleSubmit} disabled={!description.trim() || submitting} style={{
             padding: '8px 16px', backgroundColor: '#5a2d2d', border: '1px solid #f44336',
             borderRadius: '4px', color: '#f44336', cursor: 'pointer', fontSize: '13px'
-          }}>Submit Bug Report</button>
+          }}>{submitting ? 'Submitting...' : 'Submit Bug Report'}</button>
         </div>
 
         <div style={{ fontSize: '10px', color: '#555', textAlign: 'center' }}>
-          Opens a GitHub Issue on natebag/AgentOrch with your description + system info
+          No login required — submitted directly to the AgentOrch issue tracker
         </div>
       </div>
     </div>

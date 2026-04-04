@@ -92,4 +92,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener(IPC.UPDATE_AVAILABLE, handler)
   },
   restartApp: () => ipcRenderer.invoke(IPC.APP_RESTART),
+  submitBugReport: (title: string, body: string) => ipcRenderer.invoke(IPC.BUG_REPORT_SUBMIT, { title, body }),
 })
