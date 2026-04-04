@@ -8,7 +8,7 @@ import { ProjectPickerDialog } from './components/ProjectPickerDialog'
 import { useWindowManager } from './hooks/useWindowManager'
 import { useAgents } from './hooks/useAgents'
 import { UpdateNotice } from './components/UpdateNotice'
-import type { AgentConfig, RecentProject } from '../shared/types'
+import type { AgentConfig, AgentGroup, RecentProject } from '../shared/types'
 
 declare const electronAPI: {
   getProject: () => Promise<RecentProject | null>
@@ -29,6 +29,8 @@ export function App(): React.ReactElement {
   const [project, setProject] = useState<RecentProject | null>(null)
   const [projectLoading, setProjectLoading] = useState(true)
   const [showProjectPicker, setShowProjectPicker] = useState(false)
+  const [links, setLinks] = useState<Array<{ from: string; to: string }>>([])
+  const [groups, setGroups] = useState<AgentGroup[]>([])
   const {
     windows, zoom, pan,
     addWindow, removeWindow, focusWindow, minimizeWindow,
@@ -113,6 +115,31 @@ export function App(): React.ReactElement {
       addWindow(RAC_ID, 'R.A.C.')
     }
   }, [racOpen, addWindow, removeWindow])
+
+  // Load links & groups when project changes
+  useEffect(() => {
+    if (!project) return
+    window.electronAPI.getLinks().then(setLinks)
+    window.electronAPI.getGroups().then(setGroups)
+  }, [project])
+
+  const handleAddLink = useCallback(async (from: string, to: string) => {
+    const result = await window.electronAPI.addLink(from, to)
+    if (result.groups) {
+      setGroups(result.groups)
+      const newLinks = await window.electronAPI.getLinks()
+      setLinks(newLinks)
+    }
+  }, [])
+
+  const handleRemoveLink = useCallback(async (from: string, to: string) => {
+    const result = await window.electronAPI.removeLink(from, to)
+    if (result.groups) {
+      setGroups(result.groups)
+      const newLinks = await window.electronAPI.getLinks()
+      setLinks(newLinks)
+    }
+  }, [])
 
   // Keyboard shortcuts: Ctrl+1..9 to focus windows, Ctrl+Tab to cycle
   useEffect(() => {
@@ -211,6 +238,9 @@ export function App(): React.ReactElement {
             agents={agents}
             zoom={zoom}
             pan={pan}
+            links={links}
+            groups={groups}
+            onAddLink={handleAddLink}
             onSetZoom={setZoom}
             onSetPan={setPan}
             onZoomToFit={zoomToFit}

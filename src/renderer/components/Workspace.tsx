@@ -1,5 +1,6 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react'
 import { FloatingWindow } from './FloatingWindow'
+import { LinkOverlay } from './LinkOverlay'
 import { SnapPreview } from './SnapPreview'
 import { TerminalWindow } from './TerminalWindow'
 import { PinboardPanel } from './PinboardPanel'
@@ -33,6 +34,9 @@ interface WorkspaceProps {
   agents: AgentState[]
   zoom: number
   pan: { x: number; y: number }
+  links: Array<{ from: string; to: string }>
+  groups: Array<{ id: string; color: string; members: string[] }>
+  onAddLink: (from: string, to: string) => void
   onSetZoom: (level: number) => void
   onSetPan: (x: number, y: number) => void
   onZoomToFit: (viewportWidth: number, viewportHeight: number) => void
@@ -48,6 +52,9 @@ export function Workspace({
   agents,
   zoom,
   pan,
+  links,
+  groups,
+  onAddLink,
   onSetZoom,
   onSetPan,
   onZoomToFit,
@@ -66,6 +73,10 @@ export function Workspace({
   const [snapPreview, setSnapPreview] = useState<SnapZoneInfo | null>(null)
   const [workspaceSize, setWorkspaceSize] = useState({ width: 0, height: 0 })
   const [restoreBoundsById, setRestoreBoundsById] = useState<Map<string, SnapBounds>>(new Map())
+  const [linkDrawing, setLinkDrawing] = useState(false)
+  const [linkFromAgent, setLinkFromAgent] = useState<string | null>(null)
+  const [linkFromPos, setLinkFromPos] = useState<{ x: number; y: number } | null>(null)
+  const [linkMousePos, setLinkMousePos] = useState<{ x: number; y: number } | null>(null)
 
   // Clean up maximizedId if the window is removed
   useEffect(() => {
@@ -201,6 +212,43 @@ export function Workspace({
     setSnapPreview(null)
   }, [onResizeStop])
 
+  const handleLinkDragStart = useCallback((agentName: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    setLinkDrawing(true)
+    setLinkFromAgent(agentName)
+    setLinkFromPos({ x: e.clientX, y: e.clientY })
+    setLinkMousePos({ x: e.clientX, y: e.clientY })
+  }, [])
+
+  useEffect(() => {
+    if (!linkDrawing) return
+    const handleMove = (e: MouseEvent) => {
+      setLinkMousePos({ x: e.clientX, y: e.clientY })
+    }
+    const handleUp = (e: MouseEvent) => {
+      setLinkDrawing(false)
+      setLinkMousePos(null)
+      // Check if dropped on an agent window
+      const target = document.elementFromPoint(e.clientX, e.clientY)
+      const windowEl = target?.closest('[data-agent-name]') as HTMLElement | null
+      if (windowEl && linkFromAgent) {
+        const targetName = windowEl.getAttribute('data-agent-name')
+        if (targetName && targetName !== linkFromAgent) {
+          onAddLink(linkFromAgent, targetName)
+        }
+      }
+      setLinkFromAgent(null)
+      setLinkFromPos(null)
+    }
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMove)
+      window.removeEventListener('mouseup', handleUp)
+    }
+  }, [linkDrawing, linkFromAgent, onAddLink])
+
   const handleFitAll = useCallback(() => {
     if (!viewportRef.current) return
     const rect = viewportRef.current.getBoundingClientRect()
@@ -243,6 +291,17 @@ export function Workspace({
           left: 0
         }}
       >
+        <LinkOverlay
+          links={links}
+          groups={groups}
+          windows={windows}
+          agents={agents}
+          zoom={zoom}
+          pan={pan}
+          drawing={linkDrawing}
+          drawFrom={linkFromPos}
+          drawTo={linkMousePos}
+        />
         {windows.map(win => {
           const panelType = PANEL_IDS[win.id]
           const agent = !panelType ? agents.find(a => a.id === win.id) : undefined
@@ -273,42 +332,46 @@ export function Workspace({
             .map(w => ({ id: w.id, x: w.x, y: w.y, width: w.width, height: w.height }))
 
           return (
-            <FloatingWindow
-              key={win.id}
-              id={win.id}
-              title={title}
-              statusColor={statusColor}
-              x={win.x}
-              y={win.y}
-              width={win.width}
-              height={win.height}
-              zoom={zoom}
-              pan={pan}
-              zIndex={win.zIndex}
-              minimized={win.minimized}
-              maximized={maximizedId === win.id}
-              workspaceWidth={workspaceSize.width}
-              workspaceHeight={workspaceSize.height}
-              otherWindows={otherWindows}
-              restoreBounds={restoreBoundsById.get(win.id) ?? null}
-              viewportRef={viewportRef}
-              onFocus={() => onFocusWindow(win.id)}
-              onMinimize={() => onMinimizeWindow(win.id)}
-              onMaximize={() => handleMaximize(win.id)}
-              onClose={() => onCloseWindow(win.id)}
-              onDragStop={(nx, ny) => {
-                clearSnapState(win.id)
-                onDragStop(win.id, nx, ny)
-              }}
-              onResizeStop={(nx, ny, w, h) => {
-                clearSnapState(win.id)
-                onResizeStop(win.id, nx, ny, w, h)
-              }}
-              onSnapPreviewChange={setSnapPreview}
-              onSnap={(bounds, restoreBounds) => handleSnap(win.id, bounds, restoreBounds)}
-            >
-              {content}
-            </FloatingWindow>
+            <div key={win.id} data-agent-name={agent?.name}>
+              <FloatingWindow
+                id={win.id}
+                title={title}
+                statusColor={statusColor}
+                x={win.x}
+                y={win.y}
+                width={win.width}
+                height={win.height}
+                zoom={zoom}
+                pan={pan}
+                zIndex={win.zIndex}
+                minimized={win.minimized}
+                maximized={maximizedId === win.id}
+                workspaceWidth={workspaceSize.width}
+                workspaceHeight={workspaceSize.height}
+                otherWindows={otherWindows}
+                restoreBounds={restoreBoundsById.get(win.id) ?? null}
+                viewportRef={viewportRef}
+                onFocus={() => onFocusWindow(win.id)}
+                onMinimize={() => onMinimizeWindow(win.id)}
+                onMaximize={() => handleMaximize(win.id)}
+                onClose={() => onCloseWindow(win.id)}
+                onDragStop={(nx, ny) => {
+                  clearSnapState(win.id)
+                  onDragStop(win.id, nx, ny)
+                }}
+                onResizeStop={(nx, ny, w, h) => {
+                  clearSnapState(win.id)
+                  onResizeStop(win.id, nx, ny, w, h)
+                }}
+                onSnapPreviewChange={setSnapPreview}
+                onSnap={(bounds, restoreBounds) => handleSnap(win.id, bounds, restoreBounds)}
+                isAgent={!!agent}
+                groupColor={agent ? groups.find(g => g.members.includes(agent.name))?.color : undefined}
+                onLinkDragStart={agent ? (e: React.MouseEvent) => handleLinkDragStart(agent.name, e) : undefined}
+              >
+                {content}
+              </FloatingWindow>
+            </div>
           )
         })}
       </div>

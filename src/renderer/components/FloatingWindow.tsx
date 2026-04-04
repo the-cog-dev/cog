@@ -29,6 +29,9 @@ interface FloatingWindowProps {
   onResizeStop: (x: number, y: number, width: number, height: number) => void
   onSnapPreviewChange: (info: SnapZoneInfo | null) => void
   onSnap: (bounds: SnapBounds, restoreBounds: SnapBounds) => void
+  isAgent?: boolean
+  groupColor?: string
+  onLinkDragStart?: (e: React.MouseEvent) => void
   children: React.ReactNode
 }
 
@@ -58,6 +61,9 @@ export function FloatingWindow({
   onResizeStop,
   onSnapPreviewChange,
   onSnap,
+  isAgent,
+  groupColor,
+  onLinkDragStart,
   children
 }: FloatingWindowProps): React.ReactElement | null {
   const [dragSizeOverride, setDragSizeOverride] = useState<{ width: number; height: number } | null>(null)
@@ -204,7 +210,7 @@ export function FloatingWindow({
       onDragStop={handleDragStop}
       onResizeStop={handleResizeStop}
     >
-      <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
         <div className="window-titlebar" style={titleBarStyle} onDoubleClick={onMaximize}>
           {statusColor && <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: statusColor, marginRight: 8 }} />}
           <span style={{ flex: 1, fontSize: '12px', color: '#ccc' }}>{title}</span>
@@ -212,6 +218,28 @@ export function FloatingWindow({
           <button onClick={onMaximize} style={btnStyle}>□</button>
           <button onClick={onClose} style={{ ...btnStyle, color: '#e55' }}>✕</button>
         </div>
+        {isAgent && onLinkDragStart && (
+          <div
+            onMouseDown={(e) => { e.stopPropagation(); onLinkDragStart(e) }}
+            title="Drag to link with another agent"
+            style={{
+              position: 'absolute',
+              right: -5,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: 12,
+              height: 12,
+              borderRadius: '50%',
+              backgroundColor: groupColor || '#666',
+              border: '2px solid #333',
+              cursor: 'crosshair',
+              zIndex: 10,
+              transition: 'transform 0.15s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-50%) scale(1.4)')}
+            onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(-50%)')}
+          />
+        )}
         <div style={{ flex: 1, overflow: 'hidden' }}>{children}</div>
       </div>
     </Rnd>
