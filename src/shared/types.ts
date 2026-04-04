@@ -15,6 +15,7 @@ export interface AgentConfig {
   providerUrl?: string  // OpenAI-compatible base URL (for OpenClaude)
   experimental?: boolean
   skills?: string[]  // skill IDs attached to this agent
+  groupId?: string
 }
 
 export interface AgentState extends AgentConfig {
@@ -28,6 +29,7 @@ export interface Message {
   to: string
   message: string
   timestamp: string
+  groupId?: string
 }
 
 export interface SendMessageResult {
@@ -56,6 +58,7 @@ export interface PinboardTask {
   claimedBy: string | null
   result: string | null
   createdAt: string
+  groupId?: string
 }
 
 export const IPC = {
@@ -104,6 +107,10 @@ export const IPC = {
   UPDATE_AVAILABLE: 'update:available',
   UPDATE_PERFORM: 'update:perform',
   APP_RESTART: 'app:restart',
+  GROUP_GET_ALL: 'group:get-all',
+  GROUP_ADD_LINK: 'group:add-link',
+  GROUP_REMOVE_LINK: 'group:remove-link',
+  GROUP_GET_LINKS: 'group:get-links',
 } as const
 
 export interface BuddyMessage {
@@ -122,6 +129,18 @@ export interface Skill {
   source: 'built-in' | 'user' | 'community'
   prompt: string
   tags: string[]
+}
+
+export interface AgentGroup {
+  id: string
+  name: string
+  color: string
+  members: string[]
+}
+
+export interface LinkState {
+  links: Array<{ from: string; to: string }>
+  groups: AgentGroup[]
 }
 
 export interface RacSlot {
@@ -149,6 +168,7 @@ export interface InfoEntry {
   note: string
   tags: string[]
   createdAt: string
+  groupId?: string
 }
 
 export interface RecentProject {
