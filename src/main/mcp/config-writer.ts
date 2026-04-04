@@ -29,7 +29,7 @@ export function writeAgentMcpConfig(opts: McpConfigOptions): string {
     }
   }
 
-  writeFileSync(filePath, JSON.stringify(config, null, 2), 'utf-8')
+  writeFileSync(filePath, JSON.stringify(config, null, 2), { encoding: 'utf-8', mode: 0o600 })
   return filePath
 }
 

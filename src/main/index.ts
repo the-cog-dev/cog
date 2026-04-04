@@ -52,6 +52,17 @@ function createWindow(): BrowserWindow {
     }
   })
 
+  win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:; font-src 'self' data:"
+        ]
+      }
+    })
+  })
+
   // Disable Electron's built-in zoom shortcuts (we handle zoom in the renderer)
   win.webContents.on('before-input-event', (_event, input) => {
     if (input.control && (input.key === '0' || input.key === '=' || input.key === '-')) {
@@ -674,7 +685,7 @@ function setupIPC(): void {
     if (!projectManager.currentProject) return { items: [] }
     const projectPath = projectManager.currentProject.path
     const resolved = path.resolve(projectPath, dirPath)
-    if (!resolved.startsWith(projectPath)) return { items: [] }
+    if (!resolved.toLowerCase().replace(/\\/g, '/').startsWith(projectPath.toLowerCase().replace(/\\/g, '/'))) return { items: [] }
 
     try {
       const entries = fs.readdirSync(resolved, { withFileTypes: true })
@@ -701,7 +712,7 @@ function setupIPC(): void {
     if (!projectManager.currentProject) return null
     const projectPath = projectManager.currentProject.path
     const resolved = path.resolve(projectPath, filePath)
-    if (!resolved.startsWith(projectPath)) return null
+    if (!resolved.toLowerCase().replace(/\\/g, '/').startsWith(projectPath.toLowerCase().replace(/\\/g, '/'))) return null
 
     try {
       const content = fs.readFileSync(resolved, 'utf-8')
@@ -715,7 +726,7 @@ function setupIPC(): void {
     if (!projectManager.currentProject) return false
     const projectPath = projectManager.currentProject.path
     const resolved = path.resolve(projectPath, filePath)
-    if (!resolved.startsWith(projectPath)) return false
+    if (!resolved.toLowerCase().replace(/\\/g, '/').startsWith(projectPath.toLowerCase().replace(/\\/g, '/'))) return false
 
     try {
       const dir = path.dirname(resolved)

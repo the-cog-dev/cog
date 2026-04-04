@@ -34,10 +34,18 @@ export function createRoutes(
   router.post('/agents/register', (req: Request, res: Response) => {
     try {
       const config: AgentConfig = req.body
+      if (!config.name || typeof config.name !== 'string' || config.name.length > 100) {
+        res.status(400).json({ error: 'Invalid agent name' })
+        return
+      }
+      if (config.promptRegex && config.promptRegex.length > 200) {
+        res.status(400).json({ error: 'promptRegex too long' })
+        return
+      }
       const state = registry.register(config)
       res.json(state)
     } catch (err: any) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json({ error: 'Registration failed' })
     }
   })
 
@@ -183,7 +191,7 @@ export function createRoutes(
       const entry = infoChannel.postInfo(from, note, tags || [])
       res.json(entry)
     } catch (err: any) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json({ error: 'Invalid info entry' })
     }
   })
 
@@ -217,7 +225,7 @@ export function createRoutes(
       }
       res.json(entry)
     } catch (err: any) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json({ error: 'Update failed' })
     }
   })
 
@@ -225,9 +233,12 @@ export function createRoutes(
 
   function resolveProjectPath(requestedPath: string): string | null {
     if (!projectPathRef.path) return null
-    const resolved = path.resolve(projectPathRef.path, requestedPath)
-    // Security: ensure resolved path is within project root
-    if (!resolved.startsWith(projectPathRef.path)) return null
+    const projectRoot = path.resolve(projectPathRef.path)
+    const resolved = path.resolve(projectRoot, requestedPath)
+    // Security: normalize both paths for case-insensitive Windows comparison
+    const normalizedRoot = projectRoot.toLowerCase().replace(/\\/g, '/')
+    const normalizedResolved = resolved.toLowerCase().replace(/\\/g, '/')
+    if (!normalizedResolved.startsWith(normalizedRoot)) return null
     return resolved
   }
 
@@ -260,7 +271,7 @@ export function createRoutes(
       const content = fs.readFileSync(resolved, 'utf-8')
       res.json({ path: filePath, content, size: stat.size })
     } catch (err: any) {
-      res.status(500).json({ error: err.message })
+      res.status(500).json({ error: 'File operation failed' })
     }
   })
 
@@ -285,7 +296,7 @@ export function createRoutes(
       const stat = fs.statSync(resolved)
       res.json({ path: filePath, size: stat.size, status: 'ok' })
     } catch (err: any) {
-      res.status(500).json({ error: err.message })
+      res.status(500).json({ error: 'File operation failed' })
     }
   })
 
@@ -319,7 +330,7 @@ export function createRoutes(
       })
       res.json({ path: dirPath, items })
     } catch (err: any) {
-      res.status(500).json({ error: err.message })
+      res.status(500).json({ error: 'File operation failed' })
     }
   })
 

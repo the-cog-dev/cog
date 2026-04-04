@@ -40,9 +40,23 @@ function resolveShell(config: AgentConfig): string {
 }
 
 export function spawnAgentPty(opts: SpawnOptions): ManagedPty {
-  const promptRegex = opts.config.promptRegex
-    ? new RegExp(opts.config.promptRegex)
-    : undefined
+  let promptRegex: RegExp | undefined
+  if (opts.config.promptRegex) {
+    try {
+      // Validate and test regex with a timeout-safe approach
+      const testRegex = new RegExp(opts.config.promptRegex)
+      // Quick sanity check — if it takes too long on a test string, reject it
+      const start = Date.now()
+      testRegex.test('a'.repeat(100))
+      if (Date.now() - start > 50) {
+        console.warn(`Agent "${opts.config.name}": promptRegex too slow, using default`)
+      } else {
+        promptRegex = testRegex
+      }
+    } catch {
+      console.warn(`Agent "${opts.config.name}": invalid promptRegex, using default`)
+    }
+  }
 
   const statusDetector = new StatusDetector({
     promptRegex,
