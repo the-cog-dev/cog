@@ -426,6 +426,8 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadAgents, onClose
   const [templateToLoad, setTemplateToLoad] = useState<PresetTemplate | null>(null)
   const [templateSearch, setTemplateSearch] = useState('')
   const [cliFilters, setCliFilters] = useState<Set<string>>(new Set())
+  const [editingPresetName, setEditingPresetName] = useState<string | null>(null)
+  const [editAgents, setEditAgents] = useState<AgentConfig[]>([])
 
   const filteredTemplates = BUILT_IN_TEMPLATES.filter(t => {
     if (templateSearch) {
@@ -532,6 +534,42 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadAgents, onClose
     }
   }
 
+  const handleEditPreset = async (name: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      setLoading(true)
+      setError(null)
+      const preset = await window.electronAPI.loadPreset(name)
+      setEditingPresetName(name)
+      setEditAgents(preset.agents.map(a => ({ ...a })))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load preset for editing')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingPresetName) return
+    try {
+      setLoading(true)
+      setError(null)
+      const preset = await window.electronAPI.loadPreset(editingPresetName)
+      await window.electronAPI.savePreset(editingPresetName, editAgents, preset.windows, preset.canvas)
+      setEditingPresetName(null)
+      setEditAgents([])
+      setActiveTab('load')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save preset')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateEditAgent = (index: number, field: keyof AgentConfig, value: string | boolean) => {
+    setEditAgents(prev => prev.map((a, i) => i === index ? { ...a, [field]: value } : a))
+  }
+
   const handleDelete = async (name: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (!confirm(`Delete preset "${name}"?`)) return
@@ -598,6 +636,102 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadAgents, onClose
   const handleBrowseCwd = async () => {
     const dir = await window.electronAPI.browseDirectory(cwdOverride || '')
     if (dir) setCwdOverride(dir)
+  }
+
+  // Edit Preset Modal
+  if (editingPresetName) {
+    return (
+      <div style={overlayStyle}>
+        <div style={{ ...modalStyle, width: '560px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', color: '#e0e0e0' }}>
+              Edit Preset: {editingPresetName}
+            </h3>
+            <button onClick={() => { setEditingPresetName(null); setEditAgents([]) }} style={closeBtnStyle}>×</button>
+          </div>
+          {error && (
+            <div style={{ color: '#ff6b6b', fontSize: '12px', marginBottom: '12px', padding: '8px', backgroundColor: '#3a1a1a', borderRadius: '4px' }}>
+              {error}
+            </div>
+          )}
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {editAgents.map((agent, i) => (
+              <div key={i} style={{ padding: '12px', backgroundColor: '#2a2a2a', border: '1px solid #333', borderRadius: '6px' }}>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <label style={{ ...labelStyle, flex: 1 }}>
+                    Name
+                    <input
+                      value={agent.name}
+                      onChange={e => updateEditAgent(i, 'name', e.target.value)}
+                      style={inputStyle}
+                    />
+                  </label>
+                  <label style={{ ...labelStyle, flex: 1 }}>
+                    Role
+                    <select
+                      value={agent.role}
+                      onChange={e => updateEditAgent(i, 'role', e.target.value)}
+                      style={inputStyle}
+                    >
+                      <option value="orchestrator">orchestrator</option>
+                      <option value="worker">worker</option>
+                      <option value="researcher">researcher</option>
+                      <option value="reviewer">reviewer</option>
+                      <option value="custom">custom</option>
+                    </select>
+                  </label>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <label style={{ ...labelStyle, flex: 1 }}>
+                    CLI
+                    <select
+                      value={agent.cli}
+                      onChange={e => updateEditAgent(i, 'cli', e.target.value)}
+                      style={inputStyle}
+                    >
+                      <option value="claude">Claude Code</option>
+                      <option value="codex">Codex CLI</option>
+                      <option value="kimi">Kimi CLI</option>
+                      <option value="gemini">Gemini CLI</option>
+                      <option value="openclaude">OpenClaude</option>
+                      <option value="copilot">GitHub Copilot</option>
+                      <option value="grok">Grok CLI</option>
+                      <option value="terminal">Terminal</option>
+                    </select>
+                  </label>
+                  <label style={{ ...labelStyle, flex: 1 }}>
+                    Model
+                    <input
+                      value={agent.model || ''}
+                      onChange={e => updateEditAgent(i, 'model', e.target.value)}
+                      placeholder="e.g., opus, sonnet, o4-mini"
+                      style={inputStyle}
+                    />
+                  </label>
+                </div>
+                <label style={labelStyle}>
+                  CEO Notes
+                  <textarea
+                    value={agent.ceoNotes}
+                    onChange={e => updateEditAgent(i, 'ceoNotes', e.target.value)}
+                    rows={3}
+                    style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '12px' }}>
+            <button onClick={() => { setEditingPresetName(null); setEditAgents([]) }} style={cancelBtnStyle}>
+              Cancel
+            </button>
+            <button onClick={handleSaveEdit} disabled={loading} style={saveBtnStyle}>
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   // CWD Override Prompt Modal
@@ -724,7 +858,7 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadAgents, onClose
                       <div style={{ fontSize: '11px', color: '#666' }}>{formatDate(preset.savedAt)}</div>
                     </div>
                     <button
-                      onClick={e => { e.stopPropagation(); setPresetName(preset.name); setActiveTab('save') }}
+                      onClick={e => handleEditPreset(preset.name, e)}
                       style={editBtnStyle}
                       title="Edit preset"
                     >
