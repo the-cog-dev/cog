@@ -9,6 +9,7 @@ import { BuddyRoomPanel } from './BuddyRoomPanel'
 import { FilePanel } from './FilePanel'
 import { RacPanel } from './RacPanel'
 import { UsagePanel } from './UsagePanel'
+import { GitPanel } from './GitPanel'
 import { RacAgentChat } from './RacAgentChat'
 import { ZoomControls } from './ZoomControls'
 import type { WindowState } from '../hooks/useWindowManager'
@@ -21,7 +22,8 @@ const PANEL_IDS: Record<string, string> = {
   '__buddy__': 'buddy',
   '__files__': 'files',
   '__rac__': 'rac',
-  '__usage__': 'usage'
+  '__usage__': 'usage',
+  '__git__': 'git',
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -328,6 +330,8 @@ export function Workspace({
             content = <RacPanel />
           } else if (panelType === 'usage') {
             content = <UsagePanel />
+          } else if (panelType === 'git') {
+            content = <GitPanel />
           } else if (agent && agent.name.startsWith('rac-')) {
             content = <RacAgentChat agentName={agent.name} />
           } else {

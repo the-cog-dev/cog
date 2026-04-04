@@ -30,6 +30,8 @@ interface TopBarProps {
   onToggleRac: () => void
   usageOpen: boolean
   onToggleUsage: () => void
+  gitOpen: boolean
+  onToggleGit: () => void
   onPresetsClick: () => void
   onBugReport: () => void
   onSettingsClick: () => void
@@ -101,6 +103,7 @@ export function TopBar({
   pinboardOpen, onTogglePinboard, infoOpen, onToggleInfo,
   buddyOpen, onToggleBuddy, filesOpen, onToggleFiles,
   racOpen, onToggleRac, usageOpen, onToggleUsage,
+  gitOpen, onToggleGit,
   onPresetsClick, onBugReport, onSettingsClick,
   groups, onLinkDragStart, linkDraggingFrom
 }: TopBarProps): React.ReactElement {
@@ -129,7 +132,7 @@ export function TopBar({
   const hoverIn = (e: React.MouseEvent) => (e.currentTarget.style.backgroundColor = '#333')
   const hoverOut = (e: React.MouseEvent) => (e.currentTarget.style.backgroundColor = 'transparent')
 
-  const activePanelCount = [pinboardOpen, infoOpen, buddyOpen, filesOpen, racOpen, usageOpen].filter(Boolean).length
+  const activePanelCount = [pinboardOpen, infoOpen, buddyOpen, filesOpen, racOpen, usageOpen, gitOpen].filter(Boolean).length
 
   return (
     <div style={{
@@ -249,6 +252,7 @@ export function TopBar({
               onClose={() => setPanelMenu(false)}
               style={{ right: 0, left: 'auto' }}
               items={[
+                { label: `${gitOpen ? '\u25CF ' : '  '}Git`, onClick: onToggleGit, color: gitOpen ? '#8cc4ff' : '#888' },
                 { label: `${filesOpen ? '\u25CF ' : '  '}Files`, onClick: onToggleFiles, color: filesOpen ? '#8cc4ff' : '#888' },
                 { label: `${pinboardOpen ? '\u25CF ' : '  '}Pinboard`, onClick: onTogglePinboard, color: pinboardOpen ? '#8cc4ff' : '#888' },
                 { label: `${infoOpen ? '\u25CF ' : '  '}Info Channel`, onClick: onToggleInfo, color: infoOpen ? '#8cc4ff' : '#888' },

@@ -24,6 +24,7 @@ const BUDDY_ID = '__buddy__'
 const FILES_ID = '__files__'
 const RAC_ID = '__rac__'
 const USAGE_ID = '__usage__'
+const GIT_ID = '__git__'
 
 export function App(): React.ReactElement {
   const [showSpawnDialog, setShowSpawnDialog] = useState(false)
@@ -49,6 +50,7 @@ export function App(): React.ReactElement {
   const filesOpen = windows.some(w => w.id === FILES_ID)
   const racOpen = windows.some(w => w.id === RAC_ID)
   const usageOpen = windows.some(w => w.id === USAGE_ID)
+  const gitOpen = windows.some(w => w.id === GIT_ID)
 
   const handleSpawn = useCallback(async (config: Omit<AgentConfig, 'id'>) => {
     setShowSpawnDialog(false)
@@ -58,7 +60,7 @@ export function App(): React.ReactElement {
 
   const handleClose = useCallback(async (windowId: string) => {
     // Panel windows just get removed, no agent to kill
-    if (windowId === PINBOARD_ID || windowId === INFO_ID || windowId === BUDDY_ID || windowId === FILES_ID || windowId === RAC_ID || windowId === USAGE_ID) {
+    if (windowId === PINBOARD_ID || windowId === INFO_ID || windowId === BUDDY_ID || windowId === FILES_ID || windowId === RAC_ID || windowId === USAGE_ID || windowId === GIT_ID) {
       removeWindow(windowId)
       return
     }
@@ -133,6 +135,10 @@ export function App(): React.ReactElement {
       addWindow(USAGE_ID, 'Usage')
     }
   }, [usageOpen, addWindow, removeWindow])
+
+  const toggleGit = useCallback(() => {
+    if (gitOpen) { removeWindow(GIT_ID) } else { addWindow(GIT_ID, 'Git') }
+  }, [gitOpen, addWindow, removeWindow])
 
   // Load links & groups when project changes
   useEffect(() => {
@@ -286,6 +292,8 @@ export function App(): React.ReactElement {
             onToggleRac={toggleRac}
             usageOpen={usageOpen}
             onToggleUsage={toggleUsage}
+            gitOpen={gitOpen}
+            onToggleGit={toggleGit}
             onPresetsClick={() => setShowPresetDialog(true)}
             onBugReport={() => setShowBugReport(true)}
             onSettingsClick={() => setShowSettings(true)}
