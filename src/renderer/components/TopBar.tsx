@@ -97,21 +97,24 @@ export function TopBar({
   onPresetsClick, onBugReport, onSettingsClick,
   groups, onLinkDragStart, linkDraggingFrom
 }: TopBarProps): React.ReactElement {
-  const [agentMenu, setAgentMenu] = useState<string | null>(null)
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false)
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
   const [panelMenu, setPanelMenu] = useState(false)
   const agentMenuRef = useRef<HTMLDivElement>(null)
 
   // Close agent dropdown on outside click
   useEffect(() => {
-    if (!agentMenu) return
+    if (!agentMenuOpen) return
     const handler = (e: MouseEvent) => {
       if (agentMenuRef.current && !agentMenuRef.current.contains(e.target as Node)) {
-        setAgentMenu(null)
+        setAgentMenuOpen(false)
+        setExpandedAgent(null)
       }
     }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [agentMenu])
+    // Delay to prevent the opening click from immediately closing
+    const timer = setTimeout(() => document.addEventListener('mousedown', handler), 100)
+    return () => { clearTimeout(timer); document.removeEventListener('mousedown', handler) }
+  }, [agentMenuOpen])
 
   const btnStyle: React.CSSProperties = {
     height: '28px',
@@ -165,14 +168,14 @@ export function TopBar({
 
       {/* Agents dropdown */}
       <div ref={agentMenuRef} style={{ position: 'relative' }}>
-        <button onClick={() => setAgentMenu(agentMenu ? null : '__list__')} style={{
+        <button onClick={() => { setAgentMenuOpen(!agentMenuOpen); setExpandedAgent(null) }} style={{
           ...btnStyle,
           border: agents.length > 0 ? '1px solid #4caf50' : '1px solid #444',
           color: agents.length > 0 ? '#4caf50' : '#999',
         }}>
           Agents {agents.length > 0 && `(${agents.length})`}
         </button>
-        {agentMenu && (
+        {agentMenuOpen && (
           <div style={{
             position: 'absolute', top: '100%', left: 0, marginTop: '4px',
             backgroundColor: '#252525', border: '1px solid #444', borderRadius: '6px',
@@ -184,11 +187,11 @@ export function TopBar({
             )}
             {agents.map(agent => {
               const groupColor = groups.find(g => g.members.includes(agent.name))?.color
-              const expanded = agentMenu === agent.id
+              const expanded = expandedAgent === agent.id
               return (
                 <div key={agent.id} data-agent-name={agent.name}>
                   <button
-                    onClick={() => setAgentMenu(expanded ? '__list__' : agent.id)}
+                    onClick={() => setExpandedAgent(expanded ? null : agent.id)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
                       padding: '6px 14px', background: 'none', border: 'none',
@@ -208,19 +211,19 @@ export function TopBar({
                   </button>
                   {expanded && (
                     <div style={{ borderTop: '1px solid #333', borderBottom: '1px solid #333', backgroundColor: '#1e1e1e' }}>
-                      <button onClick={() => { onAgentClick(agent.id); setAgentMenu(null) }}
+                      <button onClick={() => { onAgentClick(agent.id); setAgentMenuOpen(false); setExpandedAgent(null) }}
                         style={menuItemStyle} onMouseEnter={hoverIn} onMouseLeave={hoverOut}>
                         Focus Window
                       </button>
-                      <button onClick={() => { onClearContext(agent.id); setAgentMenu(null) }}
+                      <button onClick={() => { onClearContext(agent.id); setAgentMenuOpen(false); setExpandedAgent(null) }}
                         style={menuItemStyle} onMouseEnter={hoverIn} onMouseLeave={hoverOut}>
                         Clear Context
                       </button>
-                      <button onClick={() => { onDisconnectAgent(agent.name); setAgentMenu(null) }}
+                      <button onClick={() => { onDisconnectAgent(agent.name); setAgentMenuOpen(false); setExpandedAgent(null) }}
                         style={menuItemStyle} onMouseEnter={hoverIn} onMouseLeave={hoverOut}>
                         Disconnect Links
                       </button>
-                      <button onClick={() => { onKillAgent(agent.id); setAgentMenu(null) }}
+                      <button onClick={() => { onKillAgent(agent.id); setAgentMenuOpen(false); setExpandedAgent(null) }}
                         style={{ ...menuItemStyle, color: '#f44336' }} onMouseEnter={hoverIn} onMouseLeave={hoverOut}>
                         Kill Agent
                       </button>
