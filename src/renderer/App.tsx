@@ -3,6 +3,7 @@ import { TopBar } from './components/TopBar'
 import { Workspace } from './components/Workspace'
 import { SpawnDialog } from './components/SpawnDialog'
 import { PresetDialog } from './components/PresetDialog'
+import { BugReportDialog } from './components/BugReportDialog'
 import { ProjectPickerDialog } from './components/ProjectPickerDialog'
 import { useWindowManager } from './hooks/useWindowManager'
 import { useAgents } from './hooks/useAgents'
@@ -24,6 +25,7 @@ const RAC_ID = '__rac__'
 export function App(): React.ReactElement {
   const [showSpawnDialog, setShowSpawnDialog] = useState(false)
   const [showPresetDialog, setShowPresetDialog] = useState(false)
+  const [showBugReport, setShowBugReport] = useState(false)
   const [project, setProject] = useState<RecentProject | null>(null)
   const [projectLoading, setProjectLoading] = useState(true)
   const [showProjectPicker, setShowProjectPicker] = useState(false)
@@ -202,6 +204,7 @@ export function App(): React.ReactElement {
             racOpen={racOpen}
             onToggleRac={toggleRac}
             onPresetsClick={() => setShowPresetDialog(true)}
+            onBugReport={() => setShowBugReport(true)}
           />
           <Workspace
             windows={windows}
@@ -238,6 +241,9 @@ export function App(): React.ReactElement {
               }}
               onClose={() => setShowPresetDialog(false)}
             />
+          )}
+          {showBugReport && (
+            <BugReportDialog onClose={() => setShowBugReport(false)} />
           )}
           {showProjectPicker && (
             <ProjectPickerDialog

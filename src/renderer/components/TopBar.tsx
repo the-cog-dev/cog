@@ -19,6 +19,7 @@ interface TopBarProps {
   racOpen: boolean
   onToggleRac: () => void
   onPresetsClick: () => void
+  onBugReport: () => void
 }
 
 const toggleBtnStyle = (active: boolean): React.CSSProperties => ({
@@ -33,7 +34,7 @@ const toggleBtnStyle = (active: boolean): React.CSSProperties => ({
   whiteSpace: 'nowrap'
 })
 
-export function TopBar({ projectName, onSwitchProject, agents, onSpawnClick, onAgentClick, pinboardOpen, onTogglePinboard, infoOpen, onToggleInfo, buddyOpen, onToggleBuddy, filesOpen, onToggleFiles, racOpen, onToggleRac, onPresetsClick }: TopBarProps): React.ReactElement {
+export function TopBar({ projectName, onSwitchProject, agents, onSpawnClick, onAgentClick, pinboardOpen, onTogglePinboard, infoOpen, onToggleInfo, buddyOpen, onToggleBuddy, filesOpen, onToggleFiles, racOpen, onToggleRac, onPresetsClick, onBugReport }: TopBarProps): React.ReactElement {
   return (
     <div style={{
       height: '44px',
@@ -107,6 +108,18 @@ export function TopBar({ projectName, onSwitchProject, agents, onSpawnClick, onA
         <button onClick={onToggleBuddy} style={toggleBtnStyle(buddyOpen)}>Buddy</button>
         <div style={{ width: '1px', height: '24px', backgroundColor: '#333' }} />
         <button onClick={onPresetsClick} style={toggleBtnStyle(false)}>Presets</button>
+        <div style={{ width: '1px', height: '24px', backgroundColor: '#333' }} />
+        <button onClick={onBugReport} style={{
+          height: '28px',
+          padding: '0 8px',
+          borderRadius: '5px',
+          border: '1px solid #444',
+          backgroundColor: '#2a2a2a',
+          color: '#f44336',
+          fontSize: '11px',
+          cursor: 'pointer',
+          whiteSpace: 'nowrap'
+        }}>Bug?</button>
       </div>
     </div>
   )
