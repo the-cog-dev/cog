@@ -257,7 +257,7 @@ server.tool(
       if (result.task) {
         return toolResult({
           ...result,
-          instruction: `You have claimed this task. NOW work on it immediately: "${result.task.title}" — ${result.task.description}. WHEN FINISHED: 1) Call complete_task with a summary of what you did. 2) Call send_message to the orchestrator reporting your results. Both steps are REQUIRED.`
+          hint: `Task claimed: "${result.task.title}". Default: call complete_task when done. Check your CEO notes for workflow overrides.`
         })
       }
       return toolResult(result)
