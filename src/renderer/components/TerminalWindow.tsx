@@ -41,13 +41,20 @@ export function TerminalWindow({ agentId }: TerminalWindowProps): React.ReactEle
     })
 
     // Ctrl+C: copy if text selected, otherwise send SIGINT to PTY
+    // Ctrl+V: paste from clipboard into PTY
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.ctrlKey && ev.key === 'c' && ev.type === 'keydown') {
         if (term.hasSelection()) {
           navigator.clipboard.writeText(term.getSelection())
           term.clearSelection()
-          return false // prevent sending to PTY
+          return false
         }
+      }
+      if (ev.ctrlKey && ev.key === 'v' && ev.type === 'keydown') {
+        navigator.clipboard.readText().then(text => {
+          if (text) window.electronAPI.writeToPty(agentId, text)
+        })
+        return false
       }
       return true
     })
