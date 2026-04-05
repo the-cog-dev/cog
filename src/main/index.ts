@@ -505,9 +505,13 @@ function setupTaskNudge(): void {
   hub.pinboard.onTaskCreated = (task) => {
     existingCallback?.(task)
 
-    // Filter agents by targetRole if specified, otherwise nudge all non-orchestrators
+    // Filter agents by targetRole if specified, otherwise nudge all non-orchestrators.
+    // Skip the agent that created the task — nudging the creator while it's still
+    // processing the post_task tool response can cause TUI CLIs to re-render their
+    // entire conversation history (cosmetic but confusing).
     const candidates = hub.registry.list().filter(agent => {
       if (agent.status === 'disconnected' || agent.name === 'user') return false
+      if (agent.name === task.createdBy) return false
       if (task.targetRole) {
         return agent.role === task.targetRole
       }

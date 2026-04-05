@@ -26,6 +26,16 @@ const PANEL_IDS: Record<string, string> = {
   '__git__': 'git',
 }
 
+// Extract panel type from a potentially tab-qualified ID (e.g. '__pinboard__::tab-1')
+function getPanelType(id: string): string | undefined {
+  for (const [prefix, type] of Object.entries(PANEL_IDS)) {
+    if (id === prefix || id.startsWith(prefix + '::')) {
+      return type
+    }
+  }
+  return undefined
+}
+
 const STATUS_COLORS: Record<string, string> = {
   idle: '#888',
   active: '#4caf50',
@@ -312,7 +322,7 @@ export function Workspace({
           onRemoveLink={onRemoveLink}
         />
         {windows.map(win => {
-          const panelType = PANEL_IDS[win.id]
+          const panelType = getPanelType(win.id)
           const agent = !panelType ? agents.find(a => a.id === win.id) : undefined
           const statusColor = agent ? STATUS_COLORS[agent.status] ?? '#888' : undefined
           const title = agent

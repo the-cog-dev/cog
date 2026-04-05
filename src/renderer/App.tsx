@@ -26,6 +26,11 @@ const RAC_ID = '__rac__'
 const USAGE_ID = '__usage__'
 const GIT_ID = '__git__'
 
+// Helpers for per-tab panel isolation
+const PANEL_PREFIXES = [PINBOARD_ID, INFO_ID, BUDDY_ID, FILES_ID, RAC_ID, USAGE_ID, GIT_ID]
+const panelIdForTab = (base: string, tabId: string): string => `${base}::${tabId}`
+const isPanelWindow = (id: string): boolean => PANEL_PREFIXES.some(p => id === p || id.startsWith(p + '::'))
+
 export function App(): React.ReactElement {
   const [tabs, setTabs] = useState<WorkspaceTab[]>([{ id: 'tab-default', name: 'Workspace 1' }])
   const [activeTabId, setActiveTabId] = useState('tab-default')
@@ -46,19 +51,22 @@ export function App(): React.ReactElement {
   } = useWindowManager()
   const { agents, spawnAgent, killAgent, getStatusColor } = useAgents()
 
-  const pinboardOpen = windows.some(w => w.id === PINBOARD_ID)
-  const infoOpen = windows.some(w => w.id === INFO_ID)
-  const buddyOpen = windows.some(w => w.id === BUDDY_ID)
-  const filesOpen = windows.some(w => w.id === FILES_ID)
-  const racOpen = windows.some(w => w.id === RAC_ID)
-  const usageOpen = windows.some(w => w.id === USAGE_ID)
-  const gitOpen = windows.some(w => w.id === GIT_ID)
+  // Filter windows to only those belonging to the active tab
+  const tabWindows = windows.filter(w => w.tabId === activeTabId)
+
+  const pinboardOpen = tabWindows.some(w => w.id === panelIdForTab(PINBOARD_ID, activeTabId))
+  const infoOpen = tabWindows.some(w => w.id === panelIdForTab(INFO_ID, activeTabId))
+  const buddyOpen = tabWindows.some(w => w.id === panelIdForTab(BUDDY_ID, activeTabId))
+  const filesOpen = tabWindows.some(w => w.id === panelIdForTab(FILES_ID, activeTabId))
+  const racOpen = tabWindows.some(w => w.id === panelIdForTab(RAC_ID, activeTabId))
+  const usageOpen = tabWindows.some(w => w.id === panelIdForTab(USAGE_ID, activeTabId))
+  const gitOpen = tabWindows.some(w => w.id === panelIdForTab(GIT_ID, activeTabId))
 
   const handleSpawn = useCallback(async (config: Omit<AgentConfig, 'id'>) => {
     setShowSpawnDialog(false)
     const configWithTab = { ...config, tabId: activeTabId }
     const agentId = await spawnAgent(configWithTab)
-    addWindow(agentId, `${config.name} (${config.cli})`, getStatusColor('idle'))
+    addWindow(agentId, `${config.name} (${config.cli})`, getStatusColor('idle'), activeTabId)
   }, [spawnAgent, addWindow, getStatusColor, activeTabId])
 
   const handleCreateTab = useCallback(async () => {
@@ -90,7 +98,7 @@ export function App(): React.ReactElement {
 
   const handleClose = useCallback(async (windowId: string) => {
     // Panel windows just get removed, no agent to kill
-    if (windowId === PINBOARD_ID || windowId === INFO_ID || windowId === BUDDY_ID || windowId === FILES_ID || windowId === RAC_ID || windowId === USAGE_ID || windowId === GIT_ID) {
+    if (isPanelWindow(windowId)) {
       removeWindow(windowId)
       return
     }
@@ -119,56 +127,39 @@ export function App(): React.ReactElement {
   }, [])
 
   const togglePinboard = useCallback(() => {
-    if (pinboardOpen) {
-      removeWindow(PINBOARD_ID)
-    } else {
-      addWindow(PINBOARD_ID, 'Pinboard')
-    }
-  }, [pinboardOpen, addWindow, removeWindow])
+    const id = panelIdForTab(PINBOARD_ID, activeTabId)
+    if (pinboardOpen) { removeWindow(id) } else { addWindow(id, 'Pinboard', undefined, activeTabId) }
+  }, [pinboardOpen, addWindow, removeWindow, activeTabId])
 
   const toggleInfo = useCallback(() => {
-    if (infoOpen) {
-      removeWindow(INFO_ID)
-    } else {
-      addWindow(INFO_ID, 'Info Channel')
-    }
-  }, [infoOpen, addWindow, removeWindow])
+    const id = panelIdForTab(INFO_ID, activeTabId)
+    if (infoOpen) { removeWindow(id) } else { addWindow(id, 'Info Channel', undefined, activeTabId) }
+  }, [infoOpen, addWindow, removeWindow, activeTabId])
 
   const toggleBuddy = useCallback(() => {
-    if (buddyOpen) {
-      removeWindow(BUDDY_ID)
-    } else {
-      addWindow(BUDDY_ID, 'Buddy Room')
-    }
-  }, [buddyOpen, addWindow, removeWindow])
+    const id = panelIdForTab(BUDDY_ID, activeTabId)
+    if (buddyOpen) { removeWindow(id) } else { addWindow(id, 'Buddy Room', undefined, activeTabId) }
+  }, [buddyOpen, addWindow, removeWindow, activeTabId])
 
   const toggleFiles = useCallback(() => {
-    if (filesOpen) {
-      removeWindow(FILES_ID)
-    } else {
-      addWindow(FILES_ID, 'Files')
-    }
-  }, [filesOpen, addWindow, removeWindow])
+    const id = panelIdForTab(FILES_ID, activeTabId)
+    if (filesOpen) { removeWindow(id) } else { addWindow(id, 'Files', undefined, activeTabId) }
+  }, [filesOpen, addWindow, removeWindow, activeTabId])
 
   const toggleRac = useCallback(() => {
-    if (racOpen) {
-      removeWindow(RAC_ID)
-    } else {
-      addWindow(RAC_ID, 'R.A.C.')
-    }
-  }, [racOpen, addWindow, removeWindow])
+    const id = panelIdForTab(RAC_ID, activeTabId)
+    if (racOpen) { removeWindow(id) } else { addWindow(id, 'R.A.C.', undefined, activeTabId) }
+  }, [racOpen, addWindow, removeWindow, activeTabId])
 
   const toggleUsage = useCallback(() => {
-    if (usageOpen) {
-      removeWindow(USAGE_ID)
-    } else {
-      addWindow(USAGE_ID, 'Usage')
-    }
-  }, [usageOpen, addWindow, removeWindow])
+    const id = panelIdForTab(USAGE_ID, activeTabId)
+    if (usageOpen) { removeWindow(id) } else { addWindow(id, 'Usage', undefined, activeTabId) }
+  }, [usageOpen, addWindow, removeWindow, activeTabId])
 
   const toggleGit = useCallback(() => {
-    if (gitOpen) { removeWindow(GIT_ID) } else { addWindow(GIT_ID, 'Git') }
-  }, [gitOpen, addWindow, removeWindow])
+    const id = panelIdForTab(GIT_ID, activeTabId)
+    if (gitOpen) { removeWindow(id) } else { addWindow(id, 'Git', undefined, activeTabId) }
+  }, [gitOpen, addWindow, removeWindow, activeTabId])
 
   // Load links & groups when project changes
   useEffect(() => {
@@ -234,16 +225,16 @@ export function App(): React.ReactElement {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key >= '1' && e.key <= '9') {
         const idx = parseInt(e.key) - 1
-        if (windows[idx]) {
-          focusWindow(windows[idx].id)
+        if (tabWindows[idx]) {
+          focusWindow(tabWindows[idx].id)
           currentFocusIdx = idx
         }
         e.preventDefault()
       }
       if (e.ctrlKey && e.key === 'Tab') {
-        if (windows.length > 0) {
-          currentFocusIdx = (currentFocusIdx + 1) % windows.length
-          focusWindow(windows[currentFocusIdx].id)
+        if (tabWindows.length > 0) {
+          currentFocusIdx = (currentFocusIdx + 1) % tabWindows.length
+          focusWindow(tabWindows[currentFocusIdx].id)
         }
         e.preventDefault()
       }
@@ -255,13 +246,13 @@ export function App(): React.ReactElement {
       }
       // Ctrl+Shift+0 = fit all
       if (e.ctrlKey && e.key === ')') {
-        zoomToFit(window.innerWidth, window.innerHeight - 44)
+        zoomToFit(window.innerWidth, window.innerHeight - 44, activeTabId)
         e.preventDefault()
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [windows, focusWindow, setZoom, setPan, zoomToFit])
+  }, [tabWindows, focusWindow, setZoom, setPan, zoomToFit, activeTabId])
 
   useEffect(() => {
     electronAPI.getProject().then((p: RecentProject | null) => {
@@ -284,11 +275,11 @@ export function App(): React.ReactElement {
       if (agent.name.startsWith('rac-') && !closedRacAgents.current.has(agent.id)) {
         const hasWindow = windows.some(w => w.id === agent.id)
         if (!hasWindow) {
-          addWindow(agent.id, `${agent.name} (R.A.C.)`, '#4a9eff')
+          addWindow(agent.id, `${agent.name} (R.A.C.)`, '#4a9eff', activeTabId)
         }
       }
     }
-  }, [agents, windows, addWindow])
+  }, [agents, windows, addWindow, activeTabId])
 
   const handleProjectOpened = useCallback((p: RecentProject) => {
     setProject(p)
@@ -338,7 +329,7 @@ export function App(): React.ReactElement {
             onRenameTab={handleRenameTab}
           />
           <Workspace
-            windows={windows}
+            windows={tabWindows}
             agents={tabAgents}
             zoom={zoom}
             pan={pan}
@@ -348,7 +339,7 @@ export function App(): React.ReactElement {
             onRemoveLink={handleRemoveLink}
             onSetZoom={setZoom}
             onSetPan={setPan}
-            onZoomToFit={zoomToFit}
+            onZoomToFit={(w, h) => zoomToFit(w, h, activeTabId)}
             onFocusWindow={focusWindow}
             onMinimizeWindow={minimizeWindow}
             onCloseWindow={handleClose}
@@ -367,8 +358,8 @@ export function App(): React.ReactElement {
           )}
           {showPresetDialog && (
             <PresetDialog
-              agents={agents}
-              windows={windows}
+              agents={tabAgents}
+              windows={tabWindows}
               zoom={zoom}
               pan={pan}
               onLoadPreset={(configs, savedWindows, savedCanvas) => {
@@ -383,7 +374,7 @@ export function App(): React.ReactElement {
                   setZoom(savedCanvas.zoom)
                   setPan(savedCanvas.panX, savedCanvas.panY)
                 }
-                // Restore panel windows from saved positions
+                // Restore panel windows from saved positions (tab-scoped)
                 const panelTitleToId: Record<string, string> = {
                   'Pinboard': PINBOARD_ID,
                   'Info Channel': INFO_ID,
@@ -393,9 +384,10 @@ export function App(): React.ReactElement {
                   'Usage': USAGE_ID,
                 }
                 for (const wp of savedWindows) {
-                  const panelId = panelTitleToId[wp.agentName]
-                  if (panelId) {
-                    addWindowAt(panelId, wp.agentName, wp.x, wp.y, wp.width, wp.height)
+                  const panelBase = panelTitleToId[wp.agentName]
+                  if (panelBase) {
+                    const id = panelIdForTab(panelBase, activeTabId)
+                    addWindowAt(id, wp.agentName, wp.x, wp.y, wp.width, wp.height, undefined, activeTabId)
                   }
                 }
                 // Spawn agents with saved positions, scoped to current tab
@@ -405,9 +397,9 @@ export function App(): React.ReactElement {
                   const title = `${config.name} (${config.cli})`
                   const pos = posMap.get(title)
                   if (pos) {
-                    addWindowAt(agentId, title, pos.x, pos.y, pos.width, pos.height, getStatusColor('idle'))
+                    addWindowAt(agentId, title, pos.x, pos.y, pos.width, pos.height, getStatusColor('idle'), activeTabId)
                   } else {
-                    addWindow(agentId, title, getStatusColor('idle'))
+                    addWindow(agentId, title, getStatusColor('idle'), activeTabId)
                   }
                 })
               }}

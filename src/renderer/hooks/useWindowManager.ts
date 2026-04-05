@@ -10,6 +10,7 @@ export interface WindowState {
   height: number
   zIndex: number
   minimized: boolean
+  tabId?: string
 }
 
 let nextZ = 1
@@ -55,9 +56,10 @@ export function useWindowManager() {
     })
   }, [])
 
-  const zoomToFit = useCallback((viewportWidth: number, viewportHeight: number) => {
+  const zoomToFit = useCallback((viewportWidth: number, viewportHeight: number, tabId?: string) => {
     setWindows(prev => {
-      const wins = Array.from(prev.values())
+      let wins = Array.from(prev.values())
+      if (tabId) wins = wins.filter(w => w.tabId === tabId)
       if (wins.length === 0) return prev
 
       const padding = 60
@@ -92,10 +94,12 @@ export function useWindowManager() {
     })
   }, [])
 
-  const addWindow = useCallback((id: string, title: string, statusColor?: string) => {
+  const addWindow = useCallback((id: string, title: string, statusColor?: string, tabId?: string) => {
     setWindows(prev => {
       const next = new Map(prev)
-      const offset = next.size * 30
+      // Only count windows in the same tab for offset calculation
+      const tabWins = tabId ? Array.from(next.values()).filter(w => w.tabId === tabId) : Array.from(next.values())
+      const offset = tabWins.length * 30
       const z = zoomRef.current
       const p = panRef.current
       const canvasX = (window.innerWidth / 2 - p.x) / z - 300 + offset
@@ -104,6 +108,7 @@ export function useWindowManager() {
         id,
         title,
         statusColor,
+        tabId,
         x: canvasX,
         y: canvasY,
         width: 600,
@@ -115,13 +120,14 @@ export function useWindowManager() {
     })
   }, []) // stable — uses refs, no zoom/pan in deps
 
-  const addWindowAt = useCallback((id: string, title: string, x: number, y: number, width: number, height: number, statusColor?: string) => {
+  const addWindowAt = useCallback((id: string, title: string, x: number, y: number, width: number, height: number, statusColor?: string, tabId?: string) => {
     setWindows(prev => {
       const next = new Map(prev)
       next.set(id, {
         id,
         title,
         statusColor,
+        tabId,
         x,
         y,
         width,
