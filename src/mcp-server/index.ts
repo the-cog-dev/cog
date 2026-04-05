@@ -257,7 +257,8 @@ server.tool(
       if (result.task) {
         return toolResult({
           ...result,
-          hint: `Task claimed: "${result.task.title}". Default: call complete_task when done. Check your CEO notes for workflow overrides.`
+          task_title: result.task.title,
+          task_description: result.task.description
         })
       }
       return toolResult(result)
