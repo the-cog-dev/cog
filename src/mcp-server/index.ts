@@ -10,6 +10,7 @@ const HUB_PORT = args[0] || process.env.AGENTORCH_HUB_PORT
 const HUB_SECRET = args[1] || process.env.AGENTORCH_HUB_SECRET
 const AGENT_ID = args[2] || process.env.AGENTORCH_AGENT_ID
 const AGENT_NAME = (args.length > 3 ? args.slice(3).join(' ') : undefined) || process.env.AGENTORCH_AGENT_NAME
+const TAB_ID = process.env.AGENTORCH_TAB_ID || undefined
 
 if (!HUB_PORT || !HUB_SECRET || !AGENT_ID || !AGENT_NAME) {
   console.error('AgentOrch MCP server: missing connection info.')
@@ -202,7 +203,7 @@ server.tool(
     try {
       const result = await hubFetch('/pinboard/tasks', {
         method: 'POST',
-        body: JSON.stringify({ title, description, priority, from: AGENT_NAME, targetRole: target_role })
+        body: JSON.stringify({ title, description, priority, from: AGENT_NAME, targetRole: target_role, tabId: TAB_ID })
       })
       return toolResult(result)
     } catch (err: any) {
@@ -318,7 +319,7 @@ server.tool(
     try {
       const result = await hubFetch('/info', {
         method: 'POST',
-        body: JSON.stringify({ from: AGENT_NAME, note, tags })
+        body: JSON.stringify({ from: AGENT_NAME, note, tags, tabId: TAB_ID })
       })
       return toolResult(result)
     } catch (err: any) {

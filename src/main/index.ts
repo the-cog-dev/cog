@@ -31,6 +31,9 @@ const hasReceivedInitialPrompt = new Set<string>()
 const initialPrompts = new Map<string, string>()
 const manualKills = new Set<string>() // Track intentional kills to skip auto-reconnect
 const pendingNudges = new Map<string, string[]>() // agentName → queued nudge strings
+const workspaceTabs = new Map<string, { id: string; name: string }>()
+workspaceTabs.set('tab-default', { id: 'tab-default', name: 'Workspace 1' })
+let nextTabNum = 2
 const lastNudgeDelivery = new Map<string, number>() // agentName → timestamp of last nudge delivery
 const nudgeFallbackTimers = new Map<string, ReturnType<typeof setTimeout>>() // agentName → fallback timer
 const NUDGE_COOLDOWN_MS = 15000   // Minimum interval between nudge deliveries to the same agent
@@ -296,6 +299,7 @@ function reconnectAgent(config: AgentConfig): void {
     if (config.model) mcpEnv.OPENAI_MODEL = config.model
     if (config.providerUrl) mcpEnv.OPENAI_BASE_URL = config.providerUrl
   }
+  if (config.tabId) mcpEnv.AGENTORCH_TAB_ID = config.tabId
 
   hub.registry.register(config)
   const initialPrompt = buildReconnectPrompt(config)
@@ -708,6 +712,7 @@ function setupIPC(): void {
       if (config.model) mcpEnv.OPENAI_MODEL = config.model
       if (config.providerUrl) mcpEnv.OPENAI_BASE_URL = config.providerUrl
     }
+    if (config.tabId) mcpEnv.AGENTORCH_TAB_ID = config.tabId
 
     hub.registry.register(config)
     hub.agentMetrics.register(config.name)
@@ -1271,6 +1276,41 @@ function setupIPC(): void {
     } catch (err: any) {
       return { success: false, method: 'api', error: err.message }
     }
+  })
+
+  // Tab IPC
+  ipcMain.handle(IPC.TAB_GET_ALL, () => Array.from(workspaceTabs.values()))
+
+  ipcMain.handle(IPC.TAB_CREATE, (_event, name?: string) => {
+    const id = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    const tab = { id, name: name || `Workspace ${nextTabNum++}` }
+    workspaceTabs.set(id, tab)
+    return tab
+  })
+
+  ipcMain.handle(IPC.TAB_CLOSE, async (_event, tabId: string) => {
+    if (workspaceTabs.size <= 1) return { error: 'Cannot close last tab' }
+    for (const [agentId, managed] of agents) {
+      if (managed.config.tabId === tabId) {
+        manualKills.add(agentId)
+        killPty(managed)
+        hub.registry.remove(managed.config.name)
+        hub.messages.clearAgent(managed.config.name)
+        pendingNudges.delete(managed.config.name)
+        if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
+        agents.delete(agentId)
+      }
+    }
+    workspaceTabs.delete(tabId)
+    mainWindow?.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
+    return { status: 'ok' }
+  })
+
+  ipcMain.handle(IPC.TAB_RENAME, (_event, tabId: string, name: string) => {
+    const tab = workspaceTabs.get(tabId)
+    if (!tab) return { error: 'Tab not found' }
+    tab.name = name
+    return { status: 'ok' }
   })
 }
 

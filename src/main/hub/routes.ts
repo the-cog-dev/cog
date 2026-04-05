@@ -118,12 +118,12 @@ export function createRoutes(
   // --- Pinboard routes ---
 
   router.post('/pinboard/tasks', (req: Request, res: Response) => {
-    const { title, description, priority, from, targetRole } = req.body
+    const { title, description, priority, from, targetRole, tabId } = req.body
     if (!title || !description) {
       res.status(400).json({ error: 'title and description are required' })
       return
     }
-    const task = pinboard.postTask(title, description, priority, from, undefined, targetRole)
+    const task = pinboard.postTask(title, description, priority, from, undefined, targetRole, tabId)
     res.json({ id: task.id, title: task.title, createdBy: task.createdBy, targetRole: task.targetRole })
   })
 
@@ -191,12 +191,12 @@ export function createRoutes(
 
   router.post('/info', (req: Request, res: Response) => {
     try {
-      const { from, note, tags } = req.body
+      const { from, note, tags, tabId } = req.body
       if (!from || !note) {
         res.status(400).json({ error: 'from and note are required' })
         return
       }
-      const entry = infoChannel.postInfo(from, note, tags || [])
+      const entry = infoChannel.postInfo(from, note, tags || [], undefined, tabId)
       res.json(entry)
     } catch (err: any) {
       res.status(400).json({ error: 'Invalid info entry' })

@@ -102,6 +102,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Settings
   getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke(IPC.SETTINGS_SET, key, value),
+  // Tabs
+  getTabs: () => ipcRenderer.invoke(IPC.TAB_GET_ALL),
+  createTab: (name?: string) => ipcRenderer.invoke(IPC.TAB_CREATE, name),
+  closeTab: (tabId: string) => ipcRenderer.invoke(IPC.TAB_CLOSE, tabId),
+  renameTab: (tabId: string, name: string) => ipcRenderer.invoke(IPC.TAB_RENAME, tabId, name),
   // Git
   gitStatus: () => ipcRenderer.invoke(IPC.GIT_STATUS),
   gitLog: (count?: number) => ipcRenderer.invoke(IPC.GIT_LOG, count),
