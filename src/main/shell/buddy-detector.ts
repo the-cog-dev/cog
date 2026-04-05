@@ -1,8 +1,12 @@
-// Strip ANSI escape codes from terminal output
+// Strip ANSI escape codes and terminal control sequences from output
 function stripAnsi(str: string): string {
-  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-    .replace(/\x1b\][^\x07]*\x07/g, '')
-    .replace(/\x1b\[[\d;]*m/g, '')
+  return str
+    .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')   // CSI sequences (including ?2026h/l)
+    .replace(/\x1b\][^\x07]*\x07/g, '')         // OSC sequences
+    .replace(/\x1b\[[\d;]*m/g, '')              // SGR color codes
+    .replace(/\x1b[()][A-Z0-9]/g, '')           // Character set selection
+    .replace(/[\x00-\x08\x0e-\x1f]/g, '')       // Control characters
+    .replace(/[✢✶✻✽·⏵]/g, '')                    // Claude spinner characters
 }
 
 // Strip box-drawing characters
@@ -112,6 +116,13 @@ export class BuddyDetector {
 
     // Sanity: ignore very short or garbage messages
     if (message.length < 8) return null
+
+    // Reject messages that are mostly non-alphabetic (ANSI garbage that slipped through)
+    const alphaChars = message.replace(/[^a-zA-Z\s]/g, '').trim()
+    if (alphaChars.length < 5) return null
+
+    // Reject if it contains terminal control leftovers
+    if (message.includes('[?') || message.includes('2026') || message.includes('esc to')) return null
 
     this.lastDetectionTime = now
     this.lastMessage = message
