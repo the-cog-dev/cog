@@ -49,13 +49,6 @@ export function TerminalWindow({ agentId }: TerminalWindowProps): React.ReactEle
           return false // prevent sending to PTY
         }
       }
-      // Ctrl+V: paste from clipboard
-      if (ev.ctrlKey && ev.key === 'v' && ev.type === 'keydown') {
-        navigator.clipboard.readText().then(text => {
-          window.electronAPI.writeToPty(agentId, text)
-        })
-        return false
-      }
       return true
     })
 
