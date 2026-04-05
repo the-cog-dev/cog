@@ -502,7 +502,7 @@ function setupTaskNudge(): void {
 
     const roleLabel = task.targetRole ? ` for ${task.targetRole}s` : ''
     for (const agent of candidates) {
-      const nudge = `[AgentOrch] New task posted${roleLabel}: "${task.title}" ${task.priority} priority. Call read_tasks to see open tasks, then claim_task to pick one up.`
+      const nudge = `[AgentOrch] New task posted${roleLabel}: "${task.title}" (id: ${task.id}) ${task.priority} priority. Claim it now with claim_task("${task.id}") or call read_tasks() to see all open tasks.`
       deliverNudge(agent.name, nudge)
     }
   }

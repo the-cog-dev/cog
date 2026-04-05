@@ -219,7 +219,20 @@ server.tool(
     try {
       const tasks = await hubFetch('/pinboard/tasks')
       if (tasks.length === 0) return toolResult('No tasks on the pinboard. STOP — do NOT poll read_tasks() again. You will be nudged automatically when a new task is posted. Wait for the nudge.')
-      return toolResult(tasks)
+
+      // Sort: open first, then in_progress, then completed — so claimable tasks are immediately visible
+      const statusOrder: Record<string, number> = { open: 0, in_progress: 1, completed: 2 }
+      const sorted = [...tasks].sort((a: any, b: any) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9))
+
+      const openTasks = sorted.filter((t: any) => t.status === 'open')
+      const inProgress = sorted.filter((t: any) => t.status === 'in_progress')
+
+      // Build a summary header so the agent knows exactly what's actionable
+      const summary = openTasks.length > 0
+        ? `${openTasks.length} OPEN task(s) ready to claim (call claim_task with the task id). ${inProgress.length} in progress. Claim one NOW.`
+        : `No open tasks to claim. ${inProgress.length} in progress. STOP — wait for a nudge.`
+
+      return toolResult({ summary, tasks: sorted })
     } catch (err: any) {
       return toolError(`Failed to read tasks: ${err.message}`)
     }
