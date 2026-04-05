@@ -11,6 +11,7 @@ export interface PinboardTask {
   result: string | null
   createdAt: string
   groupId?: string
+  tabId?: string
   targetRole?: string  // only nudge agents with this role (e.g., 'reviewer', 'worker')
 }
 
@@ -20,7 +21,7 @@ export class Pinboard {
   onTaskUpdated?: (task: PinboardTask) => void
   onTaskDeleted?: (taskId: string) => void
 
-  postTask(title: string, description: string, priority: 'low' | 'medium' | 'high' = 'medium', createdBy?: string, groupId?: string, targetRole?: string): PinboardTask {
+  postTask(title: string, description: string, priority: 'low' | 'medium' | 'high' = 'medium', createdBy?: string, groupId?: string, targetRole?: string, tabId?: string): PinboardTask {
     const task: PinboardTask = {
       id: uuid(),
       title,
@@ -32,7 +33,8 @@ export class Pinboard {
       result: null,
       targetRole: targetRole ?? undefined,
       createdAt: new Date().toISOString(),
-      groupId: groupId ?? undefined
+      groupId: groupId ?? undefined,
+      tabId: tabId ?? undefined
     }
     this.tasks.set(task.id, task)
     this.onTaskCreated?.(task)
@@ -52,6 +54,11 @@ export class Pinboard {
   readTasksForGroup(groupId: string | null): PinboardTask[] {
     if (!groupId) return this.readTasks()
     return this.readTasks().filter(t => !t.groupId || t.groupId === groupId)
+  }
+
+  readTasksForTab(tabId: string | null): PinboardTask[] {
+    if (!tabId) return this.readTasks()
+    return this.readTasks().filter(t => !t.tabId || t.tabId === tabId)
   }
 
   claimTask(taskId: string, agentName: string): { status: string; detail: string; task?: PinboardTask } {

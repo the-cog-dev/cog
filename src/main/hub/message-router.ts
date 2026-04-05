@@ -17,7 +17,7 @@ export class MessageRouter {
 
   constructor(private registry: AgentRegistry, private groupManager?: GroupManager, private metrics?: AgentMetrics) {}
 
-  send(from: string, to: string, message: string, skipRateLimit = false): SendMessageResult {
+  send(from: string, to: string, message: string, skipRateLimit = false, tabId?: string): SendMessageResult {
     if (message.length > MAX_MESSAGE_SIZE) {
       return { status: 'error', detail: `Message exceeds max size of ${MAX_MESSAGE_SIZE} bytes` }
     }
@@ -48,7 +48,8 @@ export class MessageRouter {
       to,
       message,
       timestamp: new Date().toISOString(),
-      groupId: this.groupManager?.getGroupIdForAgent(from) ?? undefined
+      groupId: this.groupManager?.getGroupIdForAgent(from) ?? undefined,
+      tabId: tabId ?? undefined
     }
 
     if (!this.queues.has(to)) {
