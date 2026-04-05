@@ -556,6 +556,22 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadPreset, onClose
     }
   }
 
+  const handleClonePreset = async (name: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      setLoading(true)
+      setError(null)
+      const preset = await window.electronAPI.loadPreset(name)
+      setEditingAgents(preset.agents)
+      setPresetName(`${name}-copy`)
+      setActiveTab('save')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clone preset')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const updateEditingAgent = (index: number, field: keyof AgentConfig, value: string | boolean) => {
     setEditingAgents(prev => {
       if (!prev) return prev
@@ -905,6 +921,13 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadPreset, onClose
                       &#8635;
                     </button>
                     <button
+                      onClick={e => handleClonePreset(preset.name, e)}
+                      style={cloneBtnStyle}
+                      title="Clone preset"
+                    >
+                      &#10697;
+                    </button>
+                    <button
                       onClick={e => handleEditPreset(preset.name, e)}
                       style={editBtnStyle}
                       title="Edit preset"
@@ -1144,6 +1167,20 @@ const updateBtnStyle: React.CSSProperties = {
   border: 'none',
   color: '#666',
   fontSize: '16px',
+  cursor: 'pointer',
+  borderRadius: '4px'
+}
+
+const cloneBtnStyle: React.CSSProperties = {
+  width: '24px',
+  height: '24px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: 'transparent',
+  border: 'none',
+  color: '#666',
+  fontSize: '14px',
   cursor: 'pointer',
   borderRadius: '4px'
 }
