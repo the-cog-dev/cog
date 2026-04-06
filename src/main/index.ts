@@ -508,9 +508,12 @@ function setupTaskNudge(): void {
     // Skip the agent that created the task — nudging the creator while it's still
     // processing the post_task tool response can cause TUI CLIs to re-render their
     // entire conversation history (cosmetic but confusing).
+    // Tab isolation: only nudge agents on the same workspace tab as the task.
     const candidates = hub.registry.list().filter(agent => {
       if (agent.status === 'disconnected' || agent.name === 'user') return false
       if (agent.name === task.createdBy) return false
+      // Tab isolation: only nudge agents on the same tab
+      if (task.tabId && agent.tabId && task.tabId !== agent.tabId) return false
       if (task.targetRole) {
         return agent.role === task.targetRole
       }
@@ -557,11 +560,17 @@ function setupStaleTaskWatchdog(): void {
     })
     if (staleTasks.length === 0) return
 
-    // Nudge orchestrators about stale tasks
+    // Nudge orchestrators about stale tasks — only about tasks on their own tab
     const orchestrators = hub.registry.list().filter(a => a.role === 'orchestrator' && a.status !== 'disconnected')
     for (const orch of orchestrators) {
-      const taskList = staleTasks.map(t => `"${t.title}" claimed by ${t.claimedBy || 'unknown'}`).join(', ')
-      const nudge = `[AgentOrch] STALE TASK ALERT: ${staleTasks.length} task(s) stuck in_progress for over 5 minutes: ${taskList}. Check on these agents — they may need a nudge via send_message, or the task may need to be abandoned with abandon_task.`
+      // Tab isolation: only alert orchestrators about stale tasks on their own tab
+      const relevantStale = staleTasks.filter(t => {
+        if (t.tabId && orch.tabId && t.tabId !== orch.tabId) return false
+        return true
+      })
+      if (relevantStale.length === 0) continue
+      const taskList = relevantStale.map(t => `"${t.title}" claimed by ${t.claimedBy || 'unknown'}`).join(', ')
+      const nudge = `[AgentOrch] STALE TASK ALERT: ${relevantStale.length} task(s) stuck in_progress for over 5 minutes: ${taskList}. Check on these agents — they may need a nudge via send_message, or the task may need to be abandoned with abandon_task.`
       deliverNudge(orch.name, nudge)
     }
 

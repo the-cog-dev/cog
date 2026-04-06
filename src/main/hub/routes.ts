@@ -134,7 +134,10 @@ export function createRoutes(
 
   router.post('/pinboard/tasks/:id/claim', (req: Request, res: Response) => {
     const { from } = req.body
-    const result = pinboard.claimTask(req.params.id, from)
+    // Look up the claiming agent's tabId for tab isolation enforcement
+    const agent = registry.get(from)
+    const agentTabId = agent?.tabId
+    const result = pinboard.claimTask(req.params.id, from, agentTabId)
     if (result.status === 'error') {
       res.status(409).json(result)
       return

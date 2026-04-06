@@ -61,10 +61,14 @@ export class Pinboard {
     return this.readTasks().filter(t => !t.tabId || t.tabId === tabId)
   }
 
-  claimTask(taskId: string, agentName: string): { status: string; detail: string; task?: PinboardTask } {
+  claimTask(taskId: string, agentName: string, agentTabId?: string): { status: string; detail: string; task?: PinboardTask } {
     const task = this.tasks.get(taskId)
     if (!task) {
       return { status: 'error', detail: `Task '${taskId}' not found` }
+    }
+    // Enforce tab isolation: agents can only claim tasks on their own tab
+    if (task.tabId && agentTabId && task.tabId !== agentTabId) {
+      return { status: 'error', detail: 'Task belongs to a different workspace tab' }
     }
     if (task.status === 'completed') {
       return { status: 'error', detail: 'Task is already completed' }
