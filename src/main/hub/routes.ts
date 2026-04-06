@@ -127,8 +127,9 @@ export function createRoutes(
     res.json({ id: task.id, title: task.title, createdBy: task.createdBy, targetRole: task.targetRole })
   })
 
-  router.get('/pinboard/tasks', (_req: Request, res: Response) => {
-    res.json(pinboard.readTasks())
+  router.get('/pinboard/tasks', (req: Request, res: Response) => {
+    const tabId = (req.query.tabId as string) || null
+    res.json(pinboard.readTasksForTab(tabId))
   })
 
   router.post('/pinboard/tasks/:id/claim', (req: Request, res: Response) => {
@@ -160,8 +161,9 @@ export function createRoutes(
     res.json(result)
   })
 
-  router.post('/pinboard/clear-completed', (_req: Request, res: Response) => {
-    const cleared = pinboard.clearCompleted()
+  router.post('/pinboard/clear-completed', (req: Request, res: Response) => {
+    const tabId = (req.body.tabId as string) || null
+    const cleared = pinboard.clearCompleted(tabId)
     res.json({ status: 'ok', cleared })
   })
 

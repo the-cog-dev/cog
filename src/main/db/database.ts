@@ -36,6 +36,7 @@ export function createDatabase(dbPath: string): Database.Database {
 
   // Migrations for existing DBs — safe to fail if column already exists
   try { db.exec('ALTER TABLE pinboard_tasks ADD COLUMN created_by TEXT') } catch { /* column exists */ }
+  try { db.exec('ALTER TABLE pinboard_tasks ADD COLUMN tab_id TEXT') } catch { /* column exists */ }
 
   return db
 }

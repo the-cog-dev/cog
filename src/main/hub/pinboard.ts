@@ -114,14 +114,14 @@ export class Pinboard {
     return this.tasks.get(taskId)
   }
 
-  clearCompleted(): number {
+  clearCompleted(tabId?: string | null): number {
     let cleared = 0
     for (const [id, task] of this.tasks) {
-      if (task.status === 'completed') {
-        this.tasks.delete(id)
-        this.onTaskDeleted?.(id)
-        cleared++
-      }
+      if (task.status !== 'completed') continue
+      if (tabId && task.tabId && task.tabId !== tabId) continue
+      this.tasks.delete(id)
+      this.onTaskDeleted?.(id)
+      cleared++
     }
     return cleared
   }

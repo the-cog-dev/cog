@@ -218,7 +218,8 @@ server.tool(
   {},
   async () => {
     try {
-      const tasks = await hubFetch('/pinboard/tasks')
+      const tabQuery = TAB_ID ? `?tabId=${encodeURIComponent(TAB_ID)}` : ''
+      const tasks = await hubFetch(`/pinboard/tasks${tabQuery}`)
       if (tasks.length === 0) return toolResult('No tasks on the pinboard. STOP — do NOT poll read_tasks() again. You will be nudged automatically when a new task is posted. Wait for the nudge.')
 
       // Sort: open first, then in_progress, then completed — so claimable tasks are immediately visible
@@ -375,7 +376,7 @@ server.tool(
     try {
       const result = await hubFetch('/pinboard/clear-completed', {
         method: 'POST',
-        body: JSON.stringify({})
+        body: JSON.stringify({ tabId: TAB_ID })
       })
       return toolResult(`Cleared ${result.cleared} completed task(s) from the pinboard.`)
     } catch (err: any) {
