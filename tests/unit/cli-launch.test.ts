@@ -28,7 +28,7 @@ describe('buildCliLaunchCommands', () => {
     ])
   })
 
-  it('launches Gemini with full MCP cleanup and model flags', () => {
+  it('launches Gemini with full MCP cleanup, env-var connection info, and model flags', () => {
     expect(buildCliLaunchCommands(
       makeConfig({ cli: 'gemini', model: 'gemini-2.5-pro', autoMode: true }),
       'C:\\temp\\agentorch-mcp.json',
@@ -37,7 +37,7 @@ describe('buildCliLaunchCommands', () => {
       'secret'
     )).toEqual([
       "gemini mcp list 2>$null | ForEach-Object { if ($_ -match '(agentorch[^\\s:]+)') { gemini mcp remove $Matches[1] 2>$null } }",
-      'gemini mcp add agentorch-worker-1 node "C:\\temp\\mcp-server.js" 7777 secret agent-1 worker-1',
+      'gemini mcp add agentorch-worker-1 -e AGENTORCH_HUB_PORT=7777 -e AGENTORCH_HUB_SECRET=secret -e AGENTORCH_AGENT_ID=agent-1 -e AGENTORCH_AGENT_NAME_ENC=worker-1 node "C:\\temp\\mcp-server.js"',
       'gemini --model gemini-2.5-pro --yolo'
     ])
   })
@@ -51,8 +51,46 @@ describe('buildCliLaunchCommands', () => {
       'secret'
     )!
     const addCmd = cmds.find(c => c.startsWith('gemini mcp add'))!
-    expect(addCmd).toContain('gemini mcp add agentorch-worker-1 node ')
+    expect(addCmd).toContain('gemini mcp add agentorch-worker-1 -e ')
     expect(addCmd).not.toContain(' -- node ')
+  })
+
+  it('passes gemini connection info via -e env vars instead of positional args (closes #40)', () => {
+    // Positional args after `node "path"` were lossy when the agent name contained
+    // spaces (e.g. "Gemini 2.5 Pro" became multiple yargs positionals). Switch to
+    // -e flags so the MCP server reads connection info from env vars.
+    const cmds = buildCliLaunchCommands(
+      makeConfig({ cli: 'gemini', name: 'RESEARCHER Gemini 2.5 Pro' }),
+      '/tmp/agentorch-mcp.json',
+      '/tmp/mcp-server.js',
+      7777,
+      'secret'
+    )!
+    const addCmd = cmds.find(c => c.startsWith('gemini mcp add'))!
+    // Name is sanitized for the mcp server name (no dots, no spaces).
+    expect(addCmd).toContain('gemini mcp add agentorch-RESEARCHER-Gemini-2-5-Pro ')
+    // Connection info passed via env flags, not positional args.
+    expect(addCmd).toContain('-e AGENTORCH_HUB_PORT=7777')
+    expect(addCmd).toContain('-e AGENTORCH_HUB_SECRET=secret')
+    expect(addCmd).toContain('-e AGENTORCH_AGENT_ID=agent-1')
+    // Agent name is URL-encoded so spaces and dots survive any shell intact.
+    expect(addCmd).toContain('-e AGENTORCH_AGENT_NAME_ENC=RESEARCHER%20Gemini%202.5%20Pro')
+    // The script path is the only positional arg after `node` — no agent name leakage.
+    expect(addCmd).toContain('node "/tmp/mcp-server.js"')
+    expect(addCmd).not.toMatch(/node "[^"]+" \d+ secret/)
+  })
+
+  it('sanitizes gemini mcp server names that contain dots or other special chars', () => {
+    const cmds = buildCliLaunchCommands(
+      makeConfig({ cli: 'gemini', name: 'Worker.v1 (alpha)' }),
+      '/tmp/agentorch-mcp.json',
+      '/tmp/mcp-server.js',
+      7777,
+      'secret'
+    )!
+    const addCmd = cmds.find(c => c.startsWith('gemini mcp add'))!
+    // Dots, spaces, and parens are collapsed to a single dash.
+    expect(addCmd).toContain('gemini mcp add agentorch-Worker-v1-alpha ')
   })
 
   it('routes Gemini cmd-shell cleanup through PowerShell to avoid Unicode dropout', () => {

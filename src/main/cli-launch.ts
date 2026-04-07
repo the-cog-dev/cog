@@ -97,13 +97,26 @@ export function buildCliLaunchCommands(
   }
 
   if (cliBase === 'gemini') {
-    const mcpName = `agentorch-${config.name.replace(/\s+/g, '-')}`
-    // NOTE: Gemini CLI's yargs parser does NOT pass positional args through `--` correctly.
-    // `gemini mcp add <name> -- node ...` fails with "Not enough non-option arguments".
-    // Codex CLI handles -- fine, but Gemini does not. Keep `--` out of this command.
+    // Sanitize: gemini rejects mcp server names with dots/special chars and silently
+    // fails registration. Strip everything except alphanumerics and dashes, collapse
+    // runs of dashes, trim leading/trailing dashes. Fall back to agent id if empty.
+    const sanitizedName = config.name
+      .replace(/[^a-zA-Z0-9-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+    const mcpName = `agentorch-${sanitizedName || config.id}`
+    // Pass connection info via `-e` env flags instead of positional args. The MCP
+    // server reads these from process.env as a fallback. This eliminates two prior
+    // failure modes:
+    //   1. Gemini's yargs parser mangling positional args containing spaces.
+    //   2. Shell quoting issues when the agent name has spaces (e.g. "Gemini 2.5 Pro")
+    //      causing the registered command to lose track of the name boundary.
+    // The agent name is URL-encoded to be shell-safe across bash/powershell/cmd
+    // without per-shell quoting; the MCP server decodes AGENTORCH_AGENT_NAME_ENC.
+    const encodedName = encodeURIComponent(config.name)
     const cmds = [
       buildMcpCleanupCmd('gemini', config.shell),
-      `gemini mcp add ${mcpName} node "${mcpServerPath}" ${hubPort} ${hubSecret} ${config.id} ${config.name}`,
+      `gemini mcp add ${mcpName} -e AGENTORCH_HUB_PORT=${hubPort} -e AGENTORCH_HUB_SECRET=${hubSecret} -e AGENTORCH_AGENT_ID=${config.id} -e AGENTORCH_AGENT_NAME_ENC=${encodedName} node "${mcpServerPath}"`,
     ]
     let geminiCmd = 'gemini'
     if (config.model) geminiCmd += ` --model ${config.model}`

@@ -9,7 +9,21 @@ const args = process.argv.slice(2)
 const HUB_PORT = args[0] || process.env.AGENTORCH_HUB_PORT
 const HUB_SECRET = args[1] || process.env.AGENTORCH_HUB_SECRET
 const AGENT_ID = args[2] || process.env.AGENTORCH_AGENT_ID
-const AGENT_NAME = (args.length > 3 ? args.slice(3).join(' ') : undefined) || process.env.AGENTORCH_AGENT_NAME
+// Agent name resolution priority:
+//   1. Positional args (codex via `mcp add ... -- node script port secret id name...`)
+//   2. AGENTORCH_AGENT_NAME env var (claude/openclaude/kimi via mcp-config.json)
+//   3. AGENTORCH_AGENT_NAME_ENC env var, URL-decoded (gemini via `-e` flags — encoding
+//      avoids cross-shell quoting issues for names with spaces, dots, or special chars)
+let resolvedAgentName: string | undefined =
+  (args.length > 3 ? args.slice(3).join(' ') : undefined) || process.env.AGENTORCH_AGENT_NAME
+if (!resolvedAgentName && process.env.AGENTORCH_AGENT_NAME_ENC) {
+  try {
+    resolvedAgentName = decodeURIComponent(process.env.AGENTORCH_AGENT_NAME_ENC)
+  } catch {
+    resolvedAgentName = process.env.AGENTORCH_AGENT_NAME_ENC
+  }
+}
+const AGENT_NAME = resolvedAgentName
 const TAB_ID = process.env.AGENTORCH_TAB_ID || undefined
 
 if (!HUB_PORT || !HUB_SECRET || !AGENT_ID || !AGENT_NAME) {
