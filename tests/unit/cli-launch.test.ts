@@ -37,9 +37,37 @@ describe('buildCliLaunchCommands', () => {
       'secret'
     )).toEqual([
       "gemini mcp list 2>$null | ForEach-Object { if ($_ -match '(agentorch[^\\s:]+)') { gemini mcp remove $Matches[1] 2>$null } }",
-      'gemini mcp add agentorch-worker-1 -- node "C:\\temp\\mcp-server.js" 7777 secret agent-1 worker-1',
+      'gemini mcp add agentorch-worker-1 node "C:\\temp\\mcp-server.js" 7777 secret agent-1 worker-1',
       'gemini --model gemini-2.5-pro --yolo'
     ])
+  })
+
+  it('omits -- separator from gemini mcp add (gemini yargs parser breaks on --)', () => {
+    const cmds = buildCliLaunchCommands(
+      makeConfig({ cli: 'gemini', shell: 'bash' }),
+      '/tmp/agentorch-mcp.json',
+      '/tmp/mcp-server.js',
+      7777,
+      'secret'
+    )!
+    const addCmd = cmds.find(c => c.startsWith('gemini mcp add'))!
+    expect(addCmd).toContain('gemini mcp add agentorch-worker-1 node ')
+    expect(addCmd).not.toContain(' -- node ')
+  })
+
+  it('routes Gemini cmd-shell cleanup through PowerShell to avoid Unicode dropout', () => {
+    const cmds = buildCliLaunchCommands(
+      makeConfig({ cli: 'gemini', shell: 'cmd' }),
+      'C:\\temp\\agentorch-mcp.json',
+      'C:\\temp\\mcp-server.js',
+      7777,
+      'secret'
+    )!
+    // cmd.exe's `for /f` drops Gemini's Unicode-prefixed output entirely, so cleanup
+    // must shell out to PowerShell which handles the ✓/✗ icons correctly.
+    expect(cmds[0]).toContain('powershell -NoProfile -Command')
+    expect(cmds[0]).toContain('gemini mcp remove')
+    expect(cmds[0]).not.toContain('for /f')
   })
 
   it('launches Codex with full MCP cleanup and model flags', () => {

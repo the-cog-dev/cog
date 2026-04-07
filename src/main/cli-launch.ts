@@ -36,8 +36,10 @@ function buildCodexCleanupCmd(shell: AgentConfig['shell']): string {
 
 function buildGeminiCleanupCmd(shell: AgentConfig['shell']): string {
   if (shell === 'cmd') {
-    // Gemini lines: "✓ agentorch-name: ..." — token 2 with ": " delimiters is the name
-    return `for /f "tokens=2 delims=: " %i in ('gemini mcp list 2^>nul ^| findstr "agentorch"') do @gemini mcp remove %i 2>nul`
+    // Gemini `mcp list` emits Unicode status icons (✓/✗) that cause cmd.exe to drop the entire
+    // output stream when piped through `for /f`, so the loop receives nothing and cleanup
+    // silently fails. Shell out to PowerShell which handles the Unicode output correctly.
+    return `powershell -NoProfile -Command "gemini mcp list 2>$null | ForEach-Object { if ($_ -match '(agentorch[^\\s:]+)') { gemini mcp remove $Matches[1] 2>$null } }"`
   }
   if (shell === 'powershell') {
     return `gemini mcp list 2>$null | ForEach-Object { if ($_ -match '(agentorch[^\\s:]+)') { gemini mcp remove $Matches[1] 2>$null } }`
@@ -96,9 +98,12 @@ export function buildCliLaunchCommands(
 
   if (cliBase === 'gemini') {
     const mcpName = `agentorch-${config.name.replace(/\s+/g, '-')}`
+    // NOTE: Gemini CLI's yargs parser does NOT pass positional args through `--` correctly.
+    // `gemini mcp add <name> -- node ...` fails with "Not enough non-option arguments".
+    // Codex CLI handles -- fine, but Gemini does not. Keep `--` out of this command.
     const cmds = [
       buildMcpCleanupCmd('gemini', config.shell),
-      `gemini mcp add ${mcpName} -- node "${mcpServerPath}" ${hubPort} ${hubSecret} ${config.id} ${config.name}`,
+      `gemini mcp add ${mcpName} node "${mcpServerPath}" ${hubPort} ${hubSecret} ${config.id} ${config.name}`,
     ]
     let geminiCmd = 'gemini'
     if (config.model) geminiCmd += ` --model ${config.model}`
