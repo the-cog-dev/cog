@@ -737,6 +737,15 @@ async function openProject(projectPath: string): Promise<void> {
     onResumed: (count) => {
       if (count > 0) {
         mainWindow?.webContents.send(IPC.SCHEDULER_RESUMED, { count })
+        const settings = loadSettings()
+        if (settings.notifications !== false) {
+          const n = new Notification({
+            title: 'Scheduled prompts resumed',
+            body: `Resumed ${count} scheduled ${count === 1 ? 'prompt' : 'prompts'} from previous session`,
+            icon: undefined
+          })
+          n.show()
+        }
       }
     }
   })
