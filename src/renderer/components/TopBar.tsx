@@ -33,6 +33,8 @@ interface TopBarProps {
   onToggleUsage: () => void
   gitOpen: boolean
   onToggleGit: () => void
+  schedulesOpen: boolean
+  onToggleSchedules: () => void
   onPresetsClick: () => void
   onBugReport: () => void
   onSettingsClick: () => void
@@ -110,7 +112,7 @@ export function TopBar({
   pinboardOpen, onTogglePinboard, infoOpen, onToggleInfo,
   buddyOpen, onToggleBuddy, filesOpen, onToggleFiles,
   racOpen, onToggleRac, usageOpen, onToggleUsage,
-  gitOpen, onToggleGit,
+  gitOpen, onToggleGit, schedulesOpen, onToggleSchedules,
   onPresetsClick, onBugReport, onSettingsClick,
   groups, onLinkDragStart, linkDraggingFrom,
   tabs, activeTabId, onSwitchTab, onCreateTab, onCloseTab, onRenameTab
@@ -140,7 +142,7 @@ export function TopBar({
   const hoverIn = (e: React.MouseEvent) => (e.currentTarget.style.backgroundColor = '#333')
   const hoverOut = (e: React.MouseEvent) => (e.currentTarget.style.backgroundColor = 'transparent')
 
-  const activePanelCount = [pinboardOpen, infoOpen, buddyOpen, filesOpen, racOpen, usageOpen, gitOpen].filter(Boolean).length
+  const activePanelCount = [pinboardOpen, infoOpen, buddyOpen, filesOpen, racOpen, usageOpen, gitOpen, schedulesOpen].filter(Boolean).length
 
   return (
     <div style={{
@@ -279,6 +281,7 @@ export function TopBar({
                 { label: `${buddyOpen ? '\u25CF ' : '  '}Buddy Room`, onClick: onToggleBuddy, color: buddyOpen ? '#8cc4ff' : '#888' },
                 { label: `${usageOpen ? '\u25CF ' : '  '}Usage`, onClick: onToggleUsage, color: usageOpen ? '#8cc4ff' : '#888' },
                 { label: `${racOpen ? '\u25CF ' : '  '}R.A.C.`, onClick: onToggleRac, color: racOpen ? '#8cc4ff' : '#888', divider: true },
+                { label: `${schedulesOpen ? '\u25CF ' : '  '}Schedules`, onClick: onToggleSchedules, color: schedulesOpen ? '#8cc4ff' : '#888' },
               ]}
             />
           )}

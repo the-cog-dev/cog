@@ -25,9 +25,10 @@ const FILES_ID = '__files__'
 const RAC_ID = '__rac__'
 const USAGE_ID = '__usage__'
 const GIT_ID = '__git__'
+const SCHEDULES_ID = '__schedules__'
 
 // Helpers for per-tab panel isolation
-const PANEL_PREFIXES = [PINBOARD_ID, INFO_ID, BUDDY_ID, FILES_ID, RAC_ID, USAGE_ID, GIT_ID]
+const PANEL_PREFIXES = [PINBOARD_ID, INFO_ID, BUDDY_ID, FILES_ID, RAC_ID, USAGE_ID, GIT_ID, SCHEDULES_ID]
 const panelIdForTab = (base: string, tabId: string): string => `${base}::${tabId}`
 const isPanelWindow = (id: string): boolean => PANEL_PREFIXES.some(p => id === p || id.startsWith(p + '::'))
 
@@ -61,6 +62,7 @@ export function App(): React.ReactElement {
   const racOpen = tabWindows.some(w => w.id === panelIdForTab(RAC_ID, activeTabId))
   const usageOpen = tabWindows.some(w => w.id === panelIdForTab(USAGE_ID, activeTabId))
   const gitOpen = tabWindows.some(w => w.id === panelIdForTab(GIT_ID, activeTabId))
+  const schedulesOpen = tabWindows.some(w => w.id === panelIdForTab(SCHEDULES_ID, activeTabId))
 
   const handleSpawn = useCallback(async (config: Omit<AgentConfig, 'id'>) => {
     setShowSpawnDialog(false)
@@ -160,6 +162,11 @@ export function App(): React.ReactElement {
     const id = panelIdForTab(GIT_ID, activeTabId)
     if (gitOpen) { removeWindow(id) } else { addWindow(id, 'Git', undefined, activeTabId) }
   }, [gitOpen, addWindow, removeWindow, activeTabId])
+
+  const toggleSchedules = useCallback(() => {
+    const id = panelIdForTab(SCHEDULES_ID, activeTabId)
+    if (schedulesOpen) { removeWindow(id) } else { addWindow(id, 'Schedules', undefined, activeTabId) }
+  }, [schedulesOpen, addWindow, removeWindow, activeTabId])
 
   // Load links & groups when project changes
   useEffect(() => {
@@ -315,6 +322,8 @@ export function App(): React.ReactElement {
             onToggleUsage={toggleUsage}
             gitOpen={gitOpen}
             onToggleGit={toggleGit}
+            schedulesOpen={schedulesOpen}
+            onToggleSchedules={toggleSchedules}
             onPresetsClick={() => setShowPresetDialog(true)}
             onBugReport={() => setShowBugReport(true)}
             onSettingsClick={() => setShowSettings(true)}
@@ -331,6 +340,7 @@ export function App(): React.ReactElement {
           <Workspace
             windows={tabWindows}
             agents={tabAgents}
+            tabs={tabs}
             zoom={zoom}
             pan={pan}
             links={links}

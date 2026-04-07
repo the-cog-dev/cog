@@ -10,10 +10,11 @@ import { FilePanel } from './FilePanel'
 import { RacPanel } from './RacPanel'
 import { UsagePanel } from './UsagePanel'
 import { GitPanel } from './GitPanel'
+import { SchedulesPanel } from './SchedulesPanel'
 import { RacAgentChat } from './RacAgentChat'
 import { ZoomControls } from './ZoomControls'
 import type { WindowState } from '../hooks/useWindowManager'
-import type { AgentState } from '../../shared/types'
+import type { AgentState, WorkspaceTab } from '../../shared/types'
 import type { SnapBounds, SnapZoneInfo, WindowBounds } from '../hooks/useSnapZones'
 
 const PANEL_IDS: Record<string, string> = {
@@ -24,6 +25,7 @@ const PANEL_IDS: Record<string, string> = {
   '__rac__': 'rac',
   '__usage__': 'usage',
   '__git__': 'git',
+  '__schedules__': 'schedules',
 }
 
 // Extract panel type from a potentially tab-qualified ID (e.g. '__pinboard__::tab-1')
@@ -46,6 +48,7 @@ const STATUS_COLORS: Record<string, string> = {
 interface WorkspaceProps {
   windows: WindowState[]
   agents: AgentState[]
+  tabs: WorkspaceTab[]
   zoom: number
   pan: { x: number; y: number }
   links: Array<{ from: string; to: string }>
@@ -66,6 +69,7 @@ interface WorkspaceProps {
 export function Workspace({
   windows,
   agents,
+  tabs,
   zoom,
   pan,
   links,
@@ -344,6 +348,8 @@ export function Workspace({
             content = <UsagePanel />
           } else if (panelType === 'git') {
             content = <GitPanel />
+          } else if (panelType === 'schedules') {
+            content = <SchedulesPanel agents={agents} tabs={tabs} />
           } else if (agent && agent.name.startsWith('rac-')) {
             content = <RacAgentChat agentName={agent.name} />
           } else {
