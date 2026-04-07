@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentState, HubInfo, PinboardTask, InfoEntry, WorkspacePreset, Skill } from '../shared/types'
+import type { AgentConfig, AgentState, HubInfo, PinboardTask, InfoEntry, WorkspacePreset, Skill, CreateScheduleInput, EditScheduleInput } from '../shared/types'
 
 declare global {
   interface Window {
@@ -28,6 +28,17 @@ declare global {
       createSkill: (input: { name: string; description: string; category: string; prompt: string; tags: string[] }) => Promise<Skill>
       updateSkill: (id: string, updates: unknown) => Promise<Skill>
       deleteSkill: (id: string) => Promise<boolean>
+      // Scheduler
+      listSchedules: () => Promise<unknown[]>
+      createSchedule: (input: CreateScheduleInput) => Promise<unknown>
+      pauseSchedule: (id: string) => Promise<unknown>
+      resumeSchedule: (id: string) => Promise<unknown>
+      stopSchedule: (id: string) => Promise<unknown>
+      restartSchedule: (id: string) => Promise<unknown>
+      editSchedule: (id: string, updates: EditScheduleInput) => Promise<unknown>
+      deleteSchedule: (id: string) => Promise<unknown>
+      onSchedulesUpdated: (callback: (list: unknown[]) => void) => () => void
+      onSchedulerResumed: (callback: () => void) => () => void
     }
   }
 }
