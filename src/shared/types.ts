@@ -146,6 +146,7 @@ export const IPC = {
   SCHEDULES_RESTART: 'schedules:restart',
   SCHEDULES_EDIT: 'schedules:edit',
   SCHEDULES_DELETE: 'schedules:delete',
+  // schedules:* = per-schedule CRUD events; scheduler:* = system-level scheduler events
   SCHEDULES_UPDATED: 'schedules:updated',
   SCHEDULER_RESUMED: 'scheduler:resumed',
 } as const
