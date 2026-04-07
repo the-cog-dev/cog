@@ -15,6 +15,8 @@ import { ProjectManager } from './project/project-manager'
 import { SkillManager } from './skills/skill-manager'
 import { RacClient } from './rac/rac-client'
 import { UpdateChecker } from './updater/update-checker'
+import { SchedulesStore } from './scheduler/schedules-store'
+import { PromptScheduler } from './scheduler/prompt-scheduler'
 import type { AgentConfig } from '../shared/types'
 import { IPC } from '../shared/types'
 
@@ -26,6 +28,8 @@ let racClient: RacClient
 let updateChecker: UpdateChecker
 let currentDb: import('better-sqlite3').Database | null = null
 let currentMessageStore: MessageStore | null = null
+let currentSchedulesStore: SchedulesStore | null = null
+let promptScheduler: PromptScheduler | null = null
 const agents = new Map<string, ManagedPty>()
 const hasReceivedInitialPrompt = new Set<string>()
 const initialPrompts = new Map<string, string>()
@@ -619,6 +623,7 @@ async function openProject(projectPath: string): Promise<void> {
   currentMessageStore = messageStore
   const pinboardStore = new PinboardStore(db)
   const infoStore = new InfoStore(db)
+  currentSchedulesStore = new SchedulesStore(db)
 
   hub = await createHubServer()
   hub.setProjectPath(projectPath)
@@ -715,6 +720,29 @@ async function openProject(projectPath: string): Promise<void> {
   setupStaleTaskWatchdog()
   loadLinkState()
 
+  // Scheduled prompts: instantiate, load, and start ticker
+  promptScheduler = new PromptScheduler({
+    store: currentSchedulesStore,
+    clock: () => Date.now(),
+    ptyWriter: (agentId, text) => {
+      const managed = agents.get(agentId)
+      if (!managed) throw new Error(`Agent ${agentId} not found`)
+      writeNudgeToPty(managed, text)
+    },
+    agentLookup: (agentId) => agents.has(agentId),
+    onChange: () => {
+      if (!promptScheduler) return
+      mainWindow?.webContents.send(IPC.SCHEDULES_UPDATED, promptScheduler.list())
+    },
+    onResumed: (count) => {
+      if (count > 0) {
+        mainWindow?.webContents.send(IPC.SCHEDULER_RESUMED, { count })
+      }
+    }
+  })
+  promptScheduler.load()
+  promptScheduler.startTicker()
+
   // Update window title
   if (mainWindow) {
     mainWindow.setTitle(`AgentOrch — ${projectManager.currentProject!.name}`)
@@ -739,6 +767,11 @@ async function closeProject(): Promise<void> {
   for (const timer of nudgeFallbackTimers.values()) clearTimeout(timer)
   nudgeFallbackTimers.clear()
   if (staleTaskTimer) { clearInterval(staleTaskTimer); staleTaskTimer = null }
+  if (promptScheduler) {
+    promptScheduler.stopTicker()
+    promptScheduler = null
+  }
+  currentSchedulesStore = null
 
   // Close hub
   hub?.close()
@@ -1381,6 +1414,7 @@ function setupIPC(): void {
       }
     }
     workspaceTabs.delete(tabId)
+    if (promptScheduler) promptScheduler.deleteByTabId(tabId)
     mainWindow?.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
     return { status: 'ok' }
   })
