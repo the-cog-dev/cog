@@ -355,3 +355,97 @@ describe('PromptScheduler.pause / resume / stop', () => {
     expect(() => scheduler.stop('nope')).toThrow(/not found/i)
   })
 })
+
+describe('PromptScheduler.restart', () => {
+  it('restarts an expired schedule with fresh times and empty history', () => {
+    let now = 1_000_000
+    const { scheduler } = makeScheduler({ now: () => now })
+    const created = scheduler.create(validInput)
+    now = created.expiresAt! + 1
+    scheduler.tick() // expires
+    expect(scheduler.get(created.id)!.status).toBe('expired')
+    now = 2_000_000
+    const restarted = scheduler.restart(created.id)
+    expect(restarted.status).toBe('active')
+    expect(restarted.startedAt).toBe(2_000_000)
+    expect(restarted.nextFireAt).toBe(2_000_000 + 45 * 60_000)
+    expect(restarted.expiresAt).toBe(2_000_000 + 8 * 60 * 60_000)
+    expect(restarted.fireHistory).toEqual([])
+  })
+
+  it('restart on stopped schedule reactivates it', () => {
+    let now = 1_000_000
+    const { scheduler } = makeScheduler({ now: () => now })
+    const created = scheduler.create(validInput)
+    scheduler.stop(created.id)
+    now = 2_000_000
+    const restarted = scheduler.restart(created.id)
+    expect(restarted.status).toBe('active')
+  })
+})
+
+describe('PromptScheduler.edit', () => {
+  it('edits name, promptText, intervalMinutes, durationHours on stopped schedule', () => {
+    const { scheduler } = makeScheduler()
+    const created = scheduler.create(validInput)
+    scheduler.stop(created.id)
+    const edited = scheduler.edit(created.id, {
+      name: 'Updated',
+      promptText: 'new text',
+      intervalMinutes: 60,
+      durationHours: 4
+    })
+    expect(edited.name).toBe('Updated')
+    expect(edited.promptText).toBe('new text')
+    expect(edited.intervalMinutes).toBe(60)
+    expect(edited.durationHours).toBe(4)
+    expect(edited.status).toBe('stopped') // still stopped
+  })
+
+  it('edit can set durationHours to null (make infinite)', () => {
+    const { scheduler } = makeScheduler()
+    const created = scheduler.create(validInput)
+    scheduler.stop(created.id)
+    const edited = scheduler.edit(created.id, { durationHours: null })
+    expect(edited.durationHours).toBeNull()
+  })
+
+  it('edit throws on active schedule', () => {
+    const { scheduler } = makeScheduler()
+    const created = scheduler.create(validInput)
+    expect(() => scheduler.edit(created.id, { name: 'No' }))
+      .toThrow(/stop.*before editing/i)
+  })
+
+  it('edit throws on paused schedule', () => {
+    const { scheduler } = makeScheduler()
+    const created = scheduler.create(validInput)
+    scheduler.pause(created.id)
+    expect(() => scheduler.edit(created.id, { name: 'No' }))
+      .toThrow(/stop.*before editing/i)
+  })
+})
+
+describe('PromptScheduler.delete', () => {
+  it('removes schedule from memory and store', () => {
+    const { scheduler, store } = makeScheduler()
+    const created = scheduler.create(validInput)
+    scheduler.delete(created.id)
+    expect(scheduler.get(created.id)).toBeNull()
+    expect(store.load()).toHaveLength(0)
+  })
+})
+
+describe('PromptScheduler.deleteByTabId', () => {
+  it('removes all schedules for a given tab', () => {
+    const { scheduler, store } = makeScheduler()
+    scheduler.create({ ...validInput, tabId: 'tab-1' })
+    scheduler.create({ ...validInput, tabId: 'tab-1', name: 'Second' })
+    scheduler.create({ ...validInput, tabId: 'tab-2', name: 'Third' })
+    scheduler.deleteByTabId('tab-1')
+    const list = scheduler.list()
+    expect(list).toHaveLength(1)
+    expect(list[0].tabId).toBe('tab-2')
+    expect(store.load()).toHaveLength(1)
+  })
+})

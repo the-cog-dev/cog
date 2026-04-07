@@ -187,6 +187,66 @@ export class PromptScheduler {
     return updated
   }
 
+  restart(id: string): ScheduledPrompt {
+    const existing = this.requireSchedule(id)
+    const updated = applyRestart(existing, this.opts.clock())
+    this.schedules.set(id, updated)
+    this.opts.store.save(updated)
+    this.opts.onChange()
+    return updated
+  }
+
+  edit(id: string, updates: EditScheduleInput): ScheduledPrompt {
+    const existing = this.requireSchedule(id)
+    if (existing.status === 'active' || existing.status === 'paused') {
+      throw new Error('Stop the schedule before editing.')
+    }
+    if (updates.promptText !== undefined && updates.promptText.trim().length === 0) {
+      throw new Error('Scheduled prompt: promptText cannot be empty')
+    }
+    if (updates.intervalMinutes !== undefined) {
+      if (!Number.isInteger(updates.intervalMinutes) || updates.intervalMinutes <= 0) {
+        throw new Error('Scheduled prompt: intervalMinutes must be a positive integer')
+      }
+    }
+    if (updates.durationHours !== undefined && updates.durationHours !== null) {
+      if (!Number.isInteger(updates.durationHours) || updates.durationHours <= 0) {
+        throw new Error('Scheduled prompt: durationHours must be null or a positive integer')
+      }
+    }
+
+    const updated: ScheduledPrompt = {
+      ...existing,
+      name: updates.name?.trim() || existing.name,
+      promptText: updates.promptText?.trim() ?? existing.promptText,
+      intervalMinutes: updates.intervalMinutes ?? existing.intervalMinutes,
+      durationHours: updates.durationHours !== undefined ? updates.durationHours : existing.durationHours
+    }
+    this.schedules.set(id, updated)
+    this.opts.store.save(updated)
+    this.opts.onChange()
+    return updated
+  }
+
+  delete(id: string): void {
+    if (!this.schedules.has(id)) return
+    this.schedules.delete(id)
+    this.opts.store.delete(id)
+    this.opts.onChange()
+  }
+
+  deleteByTabId(tabId: string): void {
+    let removed = 0
+    for (const [id, s] of this.schedules) {
+      if (s.tabId === tabId) {
+        this.schedules.delete(id)
+        removed++
+      }
+    }
+    this.opts.store.deleteByTabId(tabId)
+    if (removed > 0) this.opts.onChange()
+  }
+
   private requireSchedule(id: string): ScheduledPrompt {
     const s = this.schedules.get(id)
     if (!s) throw new Error(`Scheduled prompt not found: ${id}`)
