@@ -38,6 +38,7 @@ interface TopBarProps {
   onPresetsClick: () => void
   onBugReport: () => void
   onSettingsClick: () => void
+  onHelpMcpToolsClick: () => void
   groups: Array<{ id: string; color: string; members: string[] }>
   onLinkDragStart: (agentName: string, e: React.MouseEvent) => void
   linkDraggingFrom: string | null
@@ -113,13 +114,14 @@ export function TopBar({
   buddyOpen, onToggleBuddy, filesOpen, onToggleFiles,
   racOpen, onToggleRac, usageOpen, onToggleUsage,
   gitOpen, onToggleGit, schedulesOpen, onToggleSchedules,
-  onPresetsClick, onBugReport, onSettingsClick,
+  onPresetsClick, onBugReport, onSettingsClick, onHelpMcpToolsClick,
   groups, onLinkDragStart, linkDraggingFrom,
   tabs, activeTabId, onSwitchTab, onCreateTab, onCloseTab, onRenameTab
 }: TopBarProps): React.ReactElement {
   const [agentMenuOpen, setAgentMenuOpen] = useState(false)
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
   const [panelMenu, setPanelMenu] = useState(false)
+  const [helpMenu, setHelpMenu] = useState(false)
 
   const closeAgentMenu = () => { setAgentMenuOpen(false); setExpandedAgent(null) }
 
@@ -288,6 +290,20 @@ export function TopBar({
         </div>
 
         <button onClick={onPresetsClick} style={btnStyle}>Presets</button>
+
+        {/* Help dropdown */}
+        <div style={{ position: 'relative' }}>
+          <button onClick={() => setHelpMenu(!helpMenu)} style={btnStyle}>Help</button>
+          {helpMenu && (
+            <DropdownMenu
+              onClose={() => setHelpMenu(false)}
+              style={{ right: 0, left: 'auto' }}
+              items={[
+                { label: 'MCP Tools Reference', onClick: onHelpMcpToolsClick },
+              ]}
+            />
+          )}
+        </div>
 
         <div style={{ width: '1px', height: '24px', backgroundColor: '#333' }} />
 
