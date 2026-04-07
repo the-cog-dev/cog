@@ -159,4 +159,37 @@ export class PromptScheduler {
   get(id: string): ScheduledPrompt | null {
     return this.schedules.get(id) ?? null
   }
+
+  pause(id: string): ScheduledPrompt {
+    const existing = this.requireSchedule(id)
+    const updated = applyPause(existing, this.opts.clock())
+    this.schedules.set(id, updated)
+    this.opts.store.save(updated)
+    this.opts.onChange()
+    return updated
+  }
+
+  resume(id: string): ScheduledPrompt {
+    const existing = this.requireSchedule(id)
+    const updated = applyResume(existing, this.opts.clock())
+    this.schedules.set(id, updated)
+    this.opts.store.save(updated)
+    this.opts.onChange()
+    return updated
+  }
+
+  stop(id: string): ScheduledPrompt {
+    const existing = this.requireSchedule(id)
+    const updated = applyStop(existing)
+    this.schedules.set(id, updated)
+    this.opts.store.save(updated)
+    this.opts.onChange()
+    return updated
+  }
+
+  private requireSchedule(id: string): ScheduledPrompt {
+    const s = this.schedules.get(id)
+    if (!s) throw new Error(`Scheduled prompt not found: ${id}`)
+    return s
+  }
 }

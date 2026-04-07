@@ -279,3 +279,79 @@ describe('PromptScheduler.tick', () => {
     expect(persisted.fireHistory).toHaveLength(1)
   })
 })
+
+describe('PromptScheduler.pause / resume / stop', () => {
+  it('pause sets status to paused and stores pausedAt', () => {
+    let now = 1_000_000
+    const { scheduler } = makeScheduler({ now: () => now })
+    const created = scheduler.create(validInput)
+    now = 1_000_000 + 20 * 60_000
+    const paused = scheduler.pause(created.id)
+    expect(paused.status).toBe('paused')
+    expect(paused.pausedAt).toBe(now)
+  })
+
+  it('paused schedules skip fires even when nextFireAt reached', () => {
+    let now = 1_000_000
+    const ptyWriter = vi.fn()
+    const { scheduler } = makeScheduler({ now: () => now, ptyWriter })
+    const created = scheduler.create(validInput)
+    scheduler.pause(created.id)
+    now = created.nextFireAt + 10_000
+    scheduler.tick()
+    expect(ptyWriter).not.toHaveBeenCalled()
+  })
+
+  it('resume shifts nextFireAt and expiresAt forward by pause duration', () => {
+    let now = 1_000_000
+    const { scheduler } = makeScheduler({ now: () => now })
+    const created = scheduler.create(validInput)
+    const originalNextFire = created.nextFireAt
+    const originalExpires = created.expiresAt!
+    now = 1_000_000 + 20 * 60_000
+    scheduler.pause(created.id)
+    now = 1_000_000 + 30 * 60_000 // paused for 10 minutes
+    const resumed = scheduler.resume(created.id)
+    expect(resumed.status).toBe('active')
+    expect(resumed.pausedAt).toBeNull()
+    expect(resumed.nextFireAt).toBe(originalNextFire + 10 * 60_000)
+    expect(resumed.expiresAt).toBe(originalExpires + 10 * 60_000)
+  })
+
+  it('resume on infinite schedule keeps expiresAt null', () => {
+    let now = 1_000_000
+    const { scheduler } = makeScheduler({ now: () => now })
+    const created = scheduler.create({ ...validInput, durationHours: null })
+    now += 20 * 60_000
+    scheduler.pause(created.id)
+    now += 10 * 60_000
+    const resumed = scheduler.resume(created.id)
+    expect(resumed.expiresAt).toBeNull()
+  })
+
+  it('stop sets status to stopped and schedule stays in list', () => {
+    const { scheduler } = makeScheduler()
+    const created = scheduler.create(validInput)
+    scheduler.stop(created.id)
+    expect(scheduler.get(created.id)!.status).toBe('stopped')
+    expect(scheduler.list()).toHaveLength(1)
+  })
+
+  it('stopped schedules do not fire', () => {
+    let now = 1_000_000
+    const ptyWriter = vi.fn()
+    const { scheduler } = makeScheduler({ now: () => now, ptyWriter })
+    const created = scheduler.create(validInput)
+    scheduler.stop(created.id)
+    now = created.nextFireAt + 10_000
+    scheduler.tick()
+    expect(ptyWriter).not.toHaveBeenCalled()
+  })
+
+  it('pause/resume/stop throw on unknown id', () => {
+    const { scheduler } = makeScheduler()
+    expect(() => scheduler.pause('nope')).toThrow(/not found/i)
+    expect(() => scheduler.resume('nope')).toThrow(/not found/i)
+    expect(() => scheduler.stop('nope')).toThrow(/not found/i)
+  })
+})
