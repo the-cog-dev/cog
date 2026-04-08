@@ -17,7 +17,14 @@ import { RacClient } from './rac/rac-client'
 import { UpdateChecker } from './updater/update-checker'
 import { SchedulesStore } from './scheduler/schedules-store'
 import { PromptScheduler } from './scheduler/prompt-scheduler'
-import type { AgentConfig } from '../shared/types'
+import type { Server as HttpServer } from 'http'
+import * as https from 'https'
+import * as httpProto from 'http'
+import { spawn as spawnChildProcess } from 'child_process'
+import { TokenManager } from './remote/token-manager'
+import { CloudflaredManager } from './remote/cloudflared-manager'
+import { RemoteServer } from './remote/remote-server'
+import type { AgentConfig, RemoteSetupProgress } from '../shared/types'
 import { IPC } from '../shared/types'
 
 let hub: HubServer
@@ -44,6 +51,15 @@ const NUDGE_COOLDOWN_MS = 3000    // Minimum interval between nudge deliveries t
 const STALE_TASK_CHECK_INTERVAL = 60000  // Check for stuck in_progress tasks every 60s
 const STALE_TASK_THRESHOLD_MS = 5 * 60 * 1000 // 5 minutes before a task is considered stale
 let staleTaskTimer: ReturnType<typeof setInterval> | null = null
+
+// Remote View state
+let remoteTokenManager: TokenManager | null = null
+let cloudflaredManager: CloudflaredManager | null = null
+let remoteServer: RemoteServer | null = null
+let remoteHttpServer: HttpServer | null = null
+let remotePublicUrl: string | null = null
+let remoteStatusTicker: ReturnType<typeof setInterval> | null = null
+
 const CODEX_SUBMIT_DELAY = 2000   // Codex TUI needs text rendered before Enter is sent
 const RECONNECT_DELAY = 3000      // Wait before respawning a crashed agent
 const PROMPT_INJECT_FALLBACK_MS = 10000 // Safety net if StatusDetector doesn't detect prompt (Gemini, Kimi, etc.)
@@ -71,6 +87,202 @@ function saveSetting(key: string, value: any): void {
   settings[key] = value
   fs.writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2), 'utf-8')
 }
+
+// ── Remote View helpers ──────────────────────────────────────────────────────
+
+async function downloadFile(url: string, dest: string, onProgress: (pct: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(dest)
+    const followRedirects = (currentUrl: string) => {
+      const proto = currentUrl.startsWith('https') ? https : httpProto
+      proto.get(currentUrl, (res) => {
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          if (res.headers.location) {
+            const loc = Array.isArray(res.headers.location) ? res.headers.location[0] : res.headers.location
+            followRedirects(loc)
+          } else {
+            reject(new Error('Redirect without location header'))
+          }
+          return
+        }
+        if (res.statusCode !== 200) {
+          reject(new Error(`Download failed: ${res.statusCode}`))
+          return
+        }
+        const total = parseInt(res.headers['content-length'] || '0', 10)
+        let received = 0
+        res.on('data', (chunk: Buffer) => {
+          received += chunk.length
+          if (total > 0) onProgress(Math.floor((received / total) * 100))
+        })
+        res.pipe(file)
+        file.on('finish', () => { file.close(); resolve() })
+      }).on('error', reject)
+    }
+    followRedirects(url)
+  })
+}
+
+function emitRemoteStatus(): void {
+  if (!mainWindow) return
+  mainWindow.webContents.send(IPC.REMOTE_STATUS_UPDATE, {
+    enabled: remoteServer !== null,
+    publicUrl: remotePublicUrl,
+    connectionCount: remoteTokenManager?.getConnectionCount() ?? 0,
+    lastActivity: remoteTokenManager?.getLastActivity() ?? null
+  })
+}
+
+function emitRemoteSetupProgress(progress: RemoteSetupProgress): void {
+  if (!mainWindow) return
+  mainWindow.webContents.send(IPC.REMOTE_SETUP_PROGRESS, progress)
+}
+
+function startRemoteStatusTicker(): void {
+  if (remoteStatusTicker) return
+  remoteStatusTicker = setInterval(() => {
+    if (remoteServer) {
+      emitRemoteStatus()
+    } else if (remoteStatusTicker) {
+      clearInterval(remoteStatusTicker)
+      remoteStatusTicker = null
+    }
+  }, 3000)
+}
+
+async function enableRemoteView(): Promise<void> {
+  if (remoteServer) return
+
+  emitRemoteSetupProgress({ stage: 'starting', message: 'Setting up remote tunnel...' })
+
+  if (!cloudflaredManager) {
+    cloudflaredManager = new CloudflaredManager({
+      userDataPath: app.getPath('userData'),
+      download: downloadFile,
+      spawnChild: (cmd: string, args: string[]) => spawnChildProcess(cmd, args),
+      onProgress: (pct) => emitRemoteSetupProgress({ stage: 'downloading', message: `${pct}%` })
+    })
+  }
+
+  try {
+    await cloudflaredManager.ensureInstalled()
+  } catch (err) {
+    emitRemoteSetupProgress({ stage: 'error', message: `cloudflared install failed: ${(err as Error).message}` })
+    return
+  }
+
+  remoteTokenManager = new TokenManager()
+  const token = remoteTokenManager.generate()
+
+  remoteServer = new RemoteServer({
+    tokenManager: remoteTokenManager,
+    getProjectName: () => projectManager?.currentProject?.name ?? 'AgentOrch',
+    getAgents: () => {
+      return getVisibleAgents().map(a => ({
+        id: a.id, name: a.name, cli: a.cli, model: a.model || 'default', role: a.role, status: a.status
+      }))
+    },
+    getSchedules: () => {
+      if (!promptScheduler) return []
+      return promptScheduler.list().map(s => {
+        const agent = Array.from(agents.values()).find(m => m.config.id === s.agentId)
+        return {
+          id: s.id,
+          name: s.name,
+          agentName: agent?.config.name ?? '(deleted)',
+          intervalMinutes: s.intervalMinutes,
+          durationHours: s.durationHours,
+          nextFireAt: s.nextFireAt,
+          expiresAt: s.expiresAt,
+          status: s.status
+        }
+      })
+    },
+    getPinboardTasks: () => {
+      if (!hub) return []
+      return hub.pinboard.readTasks()
+        .filter(t => t.status !== 'completed')
+        .map(t => ({
+          id: t.id, title: t.title, priority: t.priority, status: t.status, claimedBy: t.claimedBy
+        }))
+    },
+    getBuddyRoom: () => {
+      if (!hub) return []
+      return hub.buddyRoom.getMessages().slice(-50).map(m => ({
+        timestamp: m.timestamp, agentName: m.agentName, message: m.message
+      }))
+    },
+    getAgentOutput: (agentId: string) => {
+      const managed = agents.get(agentId)
+      if (!managed) return []
+      return managed.outputBuffer.getLines(50)
+    },
+    sendMessage: (to: string, text: string) => {
+      const target = Array.from(agents.values()).find(m => m.config.name === to)
+      if (!target) throw new Error(`Agent ${to} not found`)
+      writeNudgeToPty(target, text)
+    },
+    pauseSchedule: (id: string) => {
+      if (!promptScheduler) throw new Error('Scheduler unavailable')
+      return promptScheduler.pause(id)
+    },
+    resumeSchedule: (id: string) => {
+      if (!promptScheduler) throw new Error('Scheduler unavailable')
+      return promptScheduler.resume(id)
+    },
+    restartSchedule: (id: string) => {
+      if (!promptScheduler) throw new Error('Scheduler unavailable')
+      return promptScheduler.restart(id)
+    },
+    postTask: (title: string, description: string, priority: 'low' | 'medium' | 'high') => {
+      if (!hub) throw new Error('Hub unavailable')
+      return hub.pinboard.postTask(title, description, priority, 'remote-user')
+    }
+  })
+
+  const expressApp = remoteServer.getApp()
+  remoteHttpServer = await new Promise<HttpServer>((resolve, reject) => {
+    const srv = expressApp.listen(0, '127.0.0.1', () => resolve(srv))
+    srv.on('error', reject)
+  })
+  const addr = remoteHttpServer.address()
+  if (!addr || typeof addr === 'string') {
+    throw new Error('Failed to bind remote server')
+  }
+  const localPort = addr.port
+
+  try {
+    const baseUrl = await cloudflaredManager.start(localPort)
+    remotePublicUrl = `${baseUrl}/r/${token}/`
+  } catch (err) {
+    emitRemoteSetupProgress({ stage: 'error', message: `tunnel failed: ${(err as Error).message}` })
+    await disableRemoteView()
+    return
+  }
+
+  emitRemoteSetupProgress({ stage: 'ready' })
+  emitRemoteStatus()
+  startRemoteStatusTicker()
+}
+
+async function disableRemoteView(): Promise<void> {
+  if (cloudflaredManager) cloudflaredManager.stop()
+  if (remoteHttpServer) {
+    await new Promise<void>((resolve) => remoteHttpServer!.close(() => resolve()))
+    remoteHttpServer = null
+  }
+  if (remoteTokenManager) remoteTokenManager.invalidate()
+  remoteServer = null
+  remoteTokenManager = null
+  remotePublicUrl = null
+  if (remoteStatusTicker) {
+    clearInterval(remoteStatusTicker)
+    remoteStatusTicker = null
+  }
+  emitRemoteStatus()
+}
+
+// ── End Remote View helpers ──────────────────────────────────────────────────
 
 function saveLinkState(): void {
   if (!projectManager?.currentProject || !hub) return
@@ -781,6 +993,8 @@ async function closeProject(): Promise<void> {
     promptScheduler = null
   }
   currentSchedulesStore = null
+
+  await disableRemoteView()
 
   // Close hub
   hub?.close()
@@ -1520,4 +1734,12 @@ main()
 app.on('window-all-closed', async () => {
   await closeProject()
   app.quit()
+})
+
+app.on('before-quit', async (event) => {
+  if (remoteServer || cloudflaredManager) {
+    event.preventDefault()
+    await disableRemoteView()
+    app.quit()
+  }
 })
