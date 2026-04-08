@@ -93,6 +93,21 @@ export class RemoteServer {
       res.send(html)
     })
 
+    // POST /message - send a message to an agent (writes to their PTY)
+    this.app.post('/r/:token/message', (req: Request, res: Response) => {
+      const { to, text } = req.body ?? {}
+      if (typeof to !== 'string' || typeof text !== 'string' || text.trim().length === 0) {
+        res.status(400).json({ error: 'Missing or invalid `to` or `text`' })
+        return
+      }
+      try {
+        this.deps.sendMessage(to, text.trim())
+        res.json({ ok: true })
+      } catch (err) {
+        res.status(500).json({ error: (err as Error).message })
+      }
+    })
+
     // GET /agent/:agentId/output - last 50 lines, lazy fetched on tap-to-expand
     this.app.get('/r/:token/agent/:agentId/output', (req: Request, res: Response) => {
       const lines = this.deps.getAgentOutput(req.params.agentId)
