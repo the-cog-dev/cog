@@ -283,3 +283,33 @@ describe('RemoteServer POST /task', () => {
       .expect(400)
   })
 })
+
+describe('RemoteServer rate limiting', () => {
+  it('returns 429 after 60 requests in a minute from the same IP', async () => {
+    const deps = makeDeps()
+    const token = deps.tokenManager.generate()
+    const server = new RemoteServer(deps)
+    const app = server.getApp()
+
+    // Burst 60 requests — should all succeed
+    for (let i = 0; i < 60; i++) {
+      await request(app).get(`/r/${token}/state`).expect(200)
+    }
+    // 61st request should be rate limited
+    const res = await request(app).get(`/r/${token}/state`)
+    expect(res.status).toBe(429)
+  })
+})
+
+describe('RemoteServer body size limit', () => {
+  it('returns 413 on a body larger than 4KB', async () => {
+    const deps = makeDeps()
+    const token = deps.tokenManager.generate()
+    const server = new RemoteServer(deps)
+    const huge = 'x'.repeat(10_000)
+    const res = await request(server.getApp())
+      .post(`/r/${token}/message`)
+      .send({ to: 'X', text: huge })
+    expect(res.status).toBe(413)
+  })
+})

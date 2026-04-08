@@ -3,6 +3,14 @@ import * as fs from 'fs'
 import * as path from 'path'
 import type { TokenManager } from './token-manager'
 
+const RATE_LIMIT_WINDOW_MS = 60_000
+const RATE_LIMIT_MAX = 60
+
+interface RateBucket {
+  count: number
+  windowStart: number
+}
+
 export interface RemoteAgentSummary {
   id: string
   name: string
@@ -54,16 +62,34 @@ export interface RemoteServerDeps {
 
 export class RemoteServer {
   private app: Application
+  private rateBuckets = new Map<string, RateBucket>()
 
   constructor(private deps: RemoteServerDeps) {
     this.app = express()
     this.app.use(express.json({ limit: '4kb' }))
+    this.app.use('/r/:token', this.rateLimitMiddleware.bind(this))
     this.app.use('/r/:token', this.authMiddleware.bind(this))
     this.registerRoutes()
   }
 
   getApp(): Application {
     return this.app
+  }
+
+  private rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
+    const ip = req.ip || 'unknown'
+    const now = Date.now()
+    let bucket = this.rateBuckets.get(ip)
+    if (!bucket || now - bucket.windowStart > RATE_LIMIT_WINDOW_MS) {
+      bucket = { count: 0, windowStart: now }
+      this.rateBuckets.set(ip, bucket)
+    }
+    bucket.count++
+    if (bucket.count > RATE_LIMIT_MAX) {
+      res.status(429).json({ error: 'rate limit exceeded' })
+      return
+    }
+    next()
   }
 
   private authMiddleware(req: Request, res: Response, next: NextFunction): void {
