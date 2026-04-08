@@ -53,6 +53,20 @@ export class CloudflaredManager {
     return path.join(this.binDir, resolveBinaryName(process.platform))
   }
 
+  private get emptyConfigPath(): string {
+    return path.join(this.binDir, 'agentorch-cloudflared.yml')
+  }
+
+  private ensureEmptyConfig(): void {
+    // Write an empty config file so cloudflared doesn't load the user's
+    // existing ~/.cloudflared/config.yml (which may have ingress rules that
+    // return 404 or route to other tunnels).
+    fs.mkdirSync(this.binDir, { recursive: true })
+    if (!fs.existsSync(this.emptyConfigPath)) {
+      fs.writeFileSync(this.emptyConfigPath, '# AgentOrch-managed empty config — intentionally blank\n')
+    }
+  }
+
   markInstalledForTest(p: string): void {
     this.installedPath = p
   }
@@ -83,12 +97,20 @@ export class CloudflaredManager {
     if (!this.installedPath) {
       return Promise.reject(new Error('cloudflared not installed — call ensureInstalled() first'))
     }
+    this.ensureEmptyConfig()
     return new Promise((resolve, reject) => {
       let buffer = ''
       let resolved = false
       // Use 127.0.0.1 explicitly — on Windows, 'localhost' can resolve to ::1 (IPv6)
       // first, and cloudflared fails to reach the Express server bound to IPv4 only.
-      const args = ['tunnel', '--url', `http://127.0.0.1:${localPort}`, '--loglevel', 'debug']
+      // Also pass an empty --config so we don't inherit the user's existing
+      // ~/.cloudflared/config.yml which may route all traffic to a 404 or other tunnel.
+      const args = [
+        'tunnel',
+        '--config', this.emptyConfigPath,
+        '--url', `http://127.0.0.1:${localPort}`,
+        '--loglevel', 'debug'
+      ]
       console.log(`[cloudflared] spawning: ${this.installedPath} ${args.join(' ')}`)
       const child = this.opts.spawnChild(this.installedPath!, args)
       this.child = child

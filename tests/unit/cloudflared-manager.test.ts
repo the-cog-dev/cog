@@ -192,10 +192,14 @@ describe('CloudflaredManager.start', () => {
 
     const url = await startPromise
     expect(url).toBe('https://random-words.trycloudflare.com')
-    expect(spawnChild).toHaveBeenCalledWith(
-      '/fake/cloudflared',
-      ['tunnel', '--url', 'http://127.0.0.1:7700', '--loglevel', 'debug']
-    )
+    const [cmd, args] = spawnChild.mock.calls[0]
+    expect(cmd).toBe('/fake/cloudflared')
+    expect(args).toContain('tunnel')
+    expect(args).toContain('--url')
+    expect(args).toContain('http://127.0.0.1:7700')
+    expect(args).toContain('--config')
+    expect(args).toContain('--loglevel')
+    expect(args).toContain('debug')
   })
 
   it('rejects if cloudflared exits before printing a URL', async () => {
