@@ -60,11 +60,32 @@ export interface RemoteServerDeps {
   postTask: (title: string, description: string, priority: 'low' | 'medium' | 'high') => unknown
 }
 
+// Find the static directory at runtime. In electron-vite dev mode, __dirname
+// resolves to `out/main/` which may not contain the static files (the Vite copy
+// plugin doesn't always work reliably in dev). Fall back to the source path.
+function resolveStaticDir(): string {
+  const candidates = [
+    path.join(__dirname, 'static'),
+    path.resolve(__dirname, '..', '..', 'src', 'main', 'remote', 'static'),
+    path.resolve(process.cwd(), 'src', 'main', 'remote', 'static')
+  ]
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, 'index.html'))) {
+      console.log(`[RemoteServer] Static dir resolved: ${dir}`)
+      return dir
+    }
+  }
+  console.warn(`[RemoteServer] WARNING: static dir not found. Tried: ${candidates.join(', ')}`)
+  return candidates[0]
+}
+
 export class RemoteServer {
   private app: Application
   private rateBuckets = new Map<string, RateBucket>()
+  private staticDir: string
 
   constructor(private deps: RemoteServerDeps) {
+    this.staticDir = resolveStaticDir()
     this.app = express()
 
     // Catch-all request logger (runs for EVERY request, no matter the path)
@@ -82,7 +103,7 @@ export class RemoteServer {
     this.app.use(express.json({ limit: '4kb' }))
     this.app.use('/r/:token', this.rateLimitMiddleware.bind(this))
     this.app.use('/r/:token', this.authMiddleware.bind(this))
-    this.app.use('/r/:token', express.static(path.join(__dirname, 'static'), { index: false }))
+    this.app.use('/r/:token', express.static(this.staticDir, { index: false }))
     this.registerRoutes()
   }
 
@@ -124,14 +145,12 @@ export class RemoteServer {
   private registerRoutes(): void {
     // GET / - serves the mobile UI HTML (matches both /r/:token and /r/:token/)
     const htmlHandler = (req: Request, res: Response): void => {
-      console.log(`[RemoteServer] Serving HTML for token ${req.params.token?.slice(0, 8)}...`)
-      const htmlPath = path.join(__dirname, 'static', 'index.html')
-      console.log(`[RemoteServer] HTML path: ${htmlPath}, exists: ${fs.existsSync(htmlPath)}`)
+      const htmlPath = path.join(this.staticDir, 'index.html')
       let html: string
       try {
         html = fs.readFileSync(htmlPath, 'utf-8')
       } catch (err) {
-        console.log(`[RemoteServer] Failed to read HTML: ${(err as Error).message}`)
+        console.log(`[RemoteServer] Failed to read HTML at ${htmlPath}: ${(err as Error).message}`)
         res.status(500).send('Static UI not found')
         return
       }
