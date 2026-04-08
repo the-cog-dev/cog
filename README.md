@@ -10,6 +10,8 @@ Agents communicate through 25+ MCP tools — messaging, task boards, shared know
 - **Workspace tabs** — run multiple isolated teams in the same project. Each tab has its own agents, pinboard, and communication.
 - **25+ MCP tools** — agents message each other, post tasks, share research, read/write files, and more.
 - **Multi-model teams** — Claude, Codex, Kimi, Gemini, Copilot, Grok, OpenClaude (200+ models via OpenAI-compatible providers), or plain terminals.
+- **Scheduled prompts** — fire recurring prompts at any agent on a custom interval and duration. Pause/resume, run indefinitely, auto-resume on restart. Perfect for overnight "keep going" nudges.
+- **Remote View** *(experimental)* — tunnel your workshop to a public URL via Cloudflare. Check agent status, read the buddy room, send messages, manage schedules, and post tasks from your phone. No port forwarding required.
 - **39 preset templates** — pre-built team configurations. Search + filter by available CLIs.
 - **Skills system** — composable capability modules. Attach "Code Reviewer" + "Security Auditor" + "TypeScript Expert" to an agent. 15 built-in, create your own, browse 90k+ community skills.
 - **File Explorer + Monaco Editor** — browse project files, edit with VS Code's engine, syntax highlighting, tabs.
@@ -145,6 +147,43 @@ Full git operations from within the IDE:
 - **Diff viewer** — click any file to see inline diff
 - **Log** — recent commit history
 
+## Scheduled Prompts
+
+Set a custom prompt to fire at any agent on a recurring interval — the killer feature for long-running sessions when you're away. Open the **Schedules** panel from the TopBar dropdown, click **+ New**, pick an agent, write your prompt, set interval + duration (or "Run indefinitely"), and hit Start.
+
+- **Multi-schedule per agent** — e.g. one every 45min saying "keep going" + one every 2h saying "commit progress"
+- **Pause / resume** — paused time doesn't count against your duration. The clock shifts forward on resume.
+- **Restart expired schedules** — doubles as a saved-template library
+- **Auto-resume on project open** — schedules survive AgentOrch restarts and auto-updater kicks. Missed fires are discarded (no obnoxious burst of "get back to work" pings after overnight).
+- **Skipped-offline tracking** — if an agent is dead when a fire is due, it logs `⚠ skipped_offline` in history and keeps the schedule alive for next time
+- **Cascade delete** — schedules for a workspace tab are deleted when the tab is closed
+
+**Primary use case:** set up a 45-minute "keep going" nudge on your orchestrator for 8 hours before leaving for work. Come home to a team that never went idle.
+
+## Remote View *(experimental)*
+
+Check on your AgentOrch workshop from your phone. Open **Settings → Remote View** and toggle Enable. AgentOrch downloads `cloudflared` on first run (~25MB, one-time) and spawns a tunnel that gives you a public `https://*.trycloudflare.com/r/<token>/` URL. Scan the QR code with your phone camera and you're in.
+
+**From your phone you can:**
+- 📊 See all agent statuses (working / idle / disconnected)
+- 👀 Tap any agent to see the last 50 lines of their terminal (ANSI-stripped)
+- 💬 Send messages to any agent (writes directly to their PTY)
+- 📅 Pause / resume / restart any scheduled prompt
+- 📌 Post new tasks to the pinboard
+- 👥 See the buddy room (agents chatting with each other)
+- 🔴 Live connection count — turns red if more than one person is connected
+
+**Security:**
+- 32-character URL token — `https://xxx.trycloudflare.com/r/<32-chars>/`
+- Token auto-expires after 8 hours of inactivity
+- Token regenerates on every toggle — stale URLs die immediately
+- **"Kill all sessions"** panic button in Settings rotates the token and disconnects everyone
+- Rate limited (60 requests/IP/min), 4KB body cap, strict same-origin CORS
+- Cannot spawn or kill agents, edit CEO notes, or run arbitrary commands from remote
+- You can share the URL with a friend (bagjones!) — or keep it for yourself
+
+**What it cannot do (by design):** spawn agents, kill agents, edit CEO notes, run arbitrary commands. The remote surface is deliberately narrow — if a URL leaks, the damage is capped.
+
 ## Architecture
 
 ```
@@ -163,13 +202,19 @@ Electron App
 ├── Project Manager (per-project .agentorch/)
 ├── Skill Manager (built-in + user skills)
 ├── Git Operations (shell git commands)
+├── Prompt Scheduler (recurring prompts, per-project SQLite)
+├── Remote Server (optional Cloudflare-tunneled mobile dashboard)
+│   ├── Token Manager (URL token auth + session tracking)
+│   ├── Cloudflared Manager (lazy download + spawn)
+│   └── Express API (8 endpoints, rate-limited)
 ├── Update Checker (auto-update from GitHub)
 └── React UI
     ├── Workspace tabs (isolated teams)
     ├── Infinite canvas with floating windows
     ├── Monaco Editor + file explorer
     ├── Git panel
-    ├── 8 toggleable panels
+    ├── Schedules panel
+    ├── 9 toggleable panels
     └── 39 preset templates with search/filter
 ```
 
