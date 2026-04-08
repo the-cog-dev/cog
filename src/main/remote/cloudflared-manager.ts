@@ -24,3 +24,95 @@ export function resolveDownloadUrl(platform: NodeJS.Platform, arch: string): str
   }
   throw new Error(`Unsupported platform/arch for cloudflared: ${platform}/${arch}`)
 }
+
+import * as fs from 'fs'
+import * as path from 'path'
+import type { ChildProcess } from 'child_process'
+
+export type DownloadFn = (url: string, dest: string, onProgress: (pct: number) => void) => Promise<void>
+export type SpawnChildFn = (cmd: string, args: string[]) => ChildProcess
+
+export interface CloudflaredManagerOptions {
+  userDataPath: string
+  download: DownloadFn
+  spawnChild: SpawnChildFn
+  onProgress?: (pct: number) => void
+}
+
+export class CloudflaredManager {
+  private installedPath: string | null = null
+  private child: ChildProcess | null = null
+
+  constructor(private opts: CloudflaredManagerOptions) {}
+
+  private get binDir(): string {
+    return path.join(this.opts.userDataPath, 'bin')
+  }
+
+  private get binPath(): string {
+    return path.join(this.binDir, resolveBinaryName(process.platform))
+  }
+
+  markInstalledForTest(p: string): void {
+    this.installedPath = p
+  }
+
+  findInstalled(): string | null {
+    if (this.installedPath) return this.installedPath
+    if (fs.existsSync(this.binPath)) {
+      this.installedPath = this.binPath
+      return this.installedPath
+    }
+    return null
+  }
+
+  async ensureInstalled(): Promise<void> {
+    if (this.findInstalled()) return
+    fs.mkdirSync(this.binDir, { recursive: true })
+    const url = resolveDownloadUrl(process.platform, process.arch)
+    await this.opts.download(url, this.binPath, (pct) => {
+      this.opts.onProgress?.(pct)
+    })
+    if (process.platform !== 'win32') {
+      fs.chmodSync(this.binPath, 0o755)
+    }
+    this.installedPath = this.binPath
+  }
+
+  start(localPort: number): Promise<string> {
+    if (!this.installedPath) {
+      return Promise.reject(new Error('cloudflared not installed — call ensureInstalled() first'))
+    }
+    return new Promise((resolve, reject) => {
+      let buffer = ''
+      let resolved = false
+      const child = this.opts.spawnChild(this.installedPath!, ['tunnel', '--url', `http://localhost:${localPort}`])
+      this.child = child
+
+      const onData = (chunk: Buffer | string) => {
+        const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8')
+        buffer += text
+        const url = parseTunnelUrl(buffer)
+        if (url && !resolved) {
+          resolved = true
+          resolve(url)
+        }
+      }
+      child.stdout?.on('data', onData)
+      child.stderr?.on('data', onData)
+
+      child.on('exit', (code) => {
+        if (!resolved) {
+          reject(new Error(`cloudflared exited with code ${code} before tunnel URL was received`))
+        }
+      })
+    })
+  }
+
+  stop(): void {
+    if (this.child) {
+      try { this.child.kill('SIGTERM') } catch { /* already dead */ }
+      this.child = null
+    }
+  }
+}
