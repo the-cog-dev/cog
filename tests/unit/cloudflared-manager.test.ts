@@ -194,7 +194,7 @@ describe('CloudflaredManager.start', () => {
     expect(url).toBe('https://random-words.trycloudflare.com')
     expect(spawnChild).toHaveBeenCalledWith(
       '/fake/cloudflared',
-      ['tunnel', '--url', 'http://127.0.0.1:7700']
+      ['tunnel', '--url', 'http://127.0.0.1:7700', '--loglevel', 'debug']
     )
   })
 

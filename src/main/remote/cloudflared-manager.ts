@@ -88,11 +88,17 @@ export class CloudflaredManager {
       let resolved = false
       // Use 127.0.0.1 explicitly — on Windows, 'localhost' can resolve to ::1 (IPv6)
       // first, and cloudflared fails to reach the Express server bound to IPv4 only.
-      const child = this.opts.spawnChild(this.installedPath!, ['tunnel', '--url', `http://127.0.0.1:${localPort}`])
+      const args = ['tunnel', '--url', `http://127.0.0.1:${localPort}`, '--loglevel', 'debug']
+      console.log(`[cloudflared] spawning: ${this.installedPath} ${args.join(' ')}`)
+      const child = this.opts.spawnChild(this.installedPath!, args)
       this.child = child
 
       const onData = (chunk: Buffer | string) => {
         const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8')
+        // Log EVERY line of cloudflared output so we can see tunnel behavior
+        text.split('\n').forEach(line => {
+          if (line.trim()) console.log(`[cloudflared] ${line.trim()}`)
+        })
         buffer += text
         const url = parseTunnelUrl(buffer)
         if (url && !resolved) {
@@ -104,6 +110,7 @@ export class CloudflaredManager {
       child.stderr?.on('data', onData)
 
       child.on('exit', (code) => {
+        console.log(`[cloudflared] process exited with code ${code}`)
         if (!resolved) {
           reject(new Error(`cloudflared exited with code ${code} before tunnel URL was received`))
         }
