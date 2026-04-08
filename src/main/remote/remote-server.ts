@@ -95,7 +95,11 @@ export class RemoteServer {
 
   private authMiddleware(req: Request, res: Response, next: NextFunction): void {
     const token = req.params.token
+    const currentToken = this.deps.tokenManager.getCurrentToken()
+    // Debug logging to diagnose dev-mode routing issues
+    console.log(`[RemoteServer] ${req.method} ${req.originalUrl} — token param: ${token ? token.slice(0, 8) + '...' : 'MISSING'} — current: ${currentToken ? currentToken.slice(0, 8) + '...' : 'NONE'}`)
     if (!token || !this.deps.tokenManager.isValid(token)) {
+      console.log(`[RemoteServer] AUTH FAILED — token valid: ${token ? this.deps.tokenManager.isValid(token) : 'no-token'}`)
       res.status(404).end()
       return
     }
@@ -105,20 +109,25 @@ export class RemoteServer {
   }
 
   private registerRoutes(): void {
-    // GET / - serves the mobile UI HTML
-    this.app.get('/r/:token/', (req: Request, res: Response) => {
+    // GET / - serves the mobile UI HTML (matches both /r/:token and /r/:token/)
+    const htmlHandler = (req: Request, res: Response): void => {
+      console.log(`[RemoteServer] Serving HTML for token ${req.params.token?.slice(0, 8)}...`)
       const htmlPath = path.join(__dirname, 'static', 'index.html')
+      console.log(`[RemoteServer] HTML path: ${htmlPath}, exists: ${fs.existsSync(htmlPath)}`)
       let html: string
       try {
         html = fs.readFileSync(htmlPath, 'utf-8')
-      } catch {
+      } catch (err) {
+        console.log(`[RemoteServer] Failed to read HTML: ${(err as Error).message}`)
         res.status(500).send('Static UI not found')
         return
       }
       html = html.replace('__TOKEN_PLACEHOLDER__', req.params.token)
       res.setHeader('Content-Type', 'text/html; charset=utf-8')
       res.send(html)
-    })
+    }
+    this.app.get('/r/:token/', htmlHandler)
+    this.app.get('/r/:token', htmlHandler)
 
     // POST /task - post a new task to the pinboard
     this.app.post('/r/:token/task', (req: Request, res: Response) => {
