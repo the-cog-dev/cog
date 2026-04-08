@@ -172,7 +172,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): React.ReactEle
         {/* Remote View section */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid #333', paddingTop: '16px' }}>
           <div style={{ fontSize: '12px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Remote View
+            Remote View <span style={{ color: '#eab308', textTransform: 'none', fontWeight: 600 }}>(experimental)</span>
           </div>
 
           <label style={{
