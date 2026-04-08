@@ -93,6 +93,32 @@ export class RemoteServer {
       res.send(html)
     })
 
+    // POST /task - post a new task to the pinboard
+    this.app.post('/r/:token/task', (req: Request, res: Response) => {
+      const { title, description, priority } = req.body ?? {}
+      if (typeof title !== 'string' || title.trim().length === 0) {
+        res.status(400).json({ error: 'title required' })
+        return
+      }
+      if (typeof description !== 'string' || description.trim().length === 0) {
+        res.status(400).json({ error: 'description required' })
+        return
+      }
+      const validPriorities = ['low', 'medium', 'high'] as const
+      type Priority = typeof validPriorities[number]
+      const p: Priority = priority ?? 'medium'
+      if (!validPriorities.includes(p)) {
+        res.status(400).json({ error: 'priority must be low, medium, or high' })
+        return
+      }
+      try {
+        const task = this.deps.postTask(title.trim(), description.trim(), p)
+        res.json(task)
+      } catch (err) {
+        res.status(500).json({ error: (err as Error).message })
+      }
+    })
+
     // POST /schedule/:id/{pause|resume|restart} - manage scheduled prompts
     const scheduleAction = (
       fn: (id: string) => unknown

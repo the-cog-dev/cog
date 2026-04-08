@@ -238,3 +238,48 @@ describe('RemoteServer POST /schedule/:id/*', () => {
     expect(res.body.error).toContain('not found')
   })
 })
+
+describe('RemoteServer POST /task', () => {
+  it('calls deps.postTask with title, description, and priority', async () => {
+    const postTask = vi.fn(() => ({ id: 't1', title: 'X', priority: 'high' }))
+    const deps = makeDeps({ postTask })
+    const token = deps.tokenManager.generate()
+    const server = new RemoteServer(deps)
+    const res = await request(server.getApp())
+      .post(`/r/${token}/task`)
+      .send({ title: 'Fix login', description: 'Auth broken', priority: 'high' })
+      .expect(200)
+    expect(postTask).toHaveBeenCalledWith('Fix login', 'Auth broken', 'high')
+    expect(res.body.id).toBe('t1')
+  })
+
+  it('defaults priority to medium', async () => {
+    const postTask = vi.fn(() => ({ id: 't1' }))
+    const deps = makeDeps({ postTask })
+    const token = deps.tokenManager.generate()
+    const server = new RemoteServer(deps)
+    await request(server.getApp())
+      .post(`/r/${token}/task`)
+      .send({ title: 'X', description: 'Y' })
+      .expect(200)
+    expect(postTask).toHaveBeenCalledWith('X', 'Y', 'medium')
+  })
+
+  it('returns 400 on missing title or description', async () => {
+    const deps = makeDeps()
+    const token = deps.tokenManager.generate()
+    const server = new RemoteServer(deps)
+    await request(server.getApp()).post(`/r/${token}/task`).send({ description: 'Y' }).expect(400)
+    await request(server.getApp()).post(`/r/${token}/task`).send({ title: 'X' }).expect(400)
+  })
+
+  it('returns 400 on invalid priority', async () => {
+    const deps = makeDeps()
+    const token = deps.tokenManager.generate()
+    const server = new RemoteServer(deps)
+    await request(server.getApp())
+      .post(`/r/${token}/task`)
+      .send({ title: 'X', description: 'Y', priority: 'urgent' })
+      .expect(400)
+  })
+})
