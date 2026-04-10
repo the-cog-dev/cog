@@ -189,6 +189,16 @@ describe('InfoStore', () => {
   })
 })
 
+describe('target_agent migration', () => {
+  it('supports target_agent column in pinboard_tasks', () => {
+    const db = createDatabase(':memory:')
+    db.prepare(`INSERT INTO pinboard_tasks (id, title, description, priority, status, created_by, claimed_by, result, created_at, tab_id, target_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run('t1', 'Test', 'Desc', 'medium', 'open', null, null, null, '2026-01-01', null, 'worker-1')
+    const row = db.prepare('SELECT target_agent FROM pinboard_tasks WHERE id = ?').get('t1') as any
+    expect(row.target_agent).toBe('worker-1')
+    db.close()
+  })
+})
+
 describe('ScheduledPrompts table', () => {
   it('creates the scheduled_prompts table with required columns', () => {
     const db = createDatabase(':memory:')

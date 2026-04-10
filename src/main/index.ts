@@ -741,10 +741,20 @@ function setupTaskNudge(): void {
   hub.pinboard.onTaskCreated = (task) => {
     existingCallback?.(task)
 
-    // Filter agents by targetRole if specified, otherwise nudge all non-orchestrators.
+    // If targetAgent is set, only nudge that specific agent by name (overrides targetRole).
     // Skip the agent that created the task — nudging the creator while it's still
     // processing the post_task tool response can cause TUI CLIs to re-render their
     // entire conversation history (cosmetic but confusing).
+    if (task.targetAgent) {
+      const managed = Array.from(agents.values()).find(m => m.config.name === task.targetAgent)
+      if (managed) {
+        const nudge = `[AgentOrch] New task posted for you: "${task.title}" (id: ${task.id}) ${task.priority} priority. Claim it now with claim_task("${task.id}") or call read_tasks() to see all open tasks.`
+        deliverNudge(managed.config.name, nudge)
+      }
+      return
+    }
+
+    // Filter agents by targetRole if specified, otherwise nudge all non-orchestrators.
     // Tab isolation: only nudge agents on the same workspace tab as the task.
     const candidates = hub.registry.list().filter(agent => {
       if (agent.status === 'disconnected' || agent.name === 'user') return false

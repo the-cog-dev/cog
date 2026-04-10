@@ -62,6 +62,7 @@ export interface PinboardTask {
   createdAt: string
   groupId?: string
   targetRole?: string
+  targetAgent?: string
   tabId?: string
 }
 

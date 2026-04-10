@@ -106,4 +106,16 @@ describe('Pinboard', () => {
     expect(result.status).toBe('error')
     expect(result.detail).toContain('already completed')
   })
+
+  it('posts a task with targetAgent', () => {
+    const board = new Pinboard()
+    const task = board.postTask('Research API', 'Look into auth', 'medium', 'boss', undefined, undefined, undefined, 'researcher-1')
+    expect(task.targetAgent).toBe('researcher-1')
+  })
+
+  it('posts a task without targetAgent defaults to undefined', () => {
+    const board = new Pinboard()
+    const task = board.postTask('Fix bug', 'Login broken')
+    expect(task.targetAgent).toBeUndefined()
+  })
 })

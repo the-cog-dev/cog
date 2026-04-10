@@ -9,8 +9,8 @@ export class PinboardStore {
 
   constructor(private db: Database.Database) {
     this.insertStmt = db.prepare(
-      `INSERT INTO pinboard_tasks (id, title, description, priority, status, created_by, claimed_by, result, created_at, tab_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO pinboard_tasks (id, title, description, priority, status, created_by, claimed_by, result, created_at, tab_id, target_agent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     this.updateStmt = db.prepare(
       `UPDATE pinboard_tasks SET status = ?, claimed_by = ?, result = ? WHERE id = ?`
@@ -19,7 +19,7 @@ export class PinboardStore {
       `DELETE FROM pinboard_tasks WHERE id = ?`
     )
     this.loadStmt = db.prepare(
-      `SELECT id, title, description, priority, status, created_by AS createdBy, claimed_by AS claimedBy, result, created_at AS createdAt, tab_id AS tabId
+      `SELECT id, title, description, priority, status, created_by AS createdBy, claimed_by AS claimedBy, result, created_at AS createdAt, tab_id AS tabId, target_agent AS targetAgent
        FROM pinboard_tasks ORDER BY created_at ASC`
     )
   }
@@ -27,7 +27,7 @@ export class PinboardStore {
   saveTask(task: PinboardTask): void {
     this.insertStmt.run(
       task.id, task.title, task.description, task.priority,
-      task.status, task.createdBy, task.claimedBy, task.result, task.createdAt, task.tabId ?? null
+      task.status, task.createdBy, task.claimedBy, task.result, task.createdAt, task.tabId ?? null, task.targetAgent ?? null
     )
   }
 

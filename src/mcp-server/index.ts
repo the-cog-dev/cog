@@ -206,18 +206,19 @@ server.tool(
 
 server.tool(
   'post_task',
-  'Post a task to the shared pinboard. Use target_role to only nudge agents with a specific role (e.g., "reviewer", "worker", "researcher"). If omitted, all non-orchestrator agents are nudged.',
+  'Post a task to the shared pinboard. Use target_role to only nudge agents with a specific role (e.g., "reviewer", "worker", "researcher"). Use target_agent to nudge a specific agent by name (overrides target_role if both are set). If neither is provided, all non-orchestrator agents are nudged.',
   {
     title: z.string().describe('Short title for the task'),
     description: z.string().describe('Detailed description of what needs to be done'),
     priority: z.enum(['low', 'medium', 'high']).optional().default('medium').describe('Task priority (default: medium)'),
-    target_role: z.string().optional().describe('Only nudge agents with this role (e.g., "reviewer", "worker"). Omit to nudge all.')
+    target_role: z.string().optional().describe('Only nudge agents with this role (e.g., "reviewer", "worker"). Omit to nudge all.'),
+    target_agent: z.string().optional().describe('Name of specific agent to nudge (overrides target_role if both set).')
   },
-  async ({ title, description, priority, target_role }) => {
+  async ({ title, description, priority, target_role, target_agent }) => {
     try {
       const result = await hubFetch('/pinboard/tasks', {
         method: 'POST',
-        body: JSON.stringify({ title, description, priority, from: AGENT_NAME, targetRole: target_role, tabId: TAB_ID })
+        body: JSON.stringify({ title, description, priority, from: AGENT_NAME, targetRole: target_role, tabId: TAB_ID, targetAgent: target_agent })
       })
       return toolResult(result)
     } catch (err: any) {
