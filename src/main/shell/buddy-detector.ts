@@ -58,7 +58,7 @@ const REJECT_PATTERNS = [
 export class BuddyDetector {
   private buffer = ''
   private lastDetectionTime = 0
-  private cooldownMs = 8000
+  private cooldownMs = 3000  // Reduced from 8s — buddy messages change frequently
   private lastMessage = ''
 
   detect(rawData: string): BuddyDetection | null {
@@ -72,21 +72,37 @@ export class BuddyDetector {
     const stripped = stripAnsi(this.buffer)
     const clean = stripBox(stripped)
 
-    // Look for "last said" — this is the most reliable buddy indicator
-    const lastSaidIdx = clean.lastIndexOf('last said')
-    if (lastSaidIdx === -1) return null  // No buddy card found at all
-
-    const afterLastSaid = clean.slice(lastSaidIdx + 9) // skip "last said"
-
-    // Find buddy name before "last said"
+    // Find buddy name anywhere in the buffer
     let detectedName = 'Jostle'
-    const beforeLastSaid = clean.slice(Math.max(0, lastSaidIdx - 50), lastSaidIdx)
     for (const name of BUDDY_NAMES) {
-      if (beforeLastSaid.includes(name)) {
+      if (clean.includes(name)) {
         detectedName = name
         break
       }
     }
+
+    // Strategy 1: Find "last said" pattern (most reliable)
+    const lastSaidIdx = clean.lastIndexOf('last said')
+    if (lastSaidIdx !== -1) {
+      const result = this.extractFromLastSaid(clean, lastSaidIdx, detectedName)
+      if (result) return result
+    }
+
+    // Strategy 2: Find *ActionWord…* pattern near a buddy name (fallback)
+    // This catches buddy speech even when "last said" has been overwritten
+    for (const name of BUDDY_NAMES) {
+      const nameIdx = clean.lastIndexOf(name)
+      if (nameIdx === -1) continue
+      const vicinity = clean.slice(nameIdx, nameIdx + 600)
+      const result = this.extractActionSpeech(vicinity, name)
+      if (result) return result
+    }
+
+    return null
+  }
+
+  private extractFromLastSaid(clean: string, lastSaidIdx: number, detectedName: string): BuddyDetection | null {
+    const afterLastSaid = clean.slice(lastSaidIdx + 9)
 
     // Extract the action word (gerund ending in … or ...)
     // Buddy actions are single words like: *Scurrying…* *Unfurling…* *Zesting…* *Leavening…*
@@ -119,6 +135,33 @@ export class BuddyDetector {
 
     const fullMessage = `*${actionWord}* ${speech}`
     return this.emitIfNew(fullMessage, detectedName)
+  }
+
+  /**
+   * Fallback: extract buddy speech from *ActionWord…* pattern near a buddy name.
+   * Used when "last said" marker has been overwritten by TUI cursor positioning.
+   */
+  private extractActionSpeech(vicinity: string, buddyName: string): BuddyDetection | null {
+    const actionMatch = vicinity.match(/\*([A-Z][a-z]+(?:ing|ling|ning|ring)(?:…|\.\.\.))\*/)
+    if (!actionMatch) return null
+
+    const actionWord = actionMatch[1]
+    const afterAction = vicinity.slice(vicinity.indexOf(actionMatch[0]) + actionMatch[0].length)
+
+    const speechMatch = afterAction.match(/\s*([^*]{5,}?)(?:\s{3,}|$)/)
+    if (!speechMatch) {
+      return this.emitIfNew(`*${actionWord}*`, buddyName)
+    }
+
+    let speech = speechMatch[1].trim()
+    speech = deduplicateSpinnerWords(speech, actionWord)
+    speech = speech.replace(/\b\d{1,4}\b/g, '').replace(/\s+/g, ' ').trim()
+
+    if (speech.length < 3) {
+      return this.emitIfNew(`*${actionWord}*`, buddyName)
+    }
+
+    return this.emitIfNew(`*${actionWord}* ${speech}`, buddyName)
   }
 
   private emitIfNew(message: string, buddyName: string): BuddyDetection | null {
