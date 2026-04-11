@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentState, HubInfo, PinboardTask, InfoEntry, WorkspacePreset, Skill, CreateScheduleInput, EditScheduleInput } from '../shared/types'
+import type { AgentConfig, AgentState, HubInfo, PinboardTask, InfoEntry, WorkspacePreset, Skill, CreateScheduleInput, EditScheduleInput, CommunityTeam, CommunityTeamListItem, CommunityAgent, CommunityCategory } from '../shared/types'
 
 declare global {
   interface Window {
@@ -47,6 +47,15 @@ declare global {
       regenerateRemoteToken: () => Promise<{ ok: boolean; newUrl?: string | null }>
       onRemoteStatusUpdate: (cb: (status: { enabled: boolean; publicUrl: string | null; connectionCount: number; lastActivity: number | null }) => void) => () => void
       onRemoteSetupProgress: (cb: (progress: { stage: 'downloading' | 'starting' | 'ready' | 'error'; message?: string }) => void) => () => void
+      // Stale task alert snooze
+      getStaleAlertSnooze: () => Promise<{ muteUntil: number | null }>
+      setStaleAlertSnooze: (durationMs: number | null) => Promise<{ muteUntil: number | null }>
+      onStaleAlertUpdate: (cb: (state: { muteUntil: number | null }) => void) => () => void
+      // Community Teams
+      communityList: (opts?: { force?: boolean }) => Promise<{ success: true; items: CommunityTeamListItem[] } | { success: false; error: string }>
+      communityGet: (issueNumber: number) => Promise<{ success: true; team: CommunityTeam; isStarredByMe: boolean } | { success: false; error: string }>
+      communityShare: (input: { name: string; description: string; author: string; category: CommunityCategory; agents: CommunityAgent[] }) => Promise<{ success: true; team: CommunityTeam } | { success: false; error: string }>
+      communityToggleStar: (issueNumber: number) => Promise<{ success: true; stars: number; isStarredByMe: boolean } | { success: false; error: string }>
     }
   }
 }

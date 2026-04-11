@@ -24,7 +24,8 @@ import { spawn as spawnChildProcess } from 'child_process'
 import { TokenManager } from './remote/token-manager'
 import { CloudflaredManager } from './remote/cloudflared-manager'
 import { RemoteServer } from './remote/remote-server'
-import type { AgentConfig, RemoteSetupProgress } from '../shared/types'
+import * as communityClient from './community/community-client'
+import type { AgentConfig, RemoteSetupProgress, CommunityAgent, CommunityCategory } from '../shared/types'
 import { IPC } from '../shared/types'
 
 let hub: HubServer
@@ -51,6 +52,7 @@ const NUDGE_COOLDOWN_MS = 3000    // Minimum interval between nudge deliveries t
 const STALE_TASK_CHECK_INTERVAL = 60000  // Check for stuck in_progress tasks every 60s
 const STALE_TASK_THRESHOLD_MS = 5 * 60 * 1000 // 5 minutes before a task is considered stale
 let staleTaskTimer: ReturnType<typeof setInterval> | null = null
+let staleAlertMuteUntil: number | null = null  // epoch ms; null = not muted
 
 // Remote View state
 let remoteTokenManager: TokenManager | null = null
@@ -789,6 +791,8 @@ function setupInfoNudge(): void {
 function setupStaleTaskWatchdog(): void {
   if (staleTaskTimer) clearInterval(staleTaskTimer)
   staleTaskTimer = setInterval(() => {
+    // Snooze: if user has muted stale alerts, skip both orchestrator alerts and worker reminders
+    if (staleAlertMuteUntil !== null && Date.now() < staleAlertMuteUntil) return
     const tasks = hub.pinboard.readTasks()
     const now = Date.now()
     const staleTasks = tasks.filter(t => {
@@ -1229,6 +1233,20 @@ function setupIPC(): void {
     return { status: 'ok', cleared }
   })
 
+  // Stale task alert snooze — mutes orchestrator alerts + worker reminders for a duration
+  ipcMain.handle(IPC.STALE_ALERT_GET, () => {
+    // Auto-clear if expired
+    if (staleAlertMuteUntil !== null && Date.now() >= staleAlertMuteUntil) staleAlertMuteUntil = null
+    return { muteUntil: staleAlertMuteUntil }
+  })
+
+  ipcMain.handle(IPC.STALE_ALERT_SET, (_event, durationMs: number | null) => {
+    staleAlertMuteUntil = durationMs === null || durationMs <= 0 ? null : Date.now() + durationMs
+    const payload = { muteUntil: staleAlertMuteUntil }
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.STALE_ALERT_UPDATE, payload)
+    return payload
+  })
+
   // Info Channel IPC handlers
   ipcMain.handle(IPC.INFO_GET_ENTRIES, (_event, tabId?: string) => {
     return tabId ? hub.infoChannel.readInfoForTab(tabId) : hub.infoChannel.readInfo()
@@ -1601,6 +1619,49 @@ function setupIPC(): void {
       return { success: true, method: 'api', issueUrl: issue.html_url, number: issue.number }
     } catch (err: any) {
       return { success: false, method: 'api', error: err.message }
+    }
+  })
+
+  // Community Teams — browse/share/star user-contributed team presets via GitHub Issues
+  ipcMain.handle(IPC.COMMUNITY_LIST, async (_event, opts?: { force?: boolean }) => {
+    try {
+      const items = await communityClient.listTeams(opts ?? {})
+      return { success: true, items }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle(IPC.COMMUNITY_GET, async (_event, issueNumber: number) => {
+    try {
+      const team = await communityClient.getTeam(issueNumber)
+      const myHash = communityClient.getMachineHash()
+      return { success: true, team, isStarredByMe: team.starredBy.includes(myHash) }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle(IPC.COMMUNITY_SHARE, async (_event, input: { name: string; description: string; author: string; category: CommunityCategory; agents: CommunityAgent[] }) => {
+    try {
+      if (!input.name?.trim()) return { success: false, error: 'Name is required' }
+      if (!input.description?.trim()) return { success: false, error: 'Description is required' }
+      if (!input.author?.trim()) return { success: false, error: 'Author is required' }
+      if (!communityClient.isValidCategory(input.category)) return { success: false, error: 'Invalid category' }
+      if (!Array.isArray(input.agents) || input.agents.length === 0) return { success: false, error: 'Team must contain at least one agent' }
+      const team = await communityClient.shareTeam(input)
+      return { success: true, team }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle(IPC.COMMUNITY_TOGGLE_STAR, async (_event, issueNumber: number) => {
+    try {
+      const result = await communityClient.toggleStar(issueNumber)
+      return { success: true, ...result }
+    } catch (err: any) {
+      return { success: false, error: err.message }
     }
   })
 

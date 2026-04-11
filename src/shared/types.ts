@@ -82,6 +82,13 @@ export const IPC = {
   PINBOARD_GET_TASKS: 'pinboard:get-tasks',
   PINBOARD_CLEAR_COMPLETED: 'pinboard:clear-completed',
   PINBOARD_TASK_UPDATE: 'pinboard:task-update',
+  STALE_ALERT_GET: 'stale-alert:get',
+  STALE_ALERT_SET: 'stale-alert:set',
+  STALE_ALERT_UPDATE: 'stale-alert:update',
+  COMMUNITY_LIST: 'community:list',
+  COMMUNITY_GET: 'community:get',
+  COMMUNITY_SHARE: 'community:share',
+  COMMUNITY_TOGGLE_STAR: 'community:toggle-star',
   INFO_GET_ENTRIES: 'info:get-entries',
   INFO_ENTRY_ADDED: 'info:entry-added',
   PROJECT_GET_CURRENT: 'project:get-current',
@@ -281,6 +288,52 @@ export interface WorkspacePreset {
   windows: WindowPosition[]
   canvas: CanvasState
   savedAt: string
+}
+
+// Community Teams — shared with the renderer so the Community tab UI can type-check
+
+export type CommunityCategory = 'research' | 'coding' | 'review' | 'full-stack' | 'decomp' | 'mixed' | 'other'
+
+// Shrunk AgentConfig that's safe to share — no cwd, no ids, no tab/group/provider
+export interface CommunityAgent {
+  name: string
+  cli: string
+  role: string
+  ceoNotes: string
+  shell: 'cmd' | 'powershell' | 'bash' | 'zsh' | 'fish'
+  admin: boolean
+  autoMode: boolean
+  model?: string
+  experimental?: boolean
+  skills?: string[]
+}
+
+export interface CommunityTeam {
+  version: 1
+  issueNumber?: number       // set by the server response; absent when drafting a new share
+  name: string
+  description: string
+  author: string
+  category: CommunityCategory
+  agentCount: number
+  clis: string[]
+  agents: CommunityAgent[]
+  stars: number
+  starredBy: string[]        // machine-hashes (12 char truncated)
+  createdAt: string
+}
+
+export interface CommunityTeamListItem {
+  issueNumber: number
+  name: string
+  description: string
+  author: string
+  category: CommunityCategory
+  agentCount: number
+  clis: string[]
+  stars: number
+  createdAt: string
+  isStarredByMe: boolean
 }
 
 export interface FireHistoryEntry {

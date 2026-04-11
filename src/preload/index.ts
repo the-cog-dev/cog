@@ -38,6 +38,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(IPC.PINBOARD_TASK_UPDATE, handler)
     return () => ipcRenderer.removeListener(IPC.PINBOARD_TASK_UPDATE, handler)
   },
+  getStaleAlertSnooze: () => ipcRenderer.invoke(IPC.STALE_ALERT_GET),
+  setStaleAlertSnooze: (durationMs: number | null) => ipcRenderer.invoke(IPC.STALE_ALERT_SET, durationMs),
+  onStaleAlertUpdate: (callback: (state: { muteUntil: number | null }) => void) => {
+    const handler = (_event: unknown, state: { muteUntil: number | null }) => callback(state)
+    ipcRenderer.on(IPC.STALE_ALERT_UPDATE, handler)
+    return () => ipcRenderer.removeListener(IPC.STALE_ALERT_UPDATE, handler)
+  },
+  // Community Teams
+  communityList: (opts?: { force?: boolean }) => ipcRenderer.invoke(IPC.COMMUNITY_LIST, opts),
+  communityGet: (issueNumber: number) => ipcRenderer.invoke(IPC.COMMUNITY_GET, issueNumber),
+  communityShare: (input: unknown) => ipcRenderer.invoke(IPC.COMMUNITY_SHARE, input),
+  communityToggleStar: (issueNumber: number) => ipcRenderer.invoke(IPC.COMMUNITY_TOGGLE_STAR, issueNumber),
   getInfoEntries: (tabId?: string) => ipcRenderer.invoke(IPC.INFO_GET_ENTRIES, tabId),
   onInfoUpdate: (callback: (entries: unknown[]) => void) => {
     const handler = (_event: unknown, entries: unknown[]) => callback(entries)

@@ -212,6 +212,122 @@ declare const electronAPI: {
   getPinboardTasks: (tabId?: string) => Promise<PinboardTask[]>
   clearCompletedTasks: () => Promise<{ status: string; cleared: number }>
   onPinboardUpdate: (cb: (tasks: PinboardTask[]) => void) => () => void
+  getStaleAlertSnooze: () => Promise<{ muteUntil: number | null }>
+  setStaleAlertSnooze: (durationMs: number | null) => Promise<{ muteUntil: number | null }>
+  onStaleAlertUpdate: (cb: (state: { muteUntil: number | null }) => void) => () => void
+}
+
+const SNOOZE_OPTIONS: { label: string; ms: number }[] = [
+  { label: '15 minutes', ms: 15 * 60 * 1000 },
+  { label: '1 hour', ms: 60 * 60 * 1000 },
+  { label: '4 hours', ms: 4 * 60 * 60 * 1000 },
+  { label: '8 hours', ms: 8 * 60 * 60 * 1000 }
+]
+
+function SnoozeControl() {
+  const [muteUntil, setMuteUntil] = useState<number | null>(null)
+  const [open, setOpen] = useState(false)
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    window.electronAPI.getStaleAlertSnooze().then(s => setMuteUntil(s.muteUntil))
+    const cleanup = window.electronAPI.onStaleAlertUpdate(s => setMuteUntil(s.muteUntil))
+    return cleanup
+  }, [])
+
+  // Local tick so the countdown display updates and we flip back to "Snooze" on expiry
+  useEffect(() => {
+    if (muteUntil === null) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [muteUntil])
+
+  const isMuted = muteUntil !== null && now < muteUntil
+
+  // Auto-clear local state when the snooze expires client-side
+  useEffect(() => {
+    if (muteUntil !== null && now >= muteUntil) setMuteUntil(null)
+  }, [now, muteUntil])
+
+  const handleSet = async (ms: number) => {
+    setOpen(false)
+    const s = await window.electronAPI.setStaleAlertSnooze(ms)
+    setMuteUntil(s.muteUntil)
+  }
+
+  const handleUnmute = async () => {
+    const s = await window.electronAPI.setStaleAlertSnooze(null)
+    setMuteUntil(s.muteUntil)
+  }
+
+  const countdown = (() => {
+    if (!isMuted || muteUntil === null) return ''
+    const remaining = Math.max(0, muteUntil - now)
+    const totalSec = Math.floor(remaining / 1000)
+    const h = Math.floor(totalSec / 3600)
+    const m = Math.floor((totalSec % 3600) / 60)
+    const s = totalSec % 60
+    if (h > 0) return `${h}h ${m}m`
+    if (m > 0) return `${m}m ${s}s`
+    return `${s}s`
+  })()
+
+  if (isMuted) {
+    return (
+      <button
+        onClick={handleUnmute}
+        title="Click to unmute stale task alerts"
+        style={{
+          background: '#3a2a1a', border: '1px solid #8a5a2a', borderRadius: '4px',
+          color: '#f0a040', fontSize: '10px', cursor: 'pointer', padding: '1px 6px',
+          fontFamily: 'monospace'
+        }}
+      >⏸ Muted {countdown}</button>
+    )
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        title="Snooze stale task alerts"
+        style={{
+          background: 'none', border: '1px solid #444', borderRadius: '4px',
+          color: '#888', fontSize: '10px', cursor: 'pointer', padding: '1px 6px',
+          fontFamily: 'monospace'
+        }}
+      >🔔 Snooze</button>
+      {open && (
+        <>
+          <div
+            onClick={() => setOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 10 }}
+          />
+          <div style={{
+            position: 'absolute', top: '100%', right: 0, marginTop: '4px',
+            backgroundColor: '#222', border: '1px solid #444', borderRadius: '4px',
+            padding: '4px', zIndex: 11, minWidth: '110px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+          }}>
+            {SNOOZE_OPTIONS.map(opt => (
+              <button
+                key={opt.ms}
+                onClick={() => handleSet(opt.ms)}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  background: 'none', border: 'none', color: '#ccc',
+                  fontSize: '11px', padding: '4px 8px', cursor: 'pointer',
+                  fontFamily: 'monospace', borderRadius: '3px'
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#333' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}
+              >{opt.label}</button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 export function PinboardPanel({ tabId }: { tabId?: string }) {
@@ -311,6 +427,7 @@ export function PinboardPanel({ tabId }: { tabId?: string }) {
                 }}
               >Clear</button>
             )}
+            {col.key === 'in_progress' && <SnoozeControl />}
           </div>
 
           <div style={{

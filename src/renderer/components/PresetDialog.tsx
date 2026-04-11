@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import type { AgentConfig, AgentState, WorkspacePreset, WindowPosition, CanvasState } from '../../shared/types'
+import type { AgentConfig, AgentState, WorkspacePreset, WindowPosition, CanvasState, CommunityTeam, CommunityTeamListItem, CommunityCategory, CommunityAgent } from '../../shared/types'
 import type { WindowState } from '../hooks/useWindowManager'
 
 interface PresetDialogProps {
@@ -16,7 +16,20 @@ interface PresetInfo {
   savedAt: string
 }
 
-type Tab = 'save' | 'load' | 'templates'
+type Tab = 'save' | 'load' | 'templates' | 'community'
+
+type CommunityCategoryOrAll = CommunityCategory | 'all'
+
+const COMMUNITY_CATEGORIES: { value: CommunityCategoryOrAll; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'research', label: 'Research' },
+  { value: 'coding', label: 'Coding' },
+  { value: 'review', label: 'Review' },
+  { value: 'full-stack', label: 'Full-Stack' },
+  { value: 'decomp', label: 'Decomp' },
+  { value: 'mixed', label: 'Mixed' },
+  { value: 'other', label: 'Other' }
+]
 
 interface PresetTemplate {
   name: string
@@ -427,6 +440,26 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadPreset, onClose
   const [templateSearch, setTemplateSearch] = useState('')
   const [cliFilters, setCliFilters] = useState<Set<string>>(new Set())
   const [editingAgents, setEditingAgents] = useState<AgentConfig[] | null>(null)
+  // Community Teams state
+  const [communityItems, setCommunityItems] = useState<CommunityTeamListItem[]>([])
+  const [communityLoading, setCommunityLoading] = useState(false)
+  const [communityError, setCommunityError] = useState<string | null>(null)
+  const [communitySort, setCommunitySort] = useState<'stars' | 'newest'>('stars')
+  const [communityCategory, setCommunityCategory] = useState<CommunityCategoryOrAll>('all')
+  const [communityTeamToImport, setCommunityTeamToImport] = useState<CommunityTeam | null>(null)
+  const [communityFetchingTeam, setCommunityFetchingTeam] = useState(false)
+  // Share flow
+  const [sharePreset, setSharePreset] = useState<WorkspacePreset | null>(null)
+  const [shareName, setShareName] = useState('')
+  const [shareDescription, setShareDescription] = useState('')
+  const [shareAuthor, setShareAuthor] = useState(() => {
+    try { return localStorage.getItem('cog-community-author') || '' } catch { return '' }
+  })
+  const [shareCategory, setShareCategory] = useState<CommunityCategory>('coding')
+  const [shareAgents, setShareAgents] = useState<CommunityAgent[]>([])
+  const [shareSubmitting, setShareSubmitting] = useState(false)
+  const [shareError, setShareError] = useState<string | null>(null)
+  const [shareSuccess, setShareSuccess] = useState<string | null>(null)
 
   const filteredTemplates = BUILT_IN_TEMPLATES.filter(t => {
     if (templateSearch) {
@@ -460,6 +493,9 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadPreset, onClose
       loadPresetsList()
     } else if (activeTab === 'templates') {
       setEditingAgents(null)
+    } else if (activeTab === 'community') {
+      setEditingAgents(null)
+      loadCommunityList(false)
     }
   }, [activeTab])
 
@@ -486,6 +522,128 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadPreset, onClose
       setError(err instanceof Error ? err.message : 'Failed to load presets')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadCommunityList = async (force: boolean) => {
+    try {
+      setCommunityLoading(true)
+      setCommunityError(null)
+      const res = await window.electronAPI.communityList({ force })
+      if (!res.success) throw new Error(res.error || 'Failed to load community teams')
+      setCommunityItems(res.items as CommunityTeamListItem[])
+    } catch (err) {
+      setCommunityError(err instanceof Error ? err.message : 'Failed to load community teams')
+    } finally {
+      setCommunityLoading(false)
+    }
+  }
+
+  const handleToggleStar = async (issueNumber: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    // Optimistic flip — update UI immediately, roll back on failure
+    setCommunityItems(prev => prev.map(item => {
+      if (item.issueNumber !== issueNumber) return item
+      const next = !item.isStarredByMe
+      return { ...item, isStarredByMe: next, stars: Math.max(0, item.stars + (next ? 1 : -1)) }
+    }))
+    try {
+      const res = await window.electronAPI.communityToggleStar(issueNumber)
+      if (!res.success) throw new Error(res.error || 'Star failed')
+      // Reconcile with server response (in case of race)
+      setCommunityItems(prev => prev.map(item => item.issueNumber === issueNumber
+        ? { ...item, stars: res.stars, isStarredByMe: res.isStarredByMe }
+        : item
+      ))
+    } catch (err) {
+      // Roll back
+      setCommunityItems(prev => prev.map(item => {
+        if (item.issueNumber !== issueNumber) return item
+        const back = !item.isStarredByMe
+        return { ...item, isStarredByMe: back, stars: Math.max(0, item.stars + (back ? 1 : -1)) }
+      }))
+      setCommunityError(err instanceof Error ? err.message : 'Failed to toggle star')
+    }
+  }
+
+  const handleCommunityCardClick = async (item: CommunityTeamListItem) => {
+    try {
+      setCommunityFetchingTeam(true)
+      setCommunityError(null)
+      const res = await window.electronAPI.communityGet(item.issueNumber)
+      if (!res.success) throw new Error(res.error || 'Failed to fetch team')
+      setCommunityTeamToImport(res.team as CommunityTeam)
+      setShowCwdPrompt(true)
+    } catch (err) {
+      setCommunityError(err instanceof Error ? err.message : 'Failed to fetch team')
+    } finally {
+      setCommunityFetchingTeam(false)
+    }
+  }
+
+  const openShareDialog = async (presetName: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      setLoading(true)
+      setError(null)
+      const preset = await window.electronAPI.loadPreset(presetName)
+      setSharePreset(preset)
+      setShareName(preset.name)
+      setShareDescription('')
+      setShareError(null)
+      setShareSuccess(null)
+      // Convert AgentConfigs to CommunityAgents (strip cwd/id/tab/group/provider)
+      setShareAgents(preset.agents.map(a => ({
+        name: a.name,
+        cli: a.cli,
+        role: a.role,
+        ceoNotes: a.ceoNotes,
+        shell: a.shell,
+        admin: a.admin,
+        autoMode: a.autoMode,
+        ...(a.model ? { model: a.model } : {}),
+        ...(a.experimental ? { experimental: a.experimental } : {}),
+        ...(a.skills && a.skills.length > 0 ? { skills: a.skills } : {})
+      })))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to open preset for sharing')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateShareAgent = (idx: number, field: keyof CommunityAgent, value: string | boolean) => {
+    setShareAgents(prev => prev.map((a, i) => i === idx ? { ...a, [field]: value } : a))
+  }
+
+  const handleShareSubmit = async () => {
+    if (!shareName.trim()) { setShareError('Name is required'); return }
+    if (!shareDescription.trim()) { setShareError('Description is required'); return }
+    if (!shareAuthor.trim()) { setShareError('Author is required'); return }
+    try {
+      setShareSubmitting(true)
+      setShareError(null)
+      try { localStorage.setItem('cog-community-author', shareAuthor.trim()) } catch { /* noop */ }
+      const res = await window.electronAPI.communityShare({
+        name: shareName.trim(),
+        description: shareDescription.trim(),
+        author: shareAuthor.trim(),
+        category: shareCategory,
+        agents: shareAgents
+      })
+      if (!res.success) throw new Error(res.error || 'Share failed')
+      setShareSuccess(`Shared! Your team is now in Community Teams.`)
+      // Refresh community list cache so it shows up next time they browse
+      loadCommunityList(true)
+      // Auto-close the share dialog after a moment
+      setTimeout(() => {
+        setSharePreset(null)
+        setShareSuccess(null)
+      }, 1500)
+    } catch (err) {
+      setShareError(err instanceof Error ? err.message : 'Share failed')
+    } finally {
+      setShareSubmitting(false)
     }
   }
 
@@ -662,7 +820,22 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadPreset, onClose
       let savedWindows: WindowPosition[] = []
       let savedCanvas: CanvasState = { zoom: 1, panX: 0, panY: 0 }
 
-      if (templateToLoad && activeTab === 'templates') {
+      if (communityTeamToImport && activeTab === 'community') {
+        // Importing a community team — convert CommunityAgent[] to AgentConfig[] (sans id)
+        configs = communityTeamToImport.agents.map(a => ({
+          name: a.name,
+          cli: a.cli,
+          cwd: cwdOverride.trim() || '',
+          role: a.role,
+          ceoNotes: a.ceoNotes,
+          shell: a.shell,
+          admin: a.admin,
+          autoMode: a.autoMode,
+          ...(a.model ? { model: a.model } : {}),
+          ...(a.experimental ? { experimental: a.experimental } : {}),
+          ...(a.skills ? { skills: a.skills } : {})
+        }))
+      } else if (templateToLoad && activeTab === 'templates') {
         // Loading from built-in template — no saved positions
         configs = templateToLoad.agents.map(agent => ({
           ...agent,
@@ -710,7 +883,11 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadPreset, onClose
       <div style={overlayStyle}>
         <div style={{ ...modalStyle, width: '400px' }}>
           <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', color: '#e0e0e0' }}>
-            {activeTab === 'templates' ? `Use Template: ${templateToLoad?.name}` : `Load Preset: ${selectedPreset}`}
+            {activeTab === 'community' && communityTeamToImport
+              ? `Import Team: ${communityTeamToImport.name}`
+              : activeTab === 'templates'
+                ? `Use Template: ${templateToLoad?.name}`
+                : `Load Preset: ${selectedPreset}`}
           </h3>
           <p style={{ color: '#aaa', fontSize: '13px', margin: '0 0 12px 0' }}>
             Working directory for all agents:
@@ -771,6 +948,12 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadPreset, onClose
             style={activeTab === 'templates' ? activeTabStyle : tabStyle}
           >
             Templates
+          </button>
+          <button
+            onClick={() => setActiveTab('community')}
+            style={activeTab === 'community' ? activeTabStyle : tabStyle}
+          >
+            Community
           </button>
         </div>
 
@@ -935,6 +1118,13 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadPreset, onClose
                       &#9998;
                     </button>
                     <button
+                      onClick={e => openShareDialog(preset.name, e)}
+                      style={shareBtnStyle}
+                      title="Share to Community"
+                    >
+                      &#9733;
+                    </button>
+                    <button
                       onClick={e => handleDelete(preset.name, e)}
                       style={deleteBtnStyle}
                       title="Delete preset"
@@ -1041,7 +1231,240 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadPreset, onClose
             </div>
           </div>
         )}
+
+        {activeTab === 'community' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {/* Controls row — sort + refresh */}
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <select
+                value={communitySort}
+                onChange={e => setCommunitySort(e.target.value as 'stars' | 'newest')}
+                style={{ ...inputStyle, flex: 'none', width: 'auto', padding: '4px 8px', fontSize: '11px' }}
+              >
+                <option value="stars">Most Starred</option>
+                <option value="newest">Newest</option>
+              </select>
+              <button
+                onClick={() => loadCommunityList(true)}
+                disabled={communityLoading}
+                style={{ ...cancelBtnStyle, padding: '4px 10px', fontSize: '11px' }}
+                title="Refresh from GitHub"
+              >
+                {communityLoading ? '...' : '↻ Refresh'}
+              </button>
+              <div style={{ flex: 1 }} />
+              <span style={{ color: '#666', fontSize: '10px' }}>
+                {communityItems.length} team{communityItems.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {/* Category filter chips */}
+            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+              {COMMUNITY_CATEGORIES.map(c => (
+                <button
+                  key={c.value}
+                  onClick={() => setCommunityCategory(c.value)}
+                  style={{
+                    padding: '3px 10px',
+                    fontSize: '11px',
+                    borderRadius: '12px',
+                    border: communityCategory === c.value ? '1px solid #4a9eff' : '1px solid #444',
+                    backgroundColor: communityCategory === c.value ? '#1e3a5f' : '#2a2a2a',
+                    color: communityCategory === c.value ? '#8cc4ff' : '#888',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit'
+                  }}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+
+            {communityError && (
+              <div style={{ color: '#ff6b6b', fontSize: '11px', padding: '6px 8px', backgroundColor: '#3a1a1a', borderRadius: '4px' }}>
+                {communityError}
+              </div>
+            )}
+
+            {/* Team list */}
+            <div style={{ maxHeight: '340px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {communityLoading && communityItems.length === 0 ? (
+                <div style={{ color: '#666', textAlign: 'center', padding: '20px 0', fontSize: '12px' }}>
+                  Loading community teams...
+                </div>
+              ) : (() => {
+                const filtered = communityItems
+                  .filter(i => communityCategory === 'all' || i.category === communityCategory)
+                  .sort((a, b) => {
+                    if (communitySort === 'stars') return b.stars - a.stars
+                    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                  })
+                if (filtered.length === 0) {
+                  return (
+                    <div style={{ color: '#555', textAlign: 'center', padding: '20px 0', fontSize: '12px' }}>
+                      {communityItems.length === 0
+                        ? 'No teams shared yet. Be the first — share a preset from the Load tab!'
+                        : 'No teams match the selected category.'}
+                    </div>
+                  )
+                }
+                return filtered.map(item => (
+                  <div
+                    key={item.issueNumber}
+                    onClick={() => handleCommunityCardClick(item)}
+                    style={communityCardStyle}
+                    onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#555' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#333' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <button
+                        onClick={e => handleToggleStar(item.issueNumber, e)}
+                        title={item.isStarredByMe ? 'Unstar' : 'Star'}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: item.isStarredByMe ? '#fbbf24' : '#555',
+                          fontSize: '14px', padding: 0, fontFamily: 'inherit',
+                          display: 'flex', alignItems: 'center', gap: '3px'
+                        }}
+                      >
+                        {item.isStarredByMe ? '★' : '☆'}
+                        <span style={{ fontSize: '11px', color: item.isStarredByMe ? '#fbbf24' : '#888' }}>
+                          {item.stars}
+                        </span>
+                      </button>
+                      <span style={{ fontSize: '13px', color: '#e0e0e0', fontWeight: 600, flex: 1 }}>
+                        {item.name}
+                      </span>
+                      <span style={{
+                        fontSize: '9px', color: '#8cc4ff', textTransform: 'uppercase',
+                        border: '1px solid #2a4a6a', borderRadius: '3px', padding: '1px 5px'
+                      }}>
+                        {item.category}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#999', lineHeight: '1.4', marginBottom: '4px' }}>
+                      {item.description.length > 140 ? item.description.slice(0, 140) + '...' : item.description}
+                    </div>
+                    <div style={{ fontSize: '10px', color: '#555' }}>
+                      {item.agentCount} agent{item.agentCount !== 1 ? 's' : ''}
+                      {' · '}
+                      {item.clis.join(' + ')}
+                      {' · by '}
+                      <span style={{ color: '#888' }}>{item.author}</span>
+                    </div>
+                  </div>
+                ))
+              })()}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+              <span style={{ fontSize: '10px', color: '#555' }}>
+                {communityFetchingTeam ? 'Fetching team details...' : 'Click a team to import it'}
+              </span>
+              <button onClick={onClose} style={cancelBtnStyle}>Close</button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Share Dialog — overlayed when sharePreset is set */}
+      {sharePreset && (
+        <div style={{ ...overlayStyle, zIndex: 10001 }} onClick={() => !shareSubmitting && setSharePreset(null)}>
+          <div style={{ ...modalStyle, width: '520px', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h2 style={{ margin: 0, fontSize: '15px', color: '#e0e0e0' }}>Share to Community</h2>
+              <button onClick={() => setSharePreset(null)} disabled={shareSubmitting} style={closeBtnStyle}>×</button>
+            </div>
+
+            <div style={{
+              backgroundColor: '#3a2a1a', border: '1px solid #8a5a2a', borderRadius: '4px',
+              padding: '8px 10px', marginBottom: '12px', fontSize: '11px', color: '#f0a040'
+            }}>
+              ⚠ Your CEO Notes will be visible to everyone. Review and edit below to remove any project-specific details.
+            </div>
+
+            {shareError && (
+              <div style={{ color: '#ff6b6b', fontSize: '11px', marginBottom: '8px', padding: '6px 8px', backgroundColor: '#3a1a1a', borderRadius: '4px' }}>
+                {shareError}
+              </div>
+            )}
+            {shareSuccess && (
+              <div style={{ color: '#6ee7b7', fontSize: '11px', marginBottom: '8px', padding: '6px 8px', backgroundColor: '#1a2e1a', borderRadius: '4px' }}>
+                {shareSuccess}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+              <label style={labelStyle}>
+                Team Name
+                <input value={shareName} onChange={e => setShareName(e.target.value)} style={inputStyle} />
+              </label>
+              <label style={labelStyle}>
+                Category
+                <select
+                  value={shareCategory}
+                  onChange={e => setShareCategory(e.target.value as CommunityCategory)}
+                  style={inputStyle}
+                >
+                  {COMMUNITY_CATEGORIES.filter(c => c.value !== 'all').map(c => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label style={{ ...labelStyle, marginBottom: '8px' }}>
+              Author (displayed to everyone)
+              <input
+                value={shareAuthor}
+                onChange={e => setShareAuthor(e.target.value)}
+                placeholder="Your name or handle"
+                style={inputStyle}
+              />
+            </label>
+            <label style={{ ...labelStyle, marginBottom: '8px' }}>
+              Description
+              <textarea
+                value={shareDescription}
+                onChange={e => setShareDescription(e.target.value)}
+                placeholder="What is this team good for? What's the workflow?"
+                rows={3}
+                style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
+              />
+            </label>
+
+            <div style={{ color: '#888', fontSize: '10px', textTransform: 'uppercase', margin: '12px 0 6px 0' }}>
+              Agents ({shareAgents.length}) — edit CEO Notes to sanitize
+            </div>
+            <div style={{ maxHeight: '280px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {shareAgents.map((a, idx) => (
+                <div key={idx} style={{ ...agentCardStyle, padding: '8px' }}>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '12px', color: '#e0e0e0', fontWeight: 600 }}>{a.name}</span>
+                    <span style={{ fontSize: '10px', color: '#888' }}>
+                      {a.cli}{a.model ? ` · ${a.model}` : ''} · {a.role}
+                    </span>
+                  </div>
+                  <textarea
+                    value={a.ceoNotes}
+                    onChange={e => updateShareAgent(idx, 'ceoNotes', e.target.value)}
+                    rows={3}
+                    style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', fontSize: '11px' }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '12px' }}>
+              <button onClick={() => setSharePreset(null)} disabled={shareSubmitting} style={cancelBtnStyle}>
+                Cancel
+              </button>
+              <button onClick={handleShareSubmit} disabled={shareSubmitting} style={saveBtnStyle}>
+                {shareSubmitting ? 'Sharing...' : 'Share'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1197,6 +1620,31 @@ const editBtnStyle: React.CSSProperties = {
   fontSize: '14px',
   cursor: 'pointer',
   borderRadius: '4px'
+}
+
+const shareBtnStyle: React.CSSProperties = {
+  width: '24px',
+  height: '24px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: 'transparent',
+  border: 'none',
+  color: '#666',
+  fontSize: '14px',
+  cursor: 'pointer',
+  borderRadius: '4px'
+}
+
+const communityCardStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  padding: '10px 12px',
+  backgroundColor: '#232323',
+  border: '1px solid #333',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  transition: 'border-color 0.1s'
 }
 
 const deleteBtnStyle: React.CSSProperties = {
