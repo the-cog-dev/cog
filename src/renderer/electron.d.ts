@@ -60,6 +60,8 @@ declare global {
       setWorkshopPasscode: (pin: string) => Promise<{ success: boolean; error?: string }>
       getWorkshopPasscodeSet: () => Promise<{ isSet: boolean }>
       clearWorkshopPasscode: () => Promise<{ success: boolean }>
+      // Workspace state bridge (fire-and-forget)
+      pushWorkspaceState: (state: unknown) => void
       // Per-agent theme
       setAgentTheme: (agentId: string, theme: AgentTheme | null) => Promise<{ success: boolean; error?: string }>
     }

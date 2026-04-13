@@ -98,6 +98,45 @@ export function Workspace({
   const [linkFromPos, setLinkFromPos] = useState<{ x: number; y: number } | null>(null)
   const [linkMousePos, setLinkMousePos] = useState<{ x: number; y: number } | null>(null)
 
+  // Push workspace state to main process for Remote View (debounced 500ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const enriched = windows.map(win => {
+        const panelType = getPanelType(win.id)
+        const agent = !panelType ? agents.find(a => a.id === win.id) : undefined
+        return {
+          id: win.id,
+          type: (agent ? 'agent' : 'panel') as 'agent' | 'panel',
+          title: agent ? `${agent.name} (${agent.cli}) \u00B7 ${agent.role}` : win.title,
+          x: win.x,
+          y: win.y,
+          width: win.width,
+          height: win.height,
+          minimized: win.minimized,
+          ...(agent && {
+            agent: {
+              id: agent.id,
+              name: agent.name,
+              cli: agent.cli,
+              model: agent.model,
+              role: agent.role,
+              status: agent.status,
+              theme: agent.theme
+            }
+          }),
+          ...(panelType && { panelType })
+        }
+      })
+      window.electronAPI.pushWorkspaceState({
+        windows: enriched,
+        zoom,
+        panX: pan.x,
+        panY: pan.y
+      })
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [windows, agents, zoom, pan])
+
   // Clean up maximizedId if the window is removed
   useEffect(() => {
     if (maximizedId && !windows.find(w => w.id === maximizedId)) {

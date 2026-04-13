@@ -64,6 +64,7 @@ let remoteHttpServer: HttpServer | null = null
 let remotePublicUrl: string | null = null
 let remoteStatusTicker: ReturnType<typeof setInterval> | null = null
 let workshopPasscodeHash: string | null = null
+let cachedWorkspaceState: any = null
 
 const CODEX_SUBMIT_DELAY = 2000   // Codex TUI needs text rendered before Enter is sent
 const RECONNECT_DELAY = 3000      // Wait before respawning a crashed agent
@@ -1487,6 +1488,11 @@ function setupIPC(): void {
     workshopPasscodeHash = null
     saveSetting('workshopPasscodeHash', null)
     return { success: true }
+  })
+
+  // Workspace state bridge (fire-and-forget from renderer)
+  ipcMain.on(IPC.WORKSPACE_STATE_PUSH, (_event, state) => {
+    cachedWorkspaceState = state
   })
 
   // Usage IPC

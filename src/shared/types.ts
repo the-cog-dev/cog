@@ -178,6 +178,8 @@ export const IPC = {
   WORKSHOP_SET_PASSCODE: 'workshop:set-passcode',
   WORKSHOP_GET_PASSCODE_SET: 'workshop:get-passcode-set',
   WORKSHOP_CLEAR_PASSCODE: 'workshop:clear-passcode',
+  // Workspace state bridge (renderer → main, fire-and-forget)
+  WORKSPACE_STATE_PUSH: 'workspace:state-push',
 } as const
 
 export interface Skill {

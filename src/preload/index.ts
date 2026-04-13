@@ -154,6 +154,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setWorkshopPasscode: (pin: string) => ipcRenderer.invoke(IPC.WORKSHOP_SET_PASSCODE, pin),
   getWorkshopPasscodeSet: () => ipcRenderer.invoke(IPC.WORKSHOP_GET_PASSCODE_SET),
   clearWorkshopPasscode: () => ipcRenderer.invoke(IPC.WORKSHOP_CLEAR_PASSCODE),
+  // Workspace state bridge (fire-and-forget)
+  pushWorkspaceState: (state: unknown) => ipcRenderer.send(IPC.WORKSPACE_STATE_PUSH, state),
   // Git
   gitStatus: () => ipcRenderer.invoke(IPC.GIT_STATUS),
   gitLog: (count?: number) => ipcRenderer.invoke(IPC.GIT_LOG, count),
