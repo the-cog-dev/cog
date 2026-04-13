@@ -11,6 +11,9 @@ declare const electronAPI: {
   getRemoteViewState: () => Promise<{ enabled: boolean; publicUrl: string | null; connectionCount: number; lastActivity: number | null }>
   killRemoteSessions: () => Promise<{ ok: boolean; newUrl?: string | null }>
   regenerateRemoteToken: () => Promise<{ ok: boolean; newUrl?: string | null }>
+  setWorkshopPasscode: (pin: string) => Promise<{ success: boolean; error?: string }>
+  getWorkshopPasscodeSet: () => Promise<{ isSet: boolean }>
+  clearWorkshopPasscode: () => Promise<{ success: boolean }>
   onRemoteStatusUpdate: (cb: (s: { enabled: boolean; publicUrl: string | null; connectionCount: number; lastActivity: number | null }) => void) => () => void
   onRemoteSetupProgress: (cb: (p: { stage: 'downloading' | 'starting' | 'ready' | 'error'; message?: string }) => void) => () => void
 }
@@ -55,6 +58,9 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
   const [showQr, setShowQr] = useState(false)
   const [showCustomTimeout, setShowCustomTimeout] = useState(false)
   const [customTimeoutHours, setCustomTimeoutHours] = useState(8)
+  const [passcodeSet, setPasscodeSet] = useState(false)
+  const [passcodeInput, setPasscodeInput] = useState('')
+  const [showPasscodeInput, setShowPasscodeInput] = useState(false)
 
   const qrSvg = useMemo(() => {
     if (!remoteState.publicUrl) return null
@@ -86,6 +92,7 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
       }
     })
     electronAPI.getRemoteViewState().then(setRemoteState)
+    electronAPI.getWorkshopPasscodeSet().then(r => setPasscodeSet(r.isSet))
 
     const unsubStatus = electronAPI.onRemoteStatusUpdate((s) => setRemoteState(s))
     const unsubProgress = electronAPI.onRemoteSetupProgress((p) => {
@@ -355,6 +362,86 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
                     borderRadius: '4px', padding: '4px 6px', fontSize: '12px', textAlign: 'center'
                   }}
                 />
+              )}
+            </div>
+          </div>
+
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '8px', backgroundColor: '#252525', borderRadius: '4px'
+          }}>
+            <div>
+              <div style={{ fontSize: '13px', color: '#e0e0e0' }}>Workshop passcode</div>
+              <div style={{ fontSize: '11px', color: '#666' }}>4-digit PIN to gate Workshop mode on mobile</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, marginLeft: 12 }}>
+              {showPasscodeInput ? (
+                <input
+                  type="tel"
+                  maxLength={4}
+                  autoFocus
+                  placeholder="0000"
+                  value={passcodeInput}
+                  onChange={e => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 4)
+                    setPasscodeInput(val)
+                    if (val.length === 4) {
+                      electronAPI.setWorkshopPasscode(val).then(r => {
+                        if (r.success) {
+                          setPasscodeSet(true)
+                          setShowPasscodeInput(false)
+                          setPasscodeInput('')
+                        }
+                      })
+                    }
+                  }}
+                  onBlur={() => {
+                    if (passcodeInput.length < 4) {
+                      setShowPasscodeInput(false)
+                      setPasscodeInput('')
+                    }
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Escape') {
+                      setShowPasscodeInput(false)
+                      setPasscodeInput('')
+                    }
+                  }}
+                  style={{
+                    width: '56px', backgroundColor: '#333', color: '#e0e0e0', border: '1px solid #555',
+                    borderRadius: '4px', padding: '4px 6px', fontSize: '14px', textAlign: 'center',
+                    letterSpacing: '4px', fontFamily: 'monospace'
+                  }}
+                />
+              ) : passcodeSet ? (
+                <>
+                  <button
+                    onClick={() => setShowPasscodeInput(true)}
+                    style={{
+                      padding: '4px 10px', backgroundColor: '#333', color: '#e0e0e0',
+                      border: '1px solid #555', borderRadius: '4px', cursor: 'pointer', fontSize: '11px'
+                    }}
+                  >Change</button>
+                  <button
+                    onClick={() => {
+                      electronAPI.clearWorkshopPasscode().then(r => {
+                        if (r.success) setPasscodeSet(false)
+                      })
+                    }}
+                    style={{
+                      padding: '4px 10px', backgroundColor: '#333', color: '#ef4444',
+                      border: '1px solid #555', borderRadius: '4px', cursor: 'pointer', fontSize: '11px'
+                    }}
+                  >Clear</button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setShowPasscodeInput(true)}
+                  style={{
+                    padding: '4px 10px', backgroundColor: '#333', color: '#e0e0e0',
+                    border: '1px solid #555', borderRadius: '4px', cursor: 'pointer', fontSize: '11px'
+                  }}
+                >Set passcode</button>
               )}
             </div>
           </div>

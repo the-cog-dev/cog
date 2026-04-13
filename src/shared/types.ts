@@ -174,6 +174,10 @@ export const IPC = {
   REMOTE_REGENERATE: 'remote:regenerate',
   REMOTE_STATUS_UPDATE: 'remote:status-update',
   REMOTE_SETUP_PROGRESS: 'remote:setup-progress',
+  // Workshop passcode
+  WORKSHOP_SET_PASSCODE: 'workshop:set-passcode',
+  WORKSHOP_GET_PASSCODE_SET: 'workshop:get-passcode-set',
+  WORKSHOP_CLEAR_PASSCODE: 'workshop:clear-passcode',
 } as const
 
 export interface Skill {

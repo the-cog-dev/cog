@@ -51,6 +51,7 @@ export interface RemoteServerDeps {
   resumeSchedule: (id: string) => unknown
   restartSchedule: (id: string) => unknown
   postTask: (title: string, description: string, priority: 'low' | 'medium' | 'high') => unknown
+  getWorkshopPasscodeSet: () => boolean
 }
 
 // Find the static directory at runtime. In electron-vite dev mode, __dirname
@@ -215,7 +216,8 @@ export class RemoteServer {
         pinboardTasks: this.deps.getPinboardTasks(),
         connectionCount: this.deps.tokenManager.getConnectionCount(),
         serverTime: Date.now(),
-        sessionExpiresAt: this.deps.tokenManager.getExpiresAt()
+        sessionExpiresAt: this.deps.tokenManager.getExpiresAt(),
+        workshopPasscodeSet: this.deps.getWorkshopPasscodeSet()
       }
       res.json(snapshot)
     })

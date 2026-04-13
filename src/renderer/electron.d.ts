@@ -56,6 +56,10 @@ declare global {
       communityGet: (issueNumber: number) => Promise<{ success: true; team: CommunityTeam; isStarredByMe: boolean } | { success: false; error: string }>
       communityShare: (input: { name: string; description: string; author: string; category: CommunityCategory; agents: CommunityAgent[] }) => Promise<{ success: true; team: CommunityTeam } | { success: false; error: string }>
       communityToggleStar: (issueNumber: number) => Promise<{ success: true; stars: number; isStarredByMe: boolean } | { success: false; error: string }>
+      // Workshop passcode
+      setWorkshopPasscode: (pin: string) => Promise<{ success: boolean; error?: string }>
+      getWorkshopPasscodeSet: () => Promise<{ isSet: boolean }>
+      clearWorkshopPasscode: () => Promise<{ success: boolean }>
       // Per-agent theme
       setAgentTheme: (agentId: string, theme: AgentTheme | null) => Promise<{ success: boolean; error?: string }>
     }

@@ -20,6 +20,7 @@ import { PromptScheduler } from './scheduler/prompt-scheduler'
 import type { Server as HttpServer } from 'http'
 import * as https from 'https'
 import * as httpProto from 'http'
+import { createHash } from 'crypto'
 import { spawn as spawnChildProcess } from 'child_process'
 import { TokenManager } from './remote/token-manager'
 import { CloudflaredManager } from './remote/cloudflared-manager'
@@ -62,6 +63,7 @@ let remoteServer: RemoteServer | null = null
 let remoteHttpServer: HttpServer | null = null
 let remotePublicUrl: string | null = null
 let remoteStatusTicker: ReturnType<typeof setInterval> | null = null
+let workshopPasscodeHash: string | null = null
 
 const CODEX_SUBMIT_DELAY = 2000   // Codex TUI needs text rendered before Enter is sent
 const RECONNECT_DELAY = 3000      // Wait before respawning a crashed agent
@@ -238,7 +240,8 @@ async function enableRemoteView(): Promise<void> {
     postTask: (title: string, description: string, priority: 'low' | 'medium' | 'high') => {
       if (!hub) throw new Error('Hub unavailable')
       return hub.pinboard.postTask(title, description, priority, 'remote-user')
-    }
+    },
+    getWorkshopPasscodeSet: () => workshopPasscodeHash !== null,
   })
 
   const expressApp = remoteServer.getApp()
@@ -1466,6 +1469,26 @@ function setupIPC(): void {
     return { status: 'ok' }
   })
 
+  // Workshop passcode IPC
+  ipcMain.handle(IPC.WORKSHOP_SET_PASSCODE, (_event, pin: string) => {
+    if (typeof pin !== 'string' || !/^\d{4}$/.test(pin)) {
+      return { success: false, error: 'Passcode must be exactly 4 digits' }
+    }
+    workshopPasscodeHash = createHash('sha256').update(pin).digest('hex')
+    saveSetting('workshopPasscodeHash', workshopPasscodeHash)
+    return { success: true }
+  })
+
+  ipcMain.handle(IPC.WORKSHOP_GET_PASSCODE_SET, () => {
+    return { isSet: workshopPasscodeHash !== null }
+  })
+
+  ipcMain.handle(IPC.WORKSHOP_CLEAR_PASSCODE, () => {
+    workshopPasscodeHash = null
+    saveSetting('workshopPasscodeHash', null)
+    return { success: true }
+  })
+
   // Usage IPC
   ipcMain.handle(IPC.USAGE_GET_METRICS, () => {
     if (!hub) return []
@@ -1842,6 +1865,13 @@ async function main(): Promise<void> {
   racClient = new RacClient()
 
   setupIPC()
+
+  // Load persisted workshop passcode hash from settings
+  const savedPasscodeHash = loadSettings().workshopPasscodeHash
+  if (typeof savedPasscodeHash === 'string' && savedPasscodeHash.length > 0) {
+    workshopPasscodeHash = savedPasscodeHash
+  }
+
   mainWindow = createWindow()
 
   // Auto-update checker

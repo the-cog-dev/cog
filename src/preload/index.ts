@@ -150,6 +150,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(IPC.REMOTE_SETUP_PROGRESS, handler)
     return () => ipcRenderer.removeListener(IPC.REMOTE_SETUP_PROGRESS, handler)
   },
+  // Workshop passcode
+  setWorkshopPasscode: (pin: string) => ipcRenderer.invoke(IPC.WORKSHOP_SET_PASSCODE, pin),
+  getWorkshopPasscodeSet: () => ipcRenderer.invoke(IPC.WORKSHOP_GET_PASSCODE_SET),
+  clearWorkshopPasscode: () => ipcRenderer.invoke(IPC.WORKSHOP_CLEAR_PASSCODE),
   // Git
   gitStatus: () => ipcRenderer.invoke(IPC.GIT_STATUS),
   gitLog: (count?: number) => ipcRenderer.invoke(IPC.GIT_LOG, count),
