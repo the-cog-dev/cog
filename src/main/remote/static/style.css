@@ -296,6 +296,7 @@ body {
   z-index: 100;
   padding: 16px;
 }
+.hidden { display: none !important; }
 .modal.hidden { display: none; }
 
 .modal-card {
