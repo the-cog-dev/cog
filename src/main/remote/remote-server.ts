@@ -214,7 +214,8 @@ export class RemoteServer {
         schedules: this.deps.getSchedules(),
         pinboardTasks: this.deps.getPinboardTasks(),
         connectionCount: this.deps.tokenManager.getConnectionCount(),
-        serverTime: Date.now()
+        serverTime: Date.now(),
+        sessionExpiresAt: this.deps.tokenManager.getExpiresAt()
       }
       res.json(snapshot)
     })

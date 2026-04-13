@@ -53,6 +53,8 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
   const [remoteState, setRemoteState] = useState({ enabled: false, publicUrl: null as string | null, connectionCount: 0, lastActivity: null as number | null })
   const [setupProgress, setSetupProgress] = useState<{ stage: string; message?: string } | null>(null)
   const [showQr, setShowQr] = useState(false)
+  const [showCustomTimeout, setShowCustomTimeout] = useState(false)
+  const [customTimeoutHours, setCustomTimeoutHours] = useState(8)
 
   const qrSvg = useMemo(() => {
     if (!remoteState.publicUrl) return null
@@ -72,7 +74,17 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
   }, [remoteState.publicUrl])
 
   useEffect(() => {
-    electronAPI.getSettings().then(setSettings)
+    electronAPI.getSettings().then(s => {
+      setSettings(s)
+      const saved = s.remoteSessionTimeout as number | undefined
+      const presetValues = [1, 2, 4, 8, 12, 24]
+      if (saved && !presetValues.includes(saved)) {
+        setShowCustomTimeout(true)
+        setCustomTimeoutHours(saved)
+      } else if (saved) {
+        setCustomTimeoutHours(saved)
+      }
+    })
     electronAPI.getRemoteViewState().then(setRemoteState)
 
     const unsubStatus = electronAPI.onRemoteStatusUpdate((s) => setRemoteState(s))
@@ -102,6 +114,26 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
     } else {
       await electronAPI.enableRemoteView()
     }
+  }
+
+  const handleTimeoutChange = async (value: string) => {
+    if (value === 'custom') {
+      setShowCustomTimeout(true)
+      return
+    }
+    setShowCustomTimeout(false)
+    const hours = parseInt(value, 10)
+    if (isNaN(hours)) return
+    setCustomTimeoutHours(hours)
+    await electronAPI.setSetting('remoteSessionTimeout', hours)
+    setSettings(prev => ({ ...prev, remoteSessionTimeout: hours }))
+  }
+
+  const handleCustomTimeoutChange = async (hours: number) => {
+    const clamped = Math.min(168, Math.max(1, hours))
+    setCustomTimeoutHours(clamped)
+    await electronAPI.setSetting('remoteSessionTimeout', clamped)
+    setSettings(prev => ({ ...prev, remoteSessionTimeout: clamped }))
   }
 
   const copyUrl = () => {
@@ -285,6 +317,47 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
               }} />
             </div>
           </label>
+
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '8px', backgroundColor: '#252525', borderRadius: '4px'
+          }}>
+            <div>
+              <div style={{ fontSize: '13px', color: '#e0e0e0' }}>Session timeout</div>
+              <div style={{ fontSize: '11px', color: '#666' }}>How long before the remote session expires</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, marginLeft: 12 }}>
+              <select
+                value={showCustomTimeout ? 'custom' : String(settings.remoteSessionTimeout ?? 8)}
+                onChange={e => handleTimeoutChange(e.target.value)}
+                style={{
+                  backgroundColor: '#333', color: '#e0e0e0', border: '1px solid #555',
+                  borderRadius: '4px', padding: '4px 8px', fontSize: '12px', cursor: 'pointer'
+                }}
+              >
+                <option value="1">1h</option>
+                <option value="2">2h</option>
+                <option value="4">4h</option>
+                <option value="8">8h</option>
+                <option value="12">12h</option>
+                <option value="24">24h</option>
+                <option value="custom">Custom</option>
+              </select>
+              {showCustomTimeout && (
+                <input
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={customTimeoutHours}
+                  onChange={e => handleCustomTimeoutChange(parseInt(e.target.value, 10) || 1)}
+                  style={{
+                    width: '52px', backgroundColor: '#333', color: '#e0e0e0', border: '1px solid #555',
+                    borderRadius: '4px', padding: '4px 6px', fontSize: '12px', textAlign: 'center'
+                  }}
+                />
+              )}
+            </div>
+          </div>
 
           {setupProgress && (
             <div style={{ fontSize: '12px', color: setupProgress.stage === 'error' ? '#ef4444' : '#888', padding: '8px' }}>

@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { TokenManager, TOKEN_EXPIRY_MS, SESSION_EXPIRY_MS } from '../../src/main/remote/token-manager'
+import { TokenManager, SESSION_EXPIRY_MS } from '../../src/main/remote/token-manager'
+
+const DEFAULT_EXPIRY_MS = 8 * 60 * 60 * 1000  // matches default in token-manager
 
 describe('TokenManager', () => {
   let now: number
@@ -37,15 +39,15 @@ describe('TokenManager', () => {
 
     it('isValid() returns false after token expires from inactivity', () => {
       const token = mgr.generate()
-      now += TOKEN_EXPIRY_MS + 1
+      now += DEFAULT_EXPIRY_MS + 1
       expect(mgr.isValid(token)).toBe(false)
     })
 
     it('bumpActivity() resets inactivity timer', () => {
       const token = mgr.generate()
-      now += TOKEN_EXPIRY_MS - 1000
+      now += DEFAULT_EXPIRY_MS - 1000
       mgr.bumpActivity()
-      now += TOKEN_EXPIRY_MS - 1000
+      now += DEFAULT_EXPIRY_MS - 1000
       expect(mgr.isValid(token)).toBe(true)
     })
 

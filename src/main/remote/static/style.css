@@ -58,6 +58,12 @@ body {
   font-size: 14px;
 }
 
+.session-time {
+  font-size: 11px;
+  color: #888;
+  white-space: nowrap;
+}
+
 #refresh-btn {
   background: #2a2a2a;
   border: 1px solid #333;

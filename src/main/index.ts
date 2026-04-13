@@ -175,6 +175,10 @@ async function enableRemoteView(): Promise<void> {
   }
 
   remoteTokenManager = new TokenManager()
+  const savedTimeout = loadSettings().remoteSessionTimeout
+  if (typeof savedTimeout === 'number' && savedTimeout >= 1 && savedTimeout <= 168) {
+    remoteTokenManager.setExpiryDuration(savedTimeout * 60 * 60 * 1000)
+  }
   const token = remoteTokenManager.generate()
 
   remoteServer = new RemoteServer({

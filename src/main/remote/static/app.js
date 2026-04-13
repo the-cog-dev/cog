@@ -49,6 +49,18 @@
     badge.textContent = `${state.connectionCount === 1 ? '🟢' : '🔴'} ${state.connectionCount}`
     badge.className = `badge ${state.connectionCount > 1 ? 'warn' : 'ok'}`
 
+    const sessionTimeEl = $('session-time')
+    if (state.sessionExpiresAt && state.serverTime) {
+      const remaining = state.sessionExpiresAt - state.serverTime
+      if (remaining > 0) {
+        sessionTimeEl.textContent = `⏱ ${formatTimeLeft(remaining)}`
+      } else {
+        sessionTimeEl.textContent = '⏱ expired'
+      }
+    } else {
+      sessionTimeEl.textContent = ''
+    }
+
     agents = state.agents
     renderAgents(state.agents)
     renderSchedules(state.schedules)

@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto'
 
-export const TOKEN_EXPIRY_MS = 8 * 60 * 60 * 1000   // 8 hours
+const DEFAULT_EXPIRY_MS = 8 * 60 * 60 * 1000         // 8 hours
+const MAX_EXPIRY_MS = 168 * 60 * 60 * 1000            // 7 days
 export const SESSION_EXPIRY_MS = 2 * 60 * 1000      // 2 minutes
 const TOKEN_BYTE_LENGTH = 24                         // 24 bytes => 32-char base64url
 
@@ -14,8 +15,21 @@ export class TokenManager {
   private currentToken: string | null = null
   private lastActivity: number | null = null
   private sessions = new Map<string, RemoteSession>()
+  private expiryMs: number = DEFAULT_EXPIRY_MS
 
   constructor(private clock: () => number = Date.now) {}
+
+  setExpiryDuration(ms: number): void {
+    this.expiryMs = Math.min(Math.max(ms, 0), MAX_EXPIRY_MS)
+    if (this.lastActivity !== null) {
+      this.lastActivity = this.clock()
+    }
+  }
+
+  getExpiresAt(): number | null {
+    if (this.lastActivity === null) return null
+    return this.lastActivity + this.expiryMs
+  }
 
   generate(): string {
     this.currentToken = randomBytes(TOKEN_BYTE_LENGTH).toString('base64url')
@@ -31,7 +45,7 @@ export class TokenManager {
     if (!this.currentToken) return false
     if (token !== this.currentToken) return false
     if (this.lastActivity === null) return false
-    if (this.clock() - this.lastActivity > TOKEN_EXPIRY_MS) return false
+    if (this.clock() - this.lastActivity > this.expiryMs) return false
     return true
   }
 
