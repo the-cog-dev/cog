@@ -259,11 +259,38 @@ Electron App
 ## Development
 
 ```bash
-npm run dev          # Start in dev mode
-npm run build        # Production build
-npm test             # Run tests (vitest)
-npm run build:mcp    # Rebuild MCP server bundle
+npm run dev             # Start in dev mode
+npm run build           # Production build
+npm test                # Run tests (vitest)
+npm run build:mcp       # Rebuild MCP server bundle
+npm run rebuild:native  # Rebuild native modules for Electron's ABI (opt-in, requires build tools)
 ```
+
+## Troubleshooting
+
+**"NODE_MODULE_VERSION mismatch" / "was compiled against a different Node.js version"**
+
+The native modules (`better-sqlite3`, `node-pty`) shipped prebuilds for Node.js, but Electron uses a different Node ABI. The app will show a helpful error dialog if this happens. Fix:
+
+```bash
+# If you have MSVC (Windows) or Xcode (Mac) build tools installed:
+npm run rebuild:native
+
+# If you don't have build tools, try:
+npm install --force
+# Or delete everything and reinstall:
+rm -rf node_modules package-lock.json && npm install
+```
+
+Most users never hit this — the prebuilds usually work out of the box. This is mainly an issue after an Electron version bump.
+
+**Port already in use**
+
+The hub server picks an ephemeral port automatically. If something's genuinely blocking it, check for a previous AgentOrch process still running.
+
+**Agents not spawning**
+
+Make sure the CLI you're trying to spawn is installed and available on your PATH. Test it manually first: `claude --help`, `codex --help`, etc.
 
 ## License
 

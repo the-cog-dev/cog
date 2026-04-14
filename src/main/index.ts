@@ -870,7 +870,18 @@ async function openProject(projectPath: string): Promise<void> {
   projectManager.initProject(projectPath)
 
   // Initialize SQLite persistence at project path
-  const db = createDatabase(projectManager.dbPath)
+  let db
+  try {
+    db = createDatabase(projectManager.dbPath)
+  } catch (err: any) {
+    const msg = err?.message || String(err)
+    if (msg.includes('NODE_MODULE_VERSION') || msg.includes('was compiled against')) {
+      const helpful = `Native module ABI mismatch detected.\n\nbetter-sqlite3 was compiled for a different Node.js version than Electron uses.\n\nTo fix:\n  1. If you have MSVC (Windows) or Xcode (Mac) build tools:\n     Run: npm run rebuild:native\n  2. If you don't have build tools:\n     Try: npm install --force\n     Or delete node_modules + package-lock.json and reinstall.\n\nOriginal error: ${msg}`
+      dialog.showErrorBox('AgentOrch — Native Module Error', helpful)
+      console.error(helpful)
+    }
+    throw err
+  }
   currentDb = db
   const messageStore = new MessageStore(db)
   currentMessageStore = messageStore
