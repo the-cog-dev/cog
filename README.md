@@ -2,7 +2,7 @@
 
 The AI-native agent orchestration IDE. Spawn teams of AI coding agents across multiple models and providers, watch them work in floating terminal windows, and orchestrate from above.
 
-![Orchestrator messaging a team of workers](assets/readme/OrchestratorMessagingTeam.gif)
+![Team of agents working together in themed windows](assets/readme/TeamInAction.gif)
 
 Agents communicate through 25+ MCP tools — messaging, task boards, shared knowledge, file operations — all in one workspace.
 
@@ -21,7 +21,7 @@ Agents communicate through 25+ MCP tools — messaging, task boards, shared know
 - **39 preset templates** — pre-built team configurations. Search + filter by available CLIs.
 - **Community Teams** — share your best team presets with the community. Browse, star, and import other users' team configurations from the Community tab in Presets. No account required — browse and import anonymously.
 
-  ![Shareable team setups](assets/readme/ShareableSetups.jpg)
+  ![Community Teams browser with multiple shared team presets](assets/readme/CommunityTeams.png)
 - **Skills system** — composable capability modules. Attach "Code Reviewer" + "Security Auditor" + "TypeScript Expert" to an agent. 15 built-in, create your own, browse 90k+ community skills.
 - **File Explorer + Monaco Editor** — browse project files, edit with VS Code's engine, syntax highlighting, tabs.
 - **Git panel** — full git UI: status, staging, commit, push/pull, branch management, diff viewer, log history.
