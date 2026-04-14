@@ -1,5 +1,5 @@
-appId: com.agentorch.app
-productName: AgentOrch
+appId: dev.thecog.app
+productName: The Cog
 directories:
   buildResources: build
 files:

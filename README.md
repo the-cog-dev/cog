@@ -1,6 +1,6 @@
-# AgentOrch
+# The Cog
 
-The AI-native agent orchestration IDE. Spawn teams of AI coding agents across multiple models and providers, watch them work in floating terminal windows, and orchestrate from above.
+[thecog.dev](https://thecog.dev) · The AI-native agent orchestration IDE. Spawn teams of AI coding agents across multiple models and providers, watch them work in floating terminal windows, and orchestrate from above.
 
 ![Team of agents working together in themed windows](assets/readme/TeamInAction.gif)
 
@@ -27,7 +27,7 @@ Agents communicate through 25+ MCP tools — messaging, task boards, shared know
 - **Git panel** — full git UI: status, staging, commit, push/pull, branch management, diff viewer, log history.
 - **Communication graph** — Blender-style node links between agents. Drag to connect. Linked agents form isolated groups with scoped messaging and tasks.
 - **Role-targeted tasks** — post tasks for specific roles. Only reviewers get nudged for review tasks, only workers for implementation tasks.
-- **Project-based persistence** — each project gets its own `.agentorch/` folder with isolated DB and presets. Data survives restarts.
+- **Project-based persistence** — each project gets its own `.cog/` folder with isolated DB and presets. Data survives restarts.
 - **Auto-updater** — checks for updates every 2 minutes, one-click update + restart with "What's New" changelog.
 - **Bug reporter** — built-in bug report submission, no login required.
 - **Settings + notifications** — toggleable desktop alerts when tasks complete.
@@ -36,8 +36,8 @@ Agents communicate through 25+ MCP tools — messaging, task boards, shared know
 ## Quick Start
 
 ```bash
-git clone https://github.com/natebag/AgentOrch.git
-cd AgentOrch
+git clone https://github.com/the-cog-dev/cog.git
+cd cog
 npm install
 npm run dev
 ```
@@ -163,7 +163,7 @@ Set a custom prompt to fire at any agent on a recurring interval — the killer 
 - **Multi-schedule per agent** — e.g. one every 45min saying "keep going" + one every 2h saying "commit progress"
 - **Pause / resume** — paused time doesn't count against your duration. The clock shifts forward on resume.
 - **Restart expired schedules** — doubles as a saved-template library
-- **Auto-resume on project open** — schedules survive AgentOrch restarts and auto-updater kicks. Missed fires are discarded (no obnoxious burst of "get back to work" pings after overnight).
+- **Auto-resume on project open** — schedules survive The Cog restarts and auto-updater kicks. Missed fires are discarded (no obnoxious burst of "get back to work" pings after overnight).
 - **Skipped-offline tracking** — if an agent is dead when a fire is due, it logs `⚠ skipped_offline` in history and keeps the schedule alive for next time
 - **Cascade delete** — schedules for a workspace tab are deleted when the tab is closed
 
@@ -171,7 +171,7 @@ Set a custom prompt to fire at any agent on a recurring interval — the killer 
 
 ## Remote View *(experimental)*
 
-Check on your AgentOrch workshop from your phone. Open **Settings → Remote View** and toggle Enable. AgentOrch downloads `cloudflared` on first run (~25MB, one-time) and spawns a tunnel that gives you a public `https://*.trycloudflare.com/r/<token>/` URL. Scan the QR code with your phone camera and you're in.
+Check on your Cog workshop from your phone. Open **Settings → Remote View** and toggle Enable. The Cog downloads `cloudflared` on first run (~25MB, one-time) and spawns a tunnel that gives you a public `https://*.trycloudflare.com/r/<token>/` URL. Scan the QR code with your phone camera and you're in.
 
 <p align="center">
   <img src="assets/readme/Mobile1.gif" alt="Remote View on phone" width="320">
@@ -218,7 +218,7 @@ Electron App
 │   └── File Operations (project-scoped)
 ├── MCP Server (per-agent, stdio)
 ├── PTY Manager (node-pty terminals)
-├── Project Manager (per-project .agentorch/)
+├── Project Manager (per-project .cog/)
 ├── Skill Manager (built-in + user skills)
 ├── Git Operations (shell git commands)
 ├── Prompt Scheduler (recurring prompts, per-project SQLite)
@@ -296,7 +296,7 @@ Most users never hit this — the prebuilds usually work out of the box. This is
 
 **Port already in use**
 
-The hub server picks an ephemeral port automatically. If something's genuinely blocking it, check for a previous AgentOrch process still running.
+The hub server picks an ephemeral port automatically. If something's genuinely blocking it, check for a previous Cog process still running.
 
 **Agents not spawning**
 

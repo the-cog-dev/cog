@@ -186,7 +186,7 @@ async function enableRemoteView(): Promise<void> {
 
   remoteServer = new RemoteServer({
     tokenManager: remoteTokenManager,
-    getProjectName: () => projectManager?.currentProject?.name ?? 'AgentOrch',
+    getProjectName: () => projectManager?.currentProject?.name ?? 'The Cog',
     getAgents: () => {
       return getVisibleAgents().map(a => ({
         id: a.id, name: a.name, cli: a.cli, model: a.model || 'default', role: a.role, status: a.status
@@ -346,7 +346,7 @@ function createWindow(): BrowserWindow {
     width: 1400,
     height: 900,
     backgroundColor: '#1a1a1a',
-    title: 'AgentOrch',
+    title: 'The Cog',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
@@ -409,7 +409,7 @@ function createWindow(): BrowserWindow {
       submenu: [
         {
           label: 'Getting Started',
-          click: () => shell.openExternal('https://github.com/natebag/AgentOrch#readme')
+          click: () => shell.openExternal('https://github.com/the-cog-dev/cog#readme')
         },
         {
           label: 'Keyboard Shortcuts',
@@ -417,7 +417,7 @@ function createWindow(): BrowserWindow {
             dialog.showMessageBox(win, {
               type: 'info',
               title: 'Keyboard Shortcuts',
-              message: 'AgentOrch Shortcuts',
+              message: 'The Cog Shortcuts',
               detail: [
                 'Ctrl+1-9  — Focus window by number',
                 'Ctrl+Tab  — Cycle windows',
@@ -435,13 +435,13 @@ function createWindow(): BrowserWindow {
         },
         { type: 'separator' },
         {
-          label: 'About AgentOrch',
+          label: 'About The Cog',
           click: () => {
             dialog.showMessageBox(win, {
               type: 'info',
-              title: 'About AgentOrch',
-              message: 'AgentOrch',
-              detail: 'AI-Native Agent Orchestration IDE\n\nOrchestrate teams of AI coding agents across multiple models and providers.\n\nhttps://github.com/natebag/AgentOrch'
+              title: 'About The Cog',
+              message: 'The Cog',
+              detail: 'AI-Native Agent Orchestration IDE\n\nOrchestrate teams of AI coding agents across multiple models and providers.\n\nhttps://thecog.dev\nhttps://github.com/the-cog-dev/cog'
             })
           }
         }
@@ -472,8 +472,8 @@ function buildCliLaunchCommands(
 // and to check MCP tools for instructions.
 function buildInitialPrompt(config: AgentConfig): string {
   const lines = [
-    `You are "${config.name}" (role: ${config.role}) in an AgentOrch workspace.`,
-    `You have AgentOrch MCP tools: send_message, get_messages, get_agents, read_ceo_notes, get_agent_output, post_task, read_tasks, claim_task, complete_task, abandon_task, get_task, post_info, read_info, delete_info, update_info, update_status, get_message_history, ack_messages, read_file, write_file, list_directory.`,
+    `You are "${config.name}" (role: ${config.role}) in a Cog workspace.`,
+    `You have Cog MCP tools: send_message, get_messages, get_agents, read_ceo_notes, get_agent_output, post_task, read_tasks, claim_task, complete_task, abandon_task, get_task, post_info, read_info, delete_info, update_info, update_status, get_message_history, ack_messages, read_file, write_file, list_directory.`,
     `Do these steps NOW: 1) Call read_ceo_notes() for your instructions. 2) Call get_messages() to check for messages. 3) Call read_tasks() to check for open tasks you can claim.`,
     `Your CEO notes define your workflow. Follow them exactly. After initial setup, WAIT for nudges — do NOT poll.`,
   ]
@@ -727,7 +727,7 @@ function flushPendingNudges(agentName: string): void {
     writeNudgeToPty(managed, unique[0])
   } else {
     // Combine multiple nudges into a single message to avoid flooding
-    const combined = `[AgentOrch] You have ${unique.length} pending notifications. Call read_tasks() and get_messages() now to check for work.`
+    const combined = `[Cog] You have ${unique.length} pending notifications. Call read_tasks() and get_messages() now to check for work.`
     writeNudgeToPty(managed, combined)
   }
 }
@@ -757,7 +757,7 @@ function setupMessageNudge(): void {
     const target = hub.registry.get(msg.to)
     if (!target) return
 
-    const nudge = `[AgentOrch] New message from "${msg.from}". You MUST call get_messages() now to read it, then act on it immediately.`
+    const nudge = `[Cog] New message from "${msg.from}". You MUST call get_messages() now to read it, then act on it immediately.`
     deliverNudge(msg.to, nudge)
   }
 }
@@ -775,7 +775,7 @@ function setupTaskNudge(): void {
     if (task.targetAgent) {
       const managed = Array.from(agents.values()).find(m => m.config.name === task.targetAgent)
       if (managed) {
-        const nudge = `[AgentOrch] New task posted for you: "${task.title}" (id: ${task.id}) ${task.priority} priority. Claim it now with claim_task("${task.id}") or call read_tasks() to see all open tasks.`
+        const nudge = `[Cog] New task posted for you: "${task.title}" (id: ${task.id}) ${task.priority} priority. Claim it now with claim_task("${task.id}") or call read_tasks() to see all open tasks.`
         deliverNudge(managed.config.name, nudge)
       }
       return
@@ -796,7 +796,7 @@ function setupTaskNudge(): void {
 
     const roleLabel = task.targetRole ? ` for ${task.targetRole}s` : ''
     for (const agent of candidates) {
-      const nudge = `[AgentOrch] New task posted${roleLabel}: "${task.title}" (id: ${task.id}) ${task.priority} priority. Claim it now with claim_task("${task.id}") or call read_tasks() to see all open tasks.`
+      const nudge = `[Cog] New task posted${roleLabel}: "${task.title}" (id: ${task.id}) ${task.priority} priority. Claim it now with claim_task("${task.id}") or call read_tasks() to see all open tasks.`
       deliverNudge(agent.name, nudge)
     }
   }
@@ -813,7 +813,7 @@ function setupInfoNudge(): void {
       if (orchestrator.name === entry.from) continue
 
       const tagSuffix = entry.tags.length > 0 ? ` with tags [${entry.tags.join(', ')}]` : ''
-      const nudge = `[AgentOrch] New info posted by "${entry.from}"${tagSuffix}. Call read_info() to read it.`
+      const nudge = `[Cog] New info posted by "${entry.from}"${tagSuffix}. Call read_info() to read it.`
       deliverNudge(orchestrator.name, nudge)
     }
   }
@@ -846,7 +846,7 @@ function setupStaleTaskWatchdog(): void {
       })
       if (relevantStale.length === 0) continue
       const taskList = relevantStale.map(t => `"${t.title}" claimed by ${t.claimedBy || 'unknown'}`).join(', ')
-      const nudge = `[AgentOrch] STALE TASK ALERT: ${relevantStale.length} task(s) stuck in_progress for over 5 minutes: ${taskList}. Check on these agents — they may need a nudge via send_message, or the task may need to be abandoned with abandon_task.`
+      const nudge = `[Cog] STALE TASK ALERT: ${relevantStale.length} task(s) stuck in_progress for over 5 minutes: ${taskList}. Check on these agents — they may need a nudge via send_message, or the task may need to be abandoned with abandon_task.`
       deliverNudge(orch.name, nudge)
     }
 
@@ -855,7 +855,7 @@ function setupStaleTaskWatchdog(): void {
       if (task.claimedBy) {
         const worker = hub.registry.get(task.claimedBy)
         if (worker && worker.status !== 'disconnected') {
-          const nudge = `[AgentOrch] REMINDER: You claimed task "${task.title}" (id: ${task.id}) but haven't completed it. If you're done, call complete_task now. If you're stuck, call abandon_task to release it.`
+          const nudge = `[Cog] REMINDER: You claimed task "${task.title}" (id: ${task.id}) but haven't completed it. If you're done, call complete_task now. If you're stuck, call abandon_task to release it.`
           deliverNudge(task.claimedBy, nudge)
         }
       }
@@ -877,7 +877,7 @@ async function openProject(projectPath: string): Promise<void> {
     const msg = err?.message || String(err)
     if (msg.includes('NODE_MODULE_VERSION') || msg.includes('was compiled against')) {
       const helpful = `Native module ABI mismatch detected.\n\nbetter-sqlite3 was compiled for a different Node.js version than Electron uses.\n\nTo fix:\n  1. If you have MSVC (Windows) or Xcode (Mac) build tools:\n     Run: npm run rebuild:native\n  2. If you don't have build tools:\n     Try: npm install --force\n     Or delete node_modules + package-lock.json and reinstall.\n\nOriginal error: ${msg}`
-      dialog.showErrorBox('AgentOrch — Native Module Error', helpful)
+      dialog.showErrorBox('The Cog — Native Module Error', helpful)
       console.error(helpful)
     }
     throw err
@@ -1014,7 +1014,7 @@ async function openProject(projectPath: string): Promise<void> {
 
   // Update window title
   if (mainWindow) {
-    mainWindow.setTitle(`AgentOrch — ${projectManager.currentProject!.name}`)
+    mainWindow.setTitle(`The Cog — ${projectManager.currentProject!.name}`)
     mainWindow.webContents.send(IPC.PROJECT_CHANGED, projectManager.currentProject)
   }
 }

@@ -64,7 +64,7 @@ export function BugReportDialog({ onClose }: { onClose: () => void }): React.Rea
       // No token — fall back to browser (user needs GitHub login)
       const encodedTitle = encodeURIComponent(title)
       const encodedBody = encodeURIComponent(body)
-      window.open(`https://github.com/natebag/AgentOrch/issues/new?title=${encodedTitle}&body=${encodedBody}&labels=bug`, '_blank')
+      window.open(`https://github.com/the-cog-dev/cog/issues/new?title=${encodedTitle}&body=${encodedBody}&labels=bug`, '_blank')
       onClose()
     } else {
       setSubmitResult(`Failed: ${result.error}`)
@@ -159,7 +159,7 @@ export function BugReportDialog({ onClose }: { onClose: () => void }): React.Rea
         </div>
 
         <div style={{ fontSize: '10px', color: '#555', textAlign: 'center' }}>
-          Your report helps us improve AgentOrch. Thank you!
+          Your report helps us improve The Cog. Thank you!
         </div>
       </div>
     </div>

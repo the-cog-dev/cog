@@ -1,17 +1,17 @@
-# AgentOrch — Complete Project Reference
+# The Cog — Complete Project Reference
 
 **Version:** As of 2026-04-08
-**Repo:** https://github.com/natebag/AgentOrch
+**Repo:** https://github.com/the-cog-dev/cog
 **Author:** Nate (natebag)
 **256+ commits | 72+ source files | 315+ tests**
 
 ---
 
-## What Is AgentOrch?
+## What Is The Cog?
 
-AgentOrch is a desktop application for orchestrating multiple AI coding agents. Think of it as an IDE built from the ground up for AI agents as primary workers, with humans directing.
+The Cog is a desktop application for orchestrating multiple AI coding agents. Think of it as an IDE built from the ground up for AI agents as primary workers, with humans directing.
 
-You open AgentOrch, point it at a project folder, and spawn a team of AI agents — each in its own terminal window. The agents communicate through a shared hub using MCP (Model Context Protocol) tools: messaging each other, posting tasks to a shared pinboard, sharing research findings, reading and writing project files. You watch them work, review their output, and steer from above.
+You open The Cog, point it at a project folder, and spawn a team of AI agents — each in its own terminal window. The agents communicate through a shared hub using MCP (Model Context Protocol) tools: messaging each other, posting tasks to a shared pinboard, sharing research findings, reading and writing project files. You watch them work, review their output, and steer from above.
 
 **The key insight:** Instead of one AI assistant doing everything, you orchestrate a TEAM. An Opus-powered orchestrator breaks down work, Sonnet workers implement in parallel, a reviewer checks quality. Different models for different jobs. Different providers even — Claude, Codex, Kimi, Gemini, DeepSeek, local Ollama models — all in one workspace, all communicating through the same tools.
 
@@ -40,7 +40,7 @@ You open AgentOrch, point it at a project folder, and spawn a team of AI agents 
 ## Architecture
 
 ```
-AgentOrch (Electron App)
+The Cog (Electron App)
 │
 ├── Main Process (src/main/)
 │   ├── Hub Server (Express on localhost, authenticated, per-project port)
@@ -82,7 +82,7 @@ AgentOrch (Electron App)
 │   │
 │   ├── MCP Config — writes per-agent MCP config files (temp dir)
 │   ├── CLI Launch — builds launch commands per CLI type
-│   ├── ProjectManager — per-project .agentorch/ folders, recent projects
+│   ├── ProjectManager — per-project .cog/ folders, recent projects
 │   ├── PresetManager — global saved team presets
 │   ├── SkillManager — built-in + user skill definitions, prompt composition
 │   └── Database — SQLite schema (messages, tasks, info entries, scheduled_prompts)
@@ -128,7 +128,7 @@ AgentOrch (Electron App)
 ## How It Works: The Agent Lifecycle
 
 ### 1. Project Selection
-On launch, AgentOrch reads `recent-projects.json` from userData. If there's a recent project, it auto-opens. Otherwise, it shows a project picker dialog. Each project gets its own `.agentorch/` folder with an isolated SQLite database and presets directory.
+On launch, The Cog reads `recent-projects.json` from userData. If there's a recent project, it auto-opens. Otherwise, it shows a project picker dialog. Each project gets its own `.cog/` folder with an isolated SQLite database and presets directory.
 
 ### 2. Spawning an Agent
 The user opens the SpawnDialog and configures:
@@ -197,7 +197,7 @@ Agents don't poll for work — they wait. When something needs their attention, 
 Nudges are queue-aware: if the agent is at a prompt (`active` status), the nudge is delivered immediately. If the agent is mid-response, it's queued and delivered when they finish. A 5-second fallback timer ensures delivery even if the StatusDetector can't detect the prompt (fixes Kimi/Gemini).
 
 ### 5. Reconnection
-If an agent crashes, AgentOrch auto-respawns it after 3 seconds with a reconnect prompt that includes context about what it was doing (claimed tasks + pending messages). The registry upserts on re-registration instead of throwing.
+If an agent crashes, The Cog auto-respawns it after 3 seconds with a reconnect prompt that includes context about what it was doing (claimed tasks + pending messages). The registry upserts on re-registration instead of throwing.
 
 ### 6. Heartbeat
 Each MCP server pings the hub every 30 seconds. The `GET /agents` endpoint includes a `healthy` boolean. If pings stop for 60+ seconds, the agent shows as unhealthy.
@@ -209,7 +209,7 @@ Each MCP server pings the hub every 30 seconds. The `GET /agents` endpoint inclu
 Each project folder gets:
 ```
 /path/to/my-project/
-├── .agentorch/
+├── .cog/
 │   ├── .gitignore          # ignores DB files, presets are committable
 │   ├── agentorch.db        # SQLite — messages, tasks, info entries, scheduled prompts
 │   ├── links.json           # communication graph state
@@ -240,7 +240,7 @@ Data persists across sessions. No more DB wipe on startup.
 
 ## Multi-Model Support
 
-AgentOrch supports 7+ CLI types:
+The Cog supports 7+ CLI types:
 
 | CLI | Provider | Models |
 |-----|----------|--------|
@@ -343,7 +343,7 @@ Additional dialogs: Settings (notifications, Remote View), Spawn (agent creation
 | `shell/output-buffer.ts` | Rolling line buffer with partial-line accumulation |
 | `shell/buddy-detector.ts` | Chunk-based companion speech detection from PTY output |
 | `cli-launch.ts` | CLI-specific launch command builders (claude, codex, kimi, gemini, openclaude, etc.) |
-| `project/project-manager.ts` | .agentorch/ folder creation, recent projects, path resolution |
+| `project/project-manager.ts` | .cog/ folder creation, recent projects, path resolution |
 | `presets/preset-manager.ts` | Save/load/list/delete presets (global userData) |
 | `skills/skill-manager.ts` | Load built-in + user skills, CRUD, prompt resolution |
 | `mcp/config-writer.ts` | Write per-agent MCP config JSON to temp dir |
@@ -361,7 +361,7 @@ Additional dialogs: Settings (notifications, Remote View), Spawn (agent creation
 | `remote/cloudflared-manager.ts` | Lazy downloads cloudflared from GitHub releases, spawns quick tunnel with empty `--config` override |
 | `remote/static/index.html` | Mobile UI shell (no React, vanilla HTML) |
 | `remote/static/app.js` | Polling, state rendering, action handlers, Page Visibility pause |
-| `remote/static/style.css` | Mobile-first dark theme matching AgentOrch palette |
+| `remote/static/style.css` | Mobile-first dark theme matching The Cog palette |
 | `git/git-ops.ts` | Shell git wrappers (status, log, diff, stage, commit, push, pull, branches, checkout) |
 | `updater/update-checker.ts` | Auto-update polling, git-pull mechanism, What's New dialog event |
 | `rac/rac-client.ts` | R.A.C. HTTP client (private) |
@@ -468,7 +468,7 @@ All routes require `Authorization: Bearer <secret>` header.
 Fixed hubFetch error handling, added isError:true to MCP errors, registry upsert, stripped ceoNotes from GET /agents, added createdBy to tasks, non-destructive peek/ack messaging, status-driven prompt injection (replaced hardcoded 10s wait), queue-aware nudging.
 
 ### Phase 1: Project-Based Persistence
-ProjectManager module, project picker dialog, per-project .agentorch/ folder, DB no longer wiped on startup, presets project-scoped (later moved to global), window title shows project name, switch project button.
+ProjectManager module, project picker dialog, per-project .cog/ folder, DB no longer wiped on startup, presets project-scoped (later moved to global), window title shows project name, switch project button.
 
 ### Phase 2: OpenClaude Multi-Model
 Added OpenClaude as CLI type, provider picker (OpenAI, DeepSeek, OpenRouter, Together AI, Groq, Ollama), model + provider env vars passed to PTY.
@@ -526,7 +526,7 @@ Bug fixer added a Help menu with MCP Tools Reference dialog — users can browse
 ## What's Next
 
 - **`.exe` distribution + real auto-updater** — replace `git pull` update with electron-updater + GitHub Releases. Tag-triggered releases (`git tag v0.3.0` → GitHub Action → installer → auto-update). See `docs/superpowers/specs/2026-04-08-distribution-and-release-pipeline-notes.md` (local/gitignored).
-- **Rebrand to "TheCog.dev"** — AgentOrch → Cog. Gear-icon branding. Domain secured.
+- **Rebrand to "TheCog.dev"** — The Cog → Cog. Gear-icon branding. Domain secured.
 - **File Change Notifications** — when an agent writes a file, other agents can subscribe
 - **Agent Modes** — Architect/Coder/Reviewer/Tester with specialized prompts
 - **Dynamic Model Switching** — switch_model MCP tool mid-task
@@ -538,8 +538,8 @@ Bug fixer added a Help menu with MCP Tools Reference dialog — users can browse
 ## How to Run
 
 ```bash
-git clone https://github.com/natebag/AgentOrch.git
-cd AgentOrch
+git clone https://github.com/the-cog-dev/cog.git
+cd The Cog
 npm install
 npm run dev
 ```

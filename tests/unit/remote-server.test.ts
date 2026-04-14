@@ -79,7 +79,7 @@ describe('RemoteServer GET /r/:token/', () => {
     const res = await request(server.getApp()).get(`/r/${token}/`)
     expect(res.status).toBe(200)
     expect(res.headers['content-type']).toMatch(/text\/html/)
-    expect(res.text).toContain('AgentOrch Remote')
+    expect(res.text).toContain('The Cog Remote')
     expect(res.text).toContain(token)
   })
 })

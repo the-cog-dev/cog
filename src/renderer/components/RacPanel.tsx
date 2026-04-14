@@ -182,7 +182,7 @@ export function RacPanel(): React.ReactElement {
       fullNotes += `\n\nGit repository: ${rentGitRepo.trim()}\nClone the repo to get the codebase. Work on a feature branch and push when done.`
     }
 
-    const result = await electronAPI.racRent(selectedSlot.slot_id, rentName || 'AgentOrch')
+    const result = await electronAPI.racRent(selectedSlot.slot_id, rentName || 'The Cog')
     if (result.error) {
       setError(result.error)
     } else {

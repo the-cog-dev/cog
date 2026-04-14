@@ -1,7 +1,8 @@
 {
-  "name": "agentorch",
+  "name": "cog",
   "version": "1.0.0",
-  "description": "",
+  "description": "The Cog — AI-native agent orchestration IDE",
+  "productName": "The Cog",
   "main": "./out/main/index.js",
   "directories": {
     "doc": "docs",

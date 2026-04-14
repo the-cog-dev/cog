@@ -2,7 +2,7 @@ import { execSync } from 'child_process'
 import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs'
 import path from 'path'
 
-const REPO_API = 'https://api.github.com/repos/natebag/AgentOrch/commits/main'
+const REPO_API = 'https://api.github.com/repos/the-cog-dev/cog/commits/main'
 const CHECK_INTERVAL_MS = 2 * 60 * 1000 // Check every 2 minutes
 
 export interface UpdateInfo {

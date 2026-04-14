@@ -27,7 +27,7 @@ const AGENT_NAME = resolvedAgentName
 const TAB_ID = process.env.AGENTORCH_TAB_ID || undefined
 
 if (!HUB_PORT || !HUB_SECRET || !AGENT_ID || !AGENT_NAME) {
-  console.error('AgentOrch MCP server: missing connection info.')
+  console.error('Cog MCP server: missing connection info.')
   console.error('Usage: node index.js <port> <secret> <agent_id> <agent_name>')
   console.error('Or set AGENTORCH_HUB_PORT, AGENTORCH_HUB_SECRET, AGENTORCH_AGENT_ID, AGENTORCH_AGENT_NAME')
   process.exit(1)

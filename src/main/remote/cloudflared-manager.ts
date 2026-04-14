@@ -63,7 +63,7 @@ export class CloudflaredManager {
     // return 404 or route to other tunnels).
     fs.mkdirSync(this.binDir, { recursive: true })
     if (!fs.existsSync(this.emptyConfigPath)) {
-      fs.writeFileSync(this.emptyConfigPath, '# AgentOrch-managed empty config — intentionally blank\n')
+      fs.writeFileSync(this.emptyConfigPath, '# Cog-managed empty config — intentionally blank\n')
     }
   }
 

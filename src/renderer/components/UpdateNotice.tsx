@@ -106,7 +106,7 @@ export function UpdateNotice(): React.ReactElement | null {
             padding: '6px 8px', backgroundColor: '#3a2a1a', border: '1px solid #d0a85c',
             borderRadius: '4px', marginBottom: '8px', fontSize: '11px', color: '#ffc107'
           }}>
-            AgentOrch will restart after updating. All running agents will be stopped. Save any work before proceeding.
+            The Cog will restart after updating. All running agents will be stopped. Save any work before proceeding.
           </div>
           <div style={{ display: 'flex', gap: '6px' }}>
             <button onClick={handleConfirmUpdate} style={{
