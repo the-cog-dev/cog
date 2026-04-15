@@ -1,5 +1,27 @@
 import type { AgentConfig } from '../shared/types'
 
+// ── Input validation for values that get spliced into shell command strings ──
+//
+// The commands produced by this module are typed into a live PTY shell by the
+// caller. Every interpolated value is interpreted by bash/zsh/cmd/powershell/
+// fish. Validate each attacker-reachable field (name, id, model, hubSecret)
+// against a strict allowlist before it touches a command string. Anything that
+// fails validation throws — the agent won't launch — rather than risk shell
+// injection at spawn time.
+
+const ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
+const MODEL_PATTERN = /^[A-Za-z0-9_./:\[\]-]{1,128}$/
+// Production hub secret is 64 hex chars (randomBytes(32).toString('hex')).
+// Accept a wider range for tests/ad-hoc configs. Point: reject shell metacharacters.
+const SECRET_PATTERN = /^[A-Za-z0-9]{4,256}$/
+
+function assertShellSafeToken(value: unknown, label: string, pattern: RegExp): string {
+  if (typeof value !== 'string' || !pattern.test(value)) {
+    throw new Error(`cli-launch: ${label} contains unsafe characters or is the wrong length`)
+  }
+  return value
+}
+
 /**
  * Build a shell command that removes ALL cog-* AND legacy agentorch-* MCP
  * registrations for a given CLI tool. Prevents stale registrations from
@@ -63,16 +85,26 @@ export function buildCliLaunchCommands(
 
   if (cliBase === 'terminal') return null
 
+  // Validate every value that will be interpolated into a shell command string,
+  // both to stop attacker-controlled injections and to crash early with a clear
+  // error rather than a mysterious shell parse failure.
+  const safeId = assertShellSafeToken(config.id, 'agent id', ID_PATTERN)
+  const safeModel = config.model ? assertShellSafeToken(config.model, 'model', MODEL_PATTERN) : ''
+  const safeSecret = assertShellSafeToken(hubSecret, 'hubSecret', SECRET_PATTERN)
+  if (!Number.isInteger(hubPort) || hubPort <= 0 || hubPort > 65535) {
+    throw new Error('cli-launch: hubPort must be an integer between 1 and 65535')
+  }
+
   if (cliBase === 'claude') {
     const parts = [`claude --mcp-config "${mcpConfigPath}"`]
-    if (config.model) parts[0] += ` --model ${config.model}`
+    if (safeModel) parts[0] += ` --model ${safeModel}`
     if (config.autoMode) parts[0] += ' --dangerously-skip-permissions'
     return parts
   }
 
   if (cliBase === 'openclaude') {
     const parts = [`openclaude --mcp-config "${mcpConfigPath}"`]
-    if (config.model) parts[0] += ` --model ${config.model}`
+    if (safeModel) parts[0] += ` --model ${safeModel}`
     if (config.autoMode) parts[0] += ' --dangerously-skip-permissions'
     return parts
   }
@@ -81,10 +113,10 @@ export function buildCliLaunchCommands(
     const mcpName = `cog-${config.name.replace(/\s+/g, '-')}`
     const cmds = [
       buildMcpCleanupCmd('codex', config.shell),
-      `codex mcp add ${mcpName} -- node "${mcpServerPath}" ${hubPort} ${hubSecret} ${config.id} ${config.name}`,
+      `codex mcp add ${mcpName} -- node "${mcpServerPath}" ${hubPort} ${safeSecret} ${safeId} ${config.name}`,
     ]
     let codexCmd = 'codex'
-    if (config.model) codexCmd += ` -m ${config.model}`
+    if (safeModel) codexCmd += ` -m ${safeModel}`
     if (config.autoMode) codexCmd += ' --yolo'
     cmds.push(codexCmd)
     return cmds
@@ -92,7 +124,7 @@ export function buildCliLaunchCommands(
 
   if (cliBase === 'kimi') {
     let cmd = `kimi --mcp-config-file "${mcpConfigPath}"`
-    if (config.model) cmd += ` --model ${config.model}`
+    if (safeModel) cmd += ` --model ${safeModel}`
     if (config.autoMode) cmd += ' --yolo'
     return [cmd]
   }
@@ -115,13 +147,15 @@ export function buildCliLaunchCommands(
     // The agent name is URL-encoded to be shell-safe across bash/powershell/cmd
     // without per-shell quoting; the MCP server decodes COG_AGENT_NAME_ENC.
     // Dual-emit COG_* + AGENTORCH_* for in-flight agent compatibility.
-    const encodedName = encodeURIComponent(config.name)
+    // encodeURIComponent leaves !*'() untouched — bash/zsh treat these as syntax.
+    // Additionally escape so the command is shell-safe across every supported shell.
+    const encodedName = encodeURIComponent(config.name).replace(/[!*'()]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())
     const cmds = [
       buildMcpCleanupCmd('gemini', config.shell),
-      `gemini mcp add ${mcpName} -e COG_HUB_PORT=${hubPort} -e COG_HUB_SECRET=${hubSecret} -e COG_AGENT_ID=${config.id} -e COG_AGENT_NAME_ENC=${encodedName} -e AGENTORCH_HUB_PORT=${hubPort} -e AGENTORCH_HUB_SECRET=${hubSecret} -e AGENTORCH_AGENT_ID=${config.id} -e AGENTORCH_AGENT_NAME_ENC=${encodedName} node "${mcpServerPath}"`,
+      `gemini mcp add ${mcpName} -e COG_HUB_PORT=${hubPort} -e COG_HUB_SECRET=${safeSecret} -e COG_AGENT_ID=${safeId} -e COG_AGENT_NAME_ENC=${encodedName} -e AGENTORCH_HUB_PORT=${hubPort} -e AGENTORCH_HUB_SECRET=${safeSecret} -e AGENTORCH_AGENT_ID=${safeId} -e AGENTORCH_AGENT_NAME_ENC=${encodedName} node "${mcpServerPath}"`,
     ]
     let geminiCmd = 'gemini'
-    if (config.model) geminiCmd += ` --model ${config.model}`
+    if (safeModel) geminiCmd += ` --model ${safeModel}`
     if (config.autoMode) geminiCmd += ' --yolo'
     cmds.push(geminiCmd)
     return cmds
@@ -129,14 +163,14 @@ export function buildCliLaunchCommands(
 
   if (cliBase === 'copilot') {
     let cmd = `copilot --additional-mcp-config "@${mcpConfigPath}"`
-    if (config.model) cmd += ` --model=${config.model}`
+    if (safeModel) cmd += ` --model=${safeModel}`
     if (config.autoMode) cmd += ' --allow-all'
     return [cmd]
   }
 
   if (cliBase === 'grok') {
     let cmd = 'grok'
-    if (config.model) cmd += ` --model ${config.model}`
+    if (safeModel) cmd += ` --model ${safeModel}`
     return [cmd]
   }
 

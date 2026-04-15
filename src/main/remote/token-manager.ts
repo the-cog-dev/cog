@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto'
+import { randomBytes, timingSafeEqual } from 'crypto'
 
 const DEFAULT_EXPIRY_MS = 8 * 60 * 60 * 1000         // 8 hours
 const MAX_EXPIRY_MS = 168 * 60 * 60 * 1000            // 7 days
@@ -44,7 +44,12 @@ export class TokenManager {
 
   isValid(token: string): boolean {
     if (!this.currentToken) return false
-    if (token !== this.currentToken) return false
+    if (typeof token !== 'string') return false
+    // Constant-time compare so the endpoint can't be used as a timing oracle
+    const a = Buffer.from(token)
+    const b = Buffer.from(this.currentToken)
+    if (a.length !== b.length) return false
+    if (!timingSafeEqual(a, b)) return false
     if (this.lastActivity === null) return false
     if (this.clock() - this.lastActivity > this.expiryMs) return false
     return true

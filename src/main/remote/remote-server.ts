@@ -1,6 +1,7 @@
 import express, { type Request, type Response, type NextFunction, type Application } from 'express'
 import * as fs from 'fs'
 import * as path from 'path'
+import { createHash, timingSafeEqual } from 'crypto'
 import type { TokenManager } from './token-manager'
 
 const RATE_LIMIT_WINDOW_MS = 60_000
@@ -104,6 +105,12 @@ export class RemoteServer {
   constructor(private deps: RemoteServerDeps) {
     this.staticDir = resolveStaticDir()
     this.app = express()
+
+    // Express binds to loopback; the public-facing layer is the cloudflared tunnel
+    // which connects back over loopback. Trusting the loopback hop lets req.ip
+    // resolve to the X-Forwarded-For client IP so per-IP rate limit and workshop
+    // PIN lockout key on the actual remote client, not the single tunnel address.
+    this.app.set('trust proxy', 'loopback')
 
     // No-auth health check — lets you verify the tunnel reaches the server
     this.app.get('/health', (_req, res) => {
@@ -216,8 +223,16 @@ export class RemoteServer {
         res.status(400).json({ error: 'Missing or invalid `to` or `text`' })
         return
       }
+      // Strip ASCII control characters (CR, LF, form feed, etc.) so a remote caller
+      // can't embed newline-terminated commands that a plain-terminal agent's shell
+      // would execute as separate lines.
+      const safeText = text.replace(/[\x00-\x1F\x7F]/g, ' ').trim()
+      if (safeText.length === 0) {
+        res.status(400).json({ error: 'Message is empty after sanitization' })
+        return
+      }
       try {
-        this.deps.sendMessage(to, text.trim())
+        this.deps.sendMessage(to, safeText)
         res.json({ ok: true })
       } catch (err) {
         res.status(500).json({ error: (err as Error).message })
@@ -265,13 +280,17 @@ export class RemoteServer {
         res.status(400).json({ error: 'Invalid PIN format' })
         return
       }
-      const hash = require('crypto').createHash('sha256').update(pin).digest('hex')
+      const hash = createHash('sha256').update(pin).digest('hex')
       const expected = this.deps.getWorkshopPasscodeHash()
       if (!expected) {
         res.status(400).json({ error: 'No passcode configured' })
         return
       }
-      if (hash === expected) {
+      // Constant-time compare so response timing can't leak partial hash matches
+      const hashBuf = Buffer.from(hash, 'hex')
+      const expectedBuf = Buffer.from(expected, 'hex')
+      const matches = hashBuf.length === expectedBuf.length && timingSafeEqual(hashBuf, expectedBuf)
+      if (matches) {
         workshopAttempts.delete(ip)
         this.deps.tokenManager.verifyWorkshop(ip)
         res.json({ verified: true })

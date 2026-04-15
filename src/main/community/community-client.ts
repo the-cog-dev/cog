@@ -66,14 +66,91 @@ export function stripAgentForShare(agent: AgentConfig): CommunityAgent {
   }
 }
 
+// Typed allowlists for hydrating a CommunityTeam from attacker-controlled JSON.
+// GitHub issue bodies are public and editable — if we just spread parsed JSON
+// onto an object the renderer/spawner reads, a malicious publisher can inject
+// unexpected fields (admin:true on every agent, custom shell path,
+// __proto__ tricks). Parsing each field explicitly and discarding everything
+// else shuts all of that down.
+const VALID_CATEGORIES: ReadonlyArray<CommunityCategory> = ['research', 'coding', 'review', 'full-stack', 'decomp', 'mixed', 'other']
+const VALID_CLIS = new Set(['claude', 'openclaude', 'codex', 'gemini', 'kimi', 'copilot', 'grok', 'terminal'])
+const VALID_SHELLS: ReadonlyArray<CommunityAgent['shell']> = ['cmd', 'powershell', 'bash', 'zsh', 'fish']
+
+function asString(v: unknown, max = 2000): string {
+  return typeof v === 'string' ? v.slice(0, max) : ''
+}
+function asBool(v: unknown): boolean {
+  return v === true
+}
+function asStringArray(v: unknown, max = 64, itemMax = 200): string[] {
+  if (!Array.isArray(v)) return []
+  return v.filter(x => typeof x === 'string').slice(0, max).map(s => (s as string).slice(0, itemMax))
+}
+
+function hydrateAgent(raw: unknown): CommunityAgent | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const name = asString(r.name, 200)
+  const cli = asString(r.cli, 50)
+  const shell = asString(r.shell, 20) as CommunityAgent['shell']
+  if (!name || !VALID_CLIS.has(cli) || !VALID_SHELLS.includes(shell)) return null
+  const agent: CommunityAgent = {
+    name,
+    cli,
+    role: asString(r.role, 200),
+    ceoNotes: asString(r.ceoNotes, 20000),
+    shell,
+    admin: asBool(r.admin),
+    autoMode: asBool(r.autoMode)
+  }
+  if (typeof r.model === 'string' && r.model.length > 0) agent.model = r.model.slice(0, 200)
+  if (r.experimental !== undefined) agent.experimental = asBool(r.experimental)
+  const skills = asStringArray(r.skills)
+  if (skills.length > 0) agent.skills = skills
+  if (r.theme && typeof r.theme === 'object') {
+    // theme is a plain style record; keep only string values.
+    const themeIn = r.theme as Record<string, unknown>
+    const themeOut: Record<string, string> = {}
+    for (const k of Object.keys(themeIn)) {
+      if (typeof themeIn[k] === 'string') themeOut[k] = (themeIn[k] as string).slice(0, 100)
+    }
+    // @ts-expect-error — AgentTheme is a structural string record
+    agent.theme = themeOut
+  }
+  return agent
+}
+
+function hydrateTeam(raw: unknown, issueNumber: number): CommunityTeam | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const category = VALID_CATEGORIES.includes(r.category as CommunityCategory) ? (r.category as CommunityCategory) : 'other'
+  const rawAgents = Array.isArray(r.agents) ? r.agents : []
+  const agents = rawAgents.map(hydrateAgent).filter((a): a is CommunityAgent => a !== null).slice(0, 32)
+  if (agents.length === 0) return null
+  const team: CommunityTeam = {
+    version: 1,
+    issueNumber,
+    name: asString(r.name, 200),
+    description: asString(r.description, 5000),
+    author: asString(r.author, 200),
+    category,
+    agentCount: agents.length,
+    clis: Array.from(new Set(agents.map(a => a.cli))),
+    agents,
+    stars: typeof r.stars === 'number' && Number.isFinite(r.stars) && r.stars >= 0 ? Math.floor(r.stars) : 0,
+    starredBy: asStringArray(r.starredBy, 10000, 12),
+    createdAt: asString(r.createdAt, 100)
+  }
+  return team
+}
+
 function parseTeamFromIssue(issue: { number: number; body: string | null; title: string }): CommunityTeam | null {
   if (!issue.body) return null
-  // The body starts with a JSON code fence; extract it. Fall back to raw parse if no fence.
   const match = issue.body.match(/```json\s*([\s\S]*?)\s*```/)
   const jsonStr = match ? match[1] : issue.body
   try {
-    const data = JSON.parse(jsonStr) as CommunityTeam
-    return { ...data, issueNumber: issue.number }
+    const data = JSON.parse(jsonStr) as unknown
+    return hydrateTeam(data, issue.number)
   } catch {
     return null
   }
@@ -117,6 +194,9 @@ export async function listTeams(opts: { force?: boolean } = {}): Promise<Communi
 }
 
 export async function getTeam(issueNumber: number): Promise<CommunityTeam> {
+  if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+    throw new Error('Invalid issue number')
+  }
   const res = await apiFetch(`/repos/${OWNER}/${REPO}/issues/${issueNumber}`)
   if (!res.ok) {
     const err = await res.text()
