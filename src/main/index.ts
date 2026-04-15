@@ -211,8 +211,10 @@ async function enableRemoteView(): Promise<void> {
     },
     getPinboardTasks: () => {
       if (!hub) return []
+      // Include all tasks (open/in_progress/completed) so the mobile workshop
+      // panel can show Kanban-style grouping. Dashboard filters completed
+      // client-side to preserve its "active work" view.
       return hub.pinboard.readTasks()
-        .filter(t => t.status !== 'completed')
         .map(t => ({
           id: t.id, title: t.title, priority: t.priority, status: t.status, claimedBy: t.claimedBy
         }))

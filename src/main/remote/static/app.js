@@ -183,11 +183,14 @@
 
   function renderPinboard(list) {
     const container = $('pinboard-list')
-    if (list.length === 0) {
+    // Dashboard shows only active (non-completed) tasks — the workshop panel
+    // shows the full Kanban breakdown.
+    const active = list.filter(t => t.status !== 'completed')
+    if (active.length === 0) {
       container.innerHTML = '<div style="color:#666;font-size:12px;font-style:italic">No tasks</div>'
       return
     }
-    container.innerHTML = list.map(t => `
+    container.innerHTML = active.map(t => `
       <div class="task-card">
         <div class="task-priority-dot ${escapeHtml(t.priority)}"></div>
         <div>
@@ -668,23 +671,56 @@
       return
     }
     const priorityColors = { high: '#ef4444', medium: '#eab308', low: '#22c55e' }
+    const groups = [
+      { key: 'open', label: 'Open', accent: '#3b82f6', tasks: tasks.filter(t => t.status === 'open') },
+      { key: 'in_progress', label: 'In Progress', accent: '#eab308', tasks: tasks.filter(t => t.status === 'in_progress') },
+      { key: 'completed', label: 'Completed', accent: '#22c55e', tasks: tasks.filter(t => t.status === 'completed') }
+    ]
+
+    const renderTask = (t) => `
+      <div style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:#1a1a1a;border-radius:4px;margin-bottom:4px;border:1px solid #2a2a2a;">
+        <div style="width:8px;height:8px;border-radius:50%;background:${priorityColors[t.priority] || '#888'};margin-top:4px;flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div style="color:#e0e0e0;font-size:12px;line-height:1.4;word-break:break-word;">${escapeHtml(t.title)}</div>
+          ${t.claimedBy ? `<div style="color:#888;font-size:10px;margin-top:2px;">claimed by ${escapeHtml(t.claimedBy)}</div>` : ''}
+        </div>
+      </div>
+    `
+
+    // Completed section defaults to collapsed to reduce noise
     container.innerHTML = `
       <div style="padding:8px;">
-        ${tasks.map(t => `
-          <div style="display:flex;align-items:flex-start;gap:8px;padding:10px;background:#1a1a1a;border-radius:4px;margin-bottom:6px;border:1px solid #333;">
-            <div style="width:8px;height:8px;border-radius:50%;background:${priorityColors[t.priority] || '#888'};margin-top:4px;flex-shrink:0;"></div>
-            <div style="flex:1;">
-              <div style="color:#e0e0e0;font-size:13px;margin-bottom:2px;">${escapeHtml(t.title)}</div>
-              <div style="display:flex;gap:8px;font-size:10px;color:#888;">
-                <span>${escapeHtml(t.status)}</span>
-                ${t.claimedBy ? `<span>→ ${escapeHtml(t.claimedBy)}</span>` : ''}
-                <span style="color:${priorityColors[t.priority] || '#888'}">${escapeHtml(t.priority)}</span>
-              </div>
+        ${groups.map(g => `
+          <div class="ws-group" data-group="${g.key}" style="margin-bottom:10px;">
+            <div class="ws-group-header" style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#1a1a1a;border:1px solid #333;border-left:3px solid ${g.accent};border-radius:4px;cursor:pointer;user-select:none;">
+              <span class="ws-group-toggle" style="color:#888;font-size:10px;width:10px;">${g.key === 'completed' ? '▶' : '▼'}</span>
+              <span style="flex:1;color:#e0e0e0;font-size:13px;font-weight:600;">${g.label}</span>
+              <span style="color:${g.accent};font-size:11px;font-weight:700;background:#0d0d0d;padding:2px 8px;border-radius:10px;min-width:24px;text-align:center;">${g.tasks.length}</span>
+            </div>
+            <div class="ws-group-body" style="padding:8px 0 0 0;${g.key === 'completed' ? 'display:none;' : ''}">
+              ${g.tasks.length === 0
+                ? `<div style="color:#555;font-size:11px;font-style:italic;padding:6px 10px;">No ${g.label.toLowerCase()} tasks</div>`
+                : g.tasks.map(renderTask).join('')}
             </div>
           </div>
         `).join('')}
       </div>
     `
+
+    // Wire up collapse/expand
+    container.querySelectorAll('.ws-group-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const body = header.nextElementSibling
+        const toggle = header.querySelector('.ws-group-toggle')
+        if (body.style.display === 'none') {
+          body.style.display = ''
+          toggle.textContent = '▼'
+        } else {
+          body.style.display = 'none'
+          toggle.textContent = '▶'
+        }
+      })
+    })
   }
 
   function renderPanelInfo(container) {
