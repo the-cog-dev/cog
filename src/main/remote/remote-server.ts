@@ -112,9 +112,20 @@ export class RemoteServer {
     // PIN lockout key on the actual remote client, not the single tunnel address.
     this.app.set('trust proxy', 'loopback')
 
-    // No-auth health check — lets you verify the tunnel reaches the server
+    // No-auth health check — lets you verify the tunnel reaches the server.
+    // Returns a minimal HTML page so ancient browsers (3DS, PSP, feature phones)
+    // actually render something visible. Pure text/plain sometimes renders blank.
     this.app.get('/health', (_req, res) => {
-      res.status(200).type('text/plain').send('ok')
+      res.status(200).type('text/html').send(
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>The Cog</title>' +
+        '<style>body{background:#0a0a0a;color:#f5d76e;font-family:monospace;text-align:center;padding:20px;font-size:16px}</style>' +
+        '</head><body>' +
+        '<h1 style="color:#f5d76e">◇ The Cog</h1>' +
+        '<p style="color:#6ee7b7">✓ Tunnel connected</p>' +
+        '<p style="color:#ccc;font-size:12px">Health check OK. Your device can reach this server.</p>' +
+        '<p style="color:#888;font-size:10px">Now enter the full /r/&lt;token&gt;/ URL to access Remote View.</p>' +
+        '</body></html>'
+      )
     })
 
     this.app.use(express.json({ limit: '4kb' }))
