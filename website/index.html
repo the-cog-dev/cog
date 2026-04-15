@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="The Cog — AI-native agent orchestration IDE. Spawn teams of AI coding agents across multiple models and providers.">
+  <meta property="og:title" content="The Cog">
+  <meta property="og:description" content="AI-native agent orchestration IDE. Spawn teams of AI coding agents across multiple models and providers.">
+  <meta property="og:image" content="https://thecog.dev/og.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://thecog.dev">
+  <meta name="twitter:card" content="summary_large_image">
+  <title>The Cog — AI-native agent orchestration IDE</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+</head>
+<body>
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a href="/" class="logo">
+        <span class="logo-mark">◇</span><span class="logo-text">theCog</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="#features">Features</a>
+        <a href="#get-started">Get Started</a>
+        <a href="https://github.com/the-cog-dev/cog" target="_blank" rel="noopener">GitHub ↗</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="prompt">
+        <span class="prompt-sign">$</span>
+        <span class="prompt-cmd">spawn --team research-squad</span><span class="cursor">▊</span>
+      </div>
+
+      <h1 class="headline">
+        The AI-native<br>
+        <span class="accent">agent orchestration</span><br>
+        IDE.
+      </h1>
+
+      <p class="subhead">
+        Spawn teams of AI coding agents across multiple models and providers.
+        Watch them work in floating terminal windows. Orchestrate from above.
+      </p>
+
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/the-cog-dev/cog" target="_blank" rel="noopener">
+          View on GitHub <span class="arrow">→</span>
+        </a>
+        <a class="btn btn-secondary" href="#get-started">
+          Get Started
+        </a>
+      </div>
+
+      <div class="hero-footnote">
+        Free &middot; Open source &middot; Works with Claude, Codex, Kimi, Gemini, Grok, Copilot &middot; 200+ models via OpenClaude
+      </div>
+
+      <figure class="hero-media">
+        <img src="assets/AgentsSpawning.gif" alt="Spawning a full team of agents in The Cog" loading="lazy">
+        <figcaption>Spawning an orchestrator + 3 workers + reviewer team in seconds</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- WHAT IT IS -->
+  <section class="section pitch">
+    <div class="container">
+      <div class="label">The gist</div>
+      <p class="pitch-text">
+        The Cog is an <strong>Electron IDE</strong> built from the ground up for
+        <strong>AI agents as primary workers</strong>. You open a project, spawn a team
+        of agents across different models and providers, and they coordinate through
+        <strong>25+ MCP tools</strong> — messaging, task boards, shared knowledge, file
+        operations — all in one workspace. You steer from above.
+      </p>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="section features" id="features">
+    <div class="container">
+      <div class="label">What's inside</div>
+      <h2 class="section-title">Build a crew, ship faster.</h2>
+
+      <div class="feature-grid">
+
+        <div class="feature">
+          <div class="feature-media">
+            <img src="assets/ColorShowcase.gif" alt="Per-agent color themes" loading="lazy">
+          </div>
+          <h3 class="feature-title">Per-agent color themes</h3>
+          <p class="feature-desc">
+            Right-click any terminal to customize chrome, border, background, and text colors.
+            8 presets (Sunshine, Ocean, Crimson…) or roll your own.
+            "Apply theme by role" colors your whole team in one click.
+          </p>
+        </div>
+
+        <div class="feature">
+          <div class="feature-media">
+            <img src="assets/CommunityTeams.png" alt="Community Teams browser" loading="lazy">
+          </div>
+          <h3 class="feature-title">Community Teams</h3>
+          <p class="feature-desc">
+            Share your best team setups with the world. Browse, star, and import
+            configurations from other users. Categories for research, coding,
+            review, full-stack, decomp. No account needed.
+          </p>
+        </div>
+
+        <div class="feature">
+          <div class="feature-media">
+            <img src="assets/Mobile1.gif" alt="Remote View on phone" loading="lazy">
+          </div>
+          <h3 class="feature-title">Remote View &amp; Workshop</h3>
+          <p class="feature-desc">
+            Check on your workshop from your phone via a Cloudflare tunnel.
+            Unlock <strong>Workshop mode</strong> with a passcode and get a spatial canvas
+            mirroring your desktop — pinch, zoom, pan, kill agents remotely.
+          </p>
+        </div>
+
+        <div class="feature">
+          <div class="feature-media feature-ascii">
+            <pre class="ascii-art">
+┌──────────────────────────────┐
+│ [orchestrator] Opus          │
+│  ↓ send_message              │
+│  ↓ post_task(target_role)    │
+├──────────────────────────────┤
+│ [worker-1]  Sonnet           │
+│ [worker-2]  Sonnet           │
+│ [reviewer]  GPT-5            │
+│ [researcher] Kimi K2.5       │
+└──────────────────────────────┘</pre>
+          </div>
+          <h3 class="feature-title">Multi-model teams</h3>
+          <p class="feature-desc">
+            Mix and match. Claude orchestrates while Kimi researches and Codex reviews.
+            25+ MCP tools let agents message, share, assign tasks, and read each other's terminals.
+            Agents never poll — auto-nudge on events, zero wasted tokens.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- CLIs -->
+  <section class="section clis">
+    <div class="container">
+      <div class="label">Supported CLIs</div>
+      <div class="cli-grid">
+        <div class="cli">Claude Code</div>
+        <div class="cli">Codex CLI</div>
+        <div class="cli">Kimi CLI</div>
+        <div class="cli">Gemini CLI</div>
+        <div class="cli">OpenClaude</div>
+        <div class="cli">Copilot CLI</div>
+        <div class="cli">Grok CLI</div>
+        <div class="cli">Plain Terminal</div>
+      </div>
+      <p class="cli-footnote">
+        <strong>200+ models</strong> via OpenClaude (OpenAI-compatible providers: GPT, DeepSeek, Ollama, Qwen, Mistral, and more).
+      </p>
+    </div>
+  </section>
+
+  <!-- GET STARTED -->
+  <section class="section get-started" id="get-started">
+    <div class="container">
+      <div class="label">Get started</div>
+      <h2 class="section-title">Clone and run.</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-dot red"></span>
+          <span class="code-dot yellow"></span>
+          <span class="code-dot green"></span>
+          <span class="code-title">terminal</span>
+        </div>
+        <pre><code><span class="shell-prompt">$</span> <span class="shell-cmd">git clone https://github.com/the-cog-dev/cog.git</span>
+<span class="shell-prompt">$</span> <span class="shell-cmd">cd cog</span>
+<span class="shell-prompt">$</span> <span class="shell-cmd">npm install</span>
+<span class="shell-prompt">$</span> <span class="shell-cmd">npm run dev</span></code></pre>
+      </div>
+
+      <div class="requirements">
+        <strong>Requires:</strong> Node.js 20+, at least one AI CLI installed (Claude Code, Codex, Kimi, Gemini, etc.)
+      </div>
+
+      <div class="coming-soon">
+        <span class="badge">Coming soon</span>
+        One-click installer (.exe / .dmg / .AppImage) — skip the clone.
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-top">
+        <div class="footer-brand">
+          <div class="logo">
+            <span class="logo-mark">◇</span><span class="logo-text">theCog</span>
+          </div>
+          <p class="footer-tagline">Your AI pit crew.</p>
+        </div>
+        <div class="footer-links">
+          <div class="footer-col">
+            <div class="footer-heading">Project</div>
+            <a href="https://github.com/the-cog-dev/cog" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://github.com/the-cog-dev/cog#readme" target="_blank" rel="noopener">Docs</a>
+            <a href="https://github.com/the-cog-dev/cog/issues" target="_blank" rel="noopener">Issues</a>
+          </div>
+          <div class="footer-col">
+            <div class="footer-heading">Community</div>
+            <a href="https://github.com/the-cog-dev/community-teams" target="_blank" rel="noopener">Team Presets</a>
+            <a href="https://github.com/the-cog-dev/cog/discussions" target="_blank" rel="noopener">Discussions</a>
+          </div>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>MIT Licensed</span>
+        <span>Built with crew energy.</span>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

@@ -2,7 +2,7 @@
 
 [thecog.dev](https://thecog.dev) · The AI-native agent orchestration IDE. Spawn teams of AI coding agents across multiple models and providers, watch them work in floating terminal windows, and orchestrate from above.
 
-![Team of agents working together in themed windows](assets/readme/TeamInAction.gif)
+![Spawning a full team of agents in The Cog](assets/readme/AgentsSpawning.gif)
 
 Agents communicate through 25+ MCP tools — messaging, task boards, shared knowledge, file operations — all in one workspace.
 
