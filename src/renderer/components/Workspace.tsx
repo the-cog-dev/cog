@@ -138,21 +138,25 @@ export function Workspace({
   }, [windows, agents, zoom, pan])
 
   // Mirror workshop layout to main process so /state can serve per-agent
-  // positions to remote clients (mobile, 3DS).
+  // positions to remote clients (mobile, 3DS). Debounced to match the
+  // adjacent pushWorkspaceState effect and avoid 60fps IPC during drags.
   useEffect(() => {
-    const layouts = windows.map(w => {
-      const agent = agents.find(a => a.id === w.id)
-      const group = agent?.groupId ? groups.find(g => g.id === agent.groupId) : null
-      return {
-        id: w.id,
-        x: w.x,
-        y: w.y,
-        width: w.width,
-        height: w.height,
-        color: group?.color ?? '#888888'
-      }
-    })
-    window.electronAPI.syncWorkshopLayout(layouts)
+    const timer = setTimeout(() => {
+      const layouts = windows.map(w => {
+        const agent = agents.find(a => a.id === w.id)
+        const group = agent?.groupId ? groups.find(g => g.id === agent.groupId) : null
+        return {
+          id: w.id,
+          x: w.x,
+          y: w.y,
+          width: w.width,
+          height: w.height,
+          color: group?.color ?? '#888888'
+        }
+      })
+      window.electronAPI.syncWorkshopLayout(layouts)
+    }, 500)
+    return () => clearTimeout(timer)
   }, [windows, agents, groups])
 
   // Clean up maximizedId if the window is removed

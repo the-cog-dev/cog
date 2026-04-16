@@ -1687,13 +1687,16 @@ function setupIPC(): void {
 
   // Workshop layout mirror (fire-and-forget from renderer)
   ipcMain.on(IPC.WORKSHOP_LAYOUT_SYNC, (_event, payload: Array<{ id: string } & WindowLayoutEntry>) => {
-    workshopLayoutCache.clear()
     if (!Array.isArray(payload)) return
+    workshopLayoutCache.clear()
     for (const entry of payload) {
       if (!entry || typeof entry.id !== 'string') continue
       const { id, x, y, width, height, color } = entry
       if ([x, y, width, height].some(v => typeof v !== 'number' || !isFinite(v))) continue
-      workshopLayoutCache.set(id, { x, y, width, height, color: color ?? '#888888' })
+      workshopLayoutCache.set(id, {
+        x, y, width, height,
+        color: typeof color === 'string' ? color : '#888888'
+      })
     }
   })
 
