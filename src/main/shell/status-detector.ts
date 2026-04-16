@@ -22,7 +22,7 @@ export class StatusDetector {
   private awaitingPromptAfterClear = false
 
   constructor(opts: StatusDetectorOptions = {}) {
-    this.promptRegex = opts.promptRegex ?? /[>\u276F]\s*$/
+    this.promptRegex = opts.promptRegex ?? /[>\u276F\u203A]\s*$/
     this.silenceMs = opts.silenceMs ?? 2000
     this.onChange = opts.onChange
     this.onClearDetected = opts.onClearDetected

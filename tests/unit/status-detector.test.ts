@@ -49,6 +49,15 @@ describe('StatusDetector', () => {
     expect(detector.status).toBe('active')
   })
 
+  it('detects Codex prompt character U+203A', () => {
+    const onChange = vi.fn()
+    const detector = new StatusDetector({ onChange })
+    detector.onData('\u203A ')
+    vi.advanceTimersByTime(2500)
+    expect(detector.status).toBe('active')
+    expect(onChange).toHaveBeenCalledWith('active')
+  })
+
   it('transitions to disconnected on exit', () => {
     const detector = new StatusDetector()
     detector.onExit()
