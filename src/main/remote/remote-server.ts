@@ -264,13 +264,19 @@ export class RemoteServer {
         const layout = layouts[a.id]
         return layout ? { ...a, x: layout.x, y: layout.y, width: layout.width, height: layout.height, color: layout.color } : a
       })
-      // Which panels are currently open on the desktop workspace
+      // Which panels are currently open on the desktop workspace (with positions)
       const ws = this.deps.getWorkspaceState()
-      const openPanels: string[] = []
+      const openPanels: { type: string; x: number; y: number; width: number; height: number }[] = []
       if (ws && Array.isArray(ws.windows)) {
         for (const w of ws.windows) {
           if (w.panelType && !w.minimized) {
-            openPanels.push(w.panelType)
+            openPanels.push({
+              type: w.panelType,
+              x: w.x ?? 0,
+              y: w.y ?? 0,
+              width: w.width ?? 300,
+              height: w.height ?? 200
+            })
           }
         }
       }
