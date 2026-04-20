@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import type { AgentConfig, AgentState, WorkspacePreset, WindowPosition, CanvasState, CommunityTeam, CommunityTeamListItem, CommunityCategory, CommunityAgent } from '../../shared/types'
 import type { WindowState } from '../hooks/useWindowManager'
+import { CLI_MODELS } from './SpawnDialog'
 
 interface PresetDialogProps {
   agents: AgentState[]
@@ -1037,12 +1038,35 @@ export function PresetDialog({ agents, windows, zoom, pan, onLoadPreset, onClose
                         </label>
                         <label style={agentFieldLabelStyle}>
                           Model
-                          <input
-                            value={agent.model || ''}
-                            onChange={e => updateEditingAgent(idx, 'model', e.target.value)}
-                            placeholder="default"
-                            style={agentFieldInputStyle}
-                          />
+                          {(() => {
+                            const models = CLI_MODELS[agent.cli]
+                            const currentModel = agent.model || ''
+                            if (!models) {
+                              return (
+                                <input
+                                  value={currentModel}
+                                  onChange={e => updateEditingAgent(idx, 'model', e.target.value)}
+                                  placeholder="default"
+                                  style={agentFieldInputStyle}
+                                />
+                              )
+                            }
+                            const hasCurrent = models.some(m => m.value === currentModel)
+                            return (
+                              <select
+                                value={currentModel}
+                                onChange={e => updateEditingAgent(idx, 'model', e.target.value)}
+                                style={agentFieldInputStyle}
+                              >
+                                {!hasCurrent && currentModel && (
+                                  <option value={currentModel}>{currentModel} (custom)</option>
+                                )}
+                                {models.map(m => (
+                                  <option key={m.value} value={m.value}>{m.label}</option>
+                                ))}
+                              </select>
+                            )
+                          })()}
                         </label>
                       </div>
                       <label style={{ ...agentFieldLabelStyle, marginTop: '6px' }}>

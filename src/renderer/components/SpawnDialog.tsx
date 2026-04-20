@@ -27,7 +27,7 @@ const CLI_PRESETS = [
   { label: 'Custom', value: '' }
 ]
 
-const CLI_MODELS: Record<string, { label: string; value: string }[]> = {
+export const CLI_MODELS: Record<string, { label: string; value: string }[]> = {
   claude: [
     { label: 'Sonnet', value: 'sonnet' },
     { label: 'Opus', value: 'opus' },
