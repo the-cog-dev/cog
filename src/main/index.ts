@@ -1140,7 +1140,8 @@ function setupInfoNudge(): void {
 function setupStaleTaskWatchdog(): void {
   if (staleTaskTimer) clearInterval(staleTaskTimer)
   staleTaskTimer = setInterval(() => {
-    // Snooze: if user has muted stale alerts, skip both orchestrator alerts and worker reminders
+    // Disabled or snoozed: skip both orchestrator alerts and worker reminders
+    if (staleAlertMuteUntil === -1) return
     if (staleAlertMuteUntil !== null && Date.now() < staleAlertMuteUntil) return
     const tasks = hub.pinboard.readTasks()
     const now = Date.now()
@@ -1474,13 +1475,17 @@ function setupIPC(): void {
 
   // Stale task alert snooze — mutes orchestrator alerts + worker reminders for a duration
   ipcMain.handle(IPC.STALE_ALERT_GET, () => {
-    // Auto-clear if expired
-    if (staleAlertMuteUntil !== null && Date.now() >= staleAlertMuteUntil) staleAlertMuteUntil = null
+    // Auto-clear if expired (but not if permanently disabled via -1)
+    if (staleAlertMuteUntil !== null && staleAlertMuteUntil !== -1 && Date.now() >= staleAlertMuteUntil) staleAlertMuteUntil = null
     return { muteUntil: staleAlertMuteUntil }
   })
 
   ipcMain.handle(IPC.STALE_ALERT_SET, (_event, durationMs: number | null) => {
-    staleAlertMuteUntil = durationMs === null || durationMs <= 0 ? null : Date.now() + durationMs
+    if (durationMs === -1) {
+      staleAlertMuteUntil = -1
+    } else {
+      staleAlertMuteUntil = durationMs === null || durationMs <= 0 ? null : Date.now() + durationMs
+    }
     const payload = { muteUntil: staleAlertMuteUntil }
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.STALE_ALERT_UPDATE, payload)
     return payload

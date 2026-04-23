@@ -242,16 +242,28 @@ function SnoozeControl() {
     return () => clearInterval(id)
   }, [muteUntil])
 
-  const isMuted = muteUntil !== null && now < muteUntil
+  const isDisabled = muteUntil === -1
+  const isMuted = !isDisabled && muteUntil !== null && now < muteUntil
 
   // Auto-clear local state when the snooze expires client-side
   useEffect(() => {
-    if (muteUntil !== null && now >= muteUntil) setMuteUntil(null)
+    if (muteUntil !== null && muteUntil !== -1 && now >= muteUntil) setMuteUntil(null)
   }, [now, muteUntil])
 
   const handleSet = async (ms: number) => {
     setOpen(false)
     const s = await window.electronAPI.setStaleAlertSnooze(ms)
+    setMuteUntil(s.muteUntil)
+  }
+
+  const handleDisable = async () => {
+    setOpen(false)
+    const s = await window.electronAPI.setStaleAlertSnooze(-1)
+    setMuteUntil(s.muteUntil)
+  }
+
+  const handleEnable = async () => {
+    const s = await window.electronAPI.setStaleAlertSnooze(null)
     setMuteUntil(s.muteUntil)
   }
 
@@ -271,6 +283,20 @@ function SnoozeControl() {
     if (m > 0) return `${m}m ${s}s`
     return `${s}s`
   })()
+
+  if (isDisabled) {
+    return (
+      <button
+        onClick={handleEnable}
+        title="Stale task alerts are disabled — click to re-enable"
+        style={{
+          background: '#2a1a1a', border: '1px solid #8a2a2a', borderRadius: '4px',
+          color: '#f04040', fontSize: '10px', cursor: 'pointer', padding: '1px 6px',
+          fontFamily: 'monospace'
+        }}
+      >🔇 Disabled</button>
+    )
+  }
 
   if (isMuted) {
     return (
@@ -323,6 +349,18 @@ function SnoozeControl() {
                 onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}
               >{opt.label}</button>
             ))}
+            <div style={{ borderTop: '1px solid #444', margin: '4px 0' }} />
+            <button
+              onClick={handleDisable}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left',
+                background: 'none', border: 'none', color: '#f04040',
+                fontSize: '11px', padding: '4px 8px', cursor: 'pointer',
+                fontFamily: 'monospace', borderRadius: '3px'
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#333' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}
+            >Disable</button>
           </div>
         </>
       )}
