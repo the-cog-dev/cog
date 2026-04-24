@@ -7,141 +7,15 @@ import {
   TROLLBOX_ADMIN_ED25519_PUBKEY,
   TROLLBOX_ADMIN_X25519_PUBKEY,
 } from '../../shared/trollbox-config'
-import { nickToColor } from '../../shared/trollbox-crypto'
 import { hashCrewPassword, CREW_ACCESS_HASH } from '../../shared/crew-auth'
-
-const containerStyle: React.CSSProperties = {
-  width: '100%',
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  backgroundColor: '#1a1a1a',
-  color: '#e0e0e0',
-  fontFamily: 'Consolas, "SFMono-Regular", Menlo, Monaco, monospace',
-  overflow: 'hidden',
-  position: 'relative',
-}
-
-const headerStyle: React.CSSProperties = {
-  padding: '8px 12px',
-  borderBottom: '1px solid #2a2a2a',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  fontSize: '13px',
-}
-
-const logStyle: React.CSSProperties = {
-  flex: 1,
-  overflowY: 'auto',
-  padding: '8px 12px',
-  fontSize: '13px',
-  lineHeight: 1.45,
-}
-
-const rowStyle: React.CSSProperties = {
-  marginBottom: '4px',
-  wordBreak: 'break-word',
-  whiteSpace: 'pre-wrap',
-}
+import { ChatroomLayout } from './trollbox/ChatroomLayout'
+import { CHATROOM_DEFAULT_THEME } from './trollbox/useTrollboxStyle'
+import { BAN_DURATIONS } from './trollbox/trollbox-render'
 
 // Crew-password hash (shared with RacPanel via crew-auth). Hides admin UI from
 // casual observers; carries no security weight — real admin power comes from
 // the Ed25519 private key that's pasted at runtime and never embedded.
 const TROLLBOX_CREW_HASH = CREW_ACCESS_HASH
-
-function formatTs(ms: number): string {
-  const d = new Date(ms)
-  return d.toTimeString().slice(0, 5)
-}
-
-const URL_RE = /(https?:\/\/[^\s<>"']+)/g
-
-function renderMessageText(text: string): React.ReactNode[] {
-  // 1) Split on triple-backtick blocks first.
-  const parts: React.ReactNode[] = []
-  const tripleRe = /```([\s\S]*?)```/g
-  let lastIdx = 0
-  let match: RegExpExecArray | null
-  let key = 0
-  while ((match = tripleRe.exec(text)) !== null) {
-    if (match.index > lastIdx) {
-      parts.push(renderLineSegment(text.slice(lastIdx, match.index), key++))
-    }
-    parts.push(
-      <pre
-        key={key++}
-        style={{
-          background: '#0d0d0d',
-          padding: '6px 8px',
-          margin: '4px 0',
-          borderRadius: 3,
-          overflowX: 'auto',
-          fontSize: '12px',
-        }}
-      >
-        {match[1]}
-      </pre>
-    )
-    lastIdx = match.index + match[0].length
-  }
-  if (lastIdx < text.length) {
-    parts.push(renderLineSegment(text.slice(lastIdx), key++))
-  }
-  return parts
-}
-
-function renderLineSegment(segment: string, key: number): React.ReactNode {
-  // 2) Single-backticks → inline <code>, then linkify URLs inside non-code runs.
-  const nodes: React.ReactNode[] = []
-  const tickRe = /`([^`]+)`/g
-  let lastIdx = 0
-  let match: RegExpExecArray | null
-  let sub = 0
-  while ((match = tickRe.exec(segment)) !== null) {
-    if (match.index > lastIdx) {
-      nodes.push(...linkify(segment.slice(lastIdx, match.index), `${key}-${sub++}`))
-    }
-    nodes.push(
-      <code
-        key={`${key}-${sub++}`}
-        style={{ background: '#0d0d0d', padding: '1px 4px', borderRadius: 2 }}
-      >
-        {match[1]}
-      </code>
-    )
-    lastIdx = match.index + match[0].length
-  }
-  if (lastIdx < segment.length) {
-    nodes.push(...linkify(segment.slice(lastIdx), `${key}-${sub++}`))
-  }
-  return <span key={key}>{nodes}</span>
-}
-
-function linkify(s: string, keyBase: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = []
-  let lastIdx = 0
-  let match: RegExpExecArray | null
-  let i = 0
-  URL_RE.lastIndex = 0
-  while ((match = URL_RE.exec(s)) !== null) {
-    if (match.index > lastIdx) nodes.push(s.slice(lastIdx, match.index))
-    nodes.push(
-      <a
-        key={`${keyBase}-${i++}`}
-        href={match[1]}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{ color: '#8cc4ff' }}
-      >
-        {match[1]}
-      </a>
-    )
-    lastIdx = match.index + match[0].length
-  }
-  if (lastIdx < s.length) nodes.push(s.slice(lastIdx))
-  return nodes
-}
 
 const adminHoverButtonStyle: React.CSSProperties = {
   background: '#2a2a2a',
@@ -151,138 +25,6 @@ const adminHoverButtonStyle: React.CSSProperties = {
   cursor: 'pointer',
   fontSize: 11,
   fontFamily: 'inherit',
-}
-
-const BAN_DURATIONS: Array<{ label: string; ms: number }> = [
-  { label: '5 min',  ms: 5 * 60_000 },
-  { label: '15 min', ms: 15 * 60_000 },
-  { label: '30 min', ms: 30 * 60_000 },
-  { label: '1 hour', ms: 60 * 60_000 },
-  { label: '24 hr',  ms: 24 * 60 * 60_000 },
-]
-
-function MessageRow({
-  msg,
-  canAdmin,
-  fp,
-  onDelete,
-  onBanNick,
-  onBanFp,
-}: {
-  msg: import('./trollbox/trollbox-client').ChatMsg
-  canAdmin: boolean
-  fp: string | undefined
-  onDelete: () => void
-  onBanNick: (durationMs: number) => void
-  onBanFp: (durationMs: number) => void
-}): React.ReactElement {
-  const [hover, setHover] = useState(false)
-  const [modOpen, setModOpen] = useState(false)
-  const [nickDurMs, setNickDurMs] = useState(15 * 60_000)
-  const [fpDurMs, setFpDurMs]   = useState(15 * 60_000)
-  return (
-    <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => { setHover(false); setModOpen(false) }}
-      style={{
-        ...rowStyle,
-        position: 'relative',
-        background: hover && canAdmin ? '#222' : 'transparent',
-      }}
-    >
-      <span style={{ color: '#666', marginRight: 6 }}>[{formatTs(msg.ts)}]</span>
-      <span style={{ color: nickToColor(msg.nick), fontWeight: 600, marginRight: 8 }}>
-        {msg.nick}
-      </span>
-      <span>{renderMessageText(msg.text)}</span>
-      {canAdmin && hover && !modOpen && (
-        <button
-          onClick={() => setModOpen(true)}
-          title="moderate"
-          style={{
-            ...adminHoverButtonStyle,
-            position: 'absolute', right: 8, top: 2, fontSize: 12,
-          }}
-        >
-          🛡 mod
-        </button>
-      )}
-      {canAdmin && modOpen && (
-        <div
-          style={{
-            position: 'absolute',
-            right: 8,
-            top: 2,
-            background: '#1a1a1a',
-            border: '1px solid #444',
-            padding: 8,
-            borderRadius: 4,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-            fontSize: 11,
-            minWidth: 220,
-            zIndex: 5,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.6)',
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div style={{ color: '#888', fontSize: 10 }}>
-            moderate <span style={{ color: nickToColor(msg.nick) }}>{msg.nick}</span>
-          </div>
-          <button
-            onClick={() => { onDelete(); setModOpen(false) }}
-            style={adminHoverButtonStyle}
-          >
-            🗑 delete this message
-          </button>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            <select
-              value={nickDurMs}
-              onChange={(e) => setNickDurMs(Number(e.target.value))}
-              style={modSelectStyle}
-            >
-              {BAN_DURATIONS.map(d => (
-                <option key={d.ms} value={d.ms}>{d.label}</option>
-              ))}
-            </select>
-            <button
-              onClick={() => { onBanNick(nickDurMs); setModOpen(false) }}
-              style={adminHoverButtonStyle}
-            >
-              🔇 ban nick
-            </button>
-          </div>
-          {fp && (
-            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-              <select
-                value={fpDurMs}
-                onChange={(e) => setFpDurMs(Number(e.target.value))}
-                style={modSelectStyle}
-              >
-                {BAN_DURATIONS.map(d => (
-                  <option key={d.ms} value={d.ms}>{d.label}</option>
-                ))}
-              </select>
-              <button
-                onClick={() => { onBanFp(fpDurMs); setModOpen(false) }}
-                style={adminHoverButtonStyle}
-                title={`fp: ${fp}`}
-              >
-                🔇 ban fp
-              </button>
-            </div>
-          )}
-          <button
-            onClick={() => setModOpen(false)}
-            style={{ ...adminHoverButtonStyle, color: '#888' }}
-          >
-            close
-          </button>
-        </div>
-      )}
-    </div>
-  )
 }
 
 const modSelectStyle: React.CSSProperties = {
@@ -507,29 +249,6 @@ function ActiveBanRow({
   )
 }
 
-function PauseBanner({ reason, until }: { reason: string; until: number }): React.ReactElement {
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [])
-  const secs = Math.max(0, Math.round((until - now) / 1000))
-  const mm = Math.floor(secs / 60)
-  const ss = secs % 60
-  return (
-    <div
-      style={{
-        background: '#3a2a1a',
-        color: '#ffd59a',
-        padding: '6px 12px',
-        fontSize: '12px',
-      }}
-    >
-      ⚠ admin paused the room{reason ? `: "${reason}"` : ''} — resumes in {mm}:{String(ss).padStart(2, '0')}
-    </div>
-  )
-}
-
 export function TrollboxPanel(): React.ReactElement {
   const [state, setState] = useState<TrollboxState>({
     status: 'closed',
@@ -703,158 +422,25 @@ export function TrollboxPanel(): React.ReactElement {
   }
 
   return (
-    <div style={containerStyle}>
-      <div style={headerStyle}>
-        <span>🍿 trollbox</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ color: state.status === 'connected' ? '#b5b5b5' : '#555' }}>
-            {state.status === 'connected' ? `${state.onlineCount} online` : '—'}
-          </span>
-          <span
-            onClick={() => setShowAdminDialog(true)}
-            title="admin"
-            style={{
-              cursor: 'pointer',
-              color: adminKeyStatus === 'loaded' ? '#ffd59a' : '#555',
-              userSelect: 'none',
-            }}
-          >
-            {adminKeyStatus === 'loaded' ? '🔓' : '🔒'}
-          </span>
-        </span>
-      </div>
-      {state.status === 'connecting' && (
-        <div
-          style={{
-            background: '#1a2b44',
-            color: '#8cc4ff',
-            padding: '4px 12px',
-            fontSize: '12px',
-          }}
-        >
-          connecting…
-        </div>
-      )}
-      {state.status === 'disconnected' && (
-        <div
-          style={{
-            background: '#3a1a1a',
-            color: '#ff9a9a',
-            padding: '4px 12px',
-            fontSize: '12px',
-            cursor: 'pointer',
-          }}
-          onClick={() => { clientRef.current?.connect() }}
-        >
-          disconnected — click to reconnect
-        </div>
-      )}
-      {state.status === 'paused' && state.pauseUntil !== null && (
-        <PauseBanner reason={state.pauseReason ?? ''} until={state.pauseUntil} />
-      )}
-      <div ref={logRef} style={logStyle}>
-        {state.messages.length === 0 && (
-          <div style={{ color: '#555', fontStyle: 'italic' }}>
-            no messages yet. say something dumb.
-          </div>
-        )}
-        {state.messages.map(m => (
-          <MessageRow
-            key={m.id}
-            msg={m}
-            canAdmin={adminKeyStatus === 'loaded'}
-            fp={clientRef.current?.getDecryptedFp(m.id)}
-            onDelete={() => { clientRef.current?.adminDelete(m.id) }}
-            onBanNick={(durationMs) => { clientRef.current?.adminBan('nick', m.nick, durationMs) }}
-            onBanFp={(durationMs) => {
-              const fp = clientRef.current?.getDecryptedFp(m.id)
-              if (fp) clientRef.current?.adminBan('fp', fp, durationMs)
-            }}
-          />
-        ))}
-      </div>
-      <div
-        style={{
-          borderTop: '1px solid #2a2a2a',
-          padding: '8px 12px',
-          fontSize: '13px',
-        }}
-      >
-        <div style={{ marginBottom: 6 }}>
-          you are:{' '}
-          {editingNick ? (
-            <input
-              autoFocus
-              value={nickDraft}
-              onChange={(e) => setNickDraft(e.target.value.slice(0, 24))}
-              onBlur={commitNick}
-              onKeyDown={(e) => { if (e.key === 'Enter') commitNick() }}
-              style={{
-                background: '#0d0d0d',
-                color: nickToColor(nickDraft.trim() || 'anon'),
-                border: '1px solid #333',
-                padding: '2px 6px',
-                fontFamily: 'inherit',
-                fontWeight: 600,
-                outline: 'none',
-              }}
-            />
-          ) : (
-            <span
-              onClick={() => { setNickDraft(nick); setEditingNick(true) }}
-              style={{
-                color: nickToColor(nick),
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-              title="click to change"
-            >
-              {nick}
-            </span>
-          )}
-        </div>
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value.slice(0, 280))}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              onSend()
-            }
-          }}
-          placeholder="type something dumb..."
-          rows={2}
-          disabled={state.status === 'paused'}
-          style={{
-            width: '100%',
-            background: '#0d0d0d',
-            color: '#e0e0e0',
-            border: '1px solid #333',
-            padding: '6px 8px',
-            resize: 'none',
-            fontFamily: 'inherit',
-            fontSize: '13px',
-            outline: 'none',
-            boxSizing: 'border-box',
-            opacity: state.status === 'paused' ? 0.4 : 1,
-            cursor: state.status === 'paused' ? 'not-allowed' : 'text',
-          }}
-        />
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginTop: 4,
-            color: '#666',
-            fontSize: '11px',
-          }}
-        >
-          <span>{sendHint ?? ' '}</span>
-          <span>
-            {text.length}/280 &middot; enter to send
-          </span>
-        </div>
-      </div>
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <ChatroomLayout
+        state={state}
+        theme={CHATROOM_DEFAULT_THEME}
+        nick={nick}
+        nickDraft={nickDraft}
+        editingNick={editingNick}
+        text={text}
+        sendHint={sendHint}
+        adminKeyStatus={adminKeyStatus}
+        clientRef={clientRef}
+        logRef={logRef}
+        onStartEditNick={() => { setNickDraft(nick); setEditingNick(true) }}
+        onNickDraftChange={setNickDraft}
+        onCommitNick={commitNick}
+        onTextChange={(v) => setText(v.slice(0, 280))}
+        onSend={onSend}
+        onOpenAdminDialog={() => setShowAdminDialog(true)}
+      />
       {showAdminDialog && (
         <div
           style={{
