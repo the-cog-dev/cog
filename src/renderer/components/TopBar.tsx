@@ -33,6 +33,8 @@ interface TopBarProps {
   onToggleGit: () => void
   schedulesOpen: boolean
   onToggleSchedules: () => void
+  trollboxOpen: boolean
+  onToggleTrollbox: () => void
   onPresetsClick: () => void
   onBugReport: () => void
   onSettingsClick: () => void
@@ -112,6 +114,7 @@ export function TopBar({
   filesOpen, onToggleFiles,
   racOpen, onToggleRac, usageOpen, onToggleUsage,
   gitOpen, onToggleGit, schedulesOpen, onToggleSchedules,
+  trollboxOpen, onToggleTrollbox,
   onPresetsClick, onBugReport, onSettingsClick, onHelpMcpToolsClick,
   groups, onLinkDragStart, linkDraggingFrom,
   tabs, activeTabId, onSwitchTab, onCreateTab, onCloseTab, onRenameTab
@@ -142,7 +145,7 @@ export function TopBar({
   const hoverIn = (e: React.MouseEvent) => (e.currentTarget.style.backgroundColor = '#333')
   const hoverOut = (e: React.MouseEvent) => (e.currentTarget.style.backgroundColor = 'transparent')
 
-  const activePanelCount = [pinboardOpen, infoOpen, filesOpen, racOpen, usageOpen, gitOpen, schedulesOpen].filter(Boolean).length
+  const activePanelCount = [pinboardOpen, infoOpen, filesOpen, racOpen, usageOpen, gitOpen, schedulesOpen, trollboxOpen].filter(Boolean).length
 
   return (
     <div style={{
@@ -281,6 +284,7 @@ export function TopBar({
                 { label: `${usageOpen ? '\u25CF ' : '  '}Usage`, onClick: onToggleUsage, color: usageOpen ? '#8cc4ff' : '#888' },
                 { label: `${racOpen ? '\u25CF ' : '  '}R.A.C.`, onClick: onToggleRac, color: racOpen ? '#8cc4ff' : '#888', divider: true },
                 { label: `${schedulesOpen ? '\u25CF ' : '  '}Schedules`, onClick: onToggleSchedules, color: schedulesOpen ? '#8cc4ff' : '#888' },
+                { label: `${trollboxOpen ? '\u25CF ' : '  '}\uD83C\uDF7F Trollbox`, onClick: onToggleTrollbox, color: trollboxOpen ? '#8cc4ff' : '#888' },
               ]}
             />
           )}

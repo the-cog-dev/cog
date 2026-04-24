@@ -26,9 +26,10 @@ const RAC_ID = '__rac__'
 const USAGE_ID = '__usage__'
 const GIT_ID = '__git__'
 const SCHEDULES_ID = '__schedules__'
+const TROLLBOX_ID = '__trollbox__'
 
 // Helpers for per-tab panel isolation
-const PANEL_PREFIXES = [PINBOARD_ID, INFO_ID, FILES_ID, RAC_ID, USAGE_ID, GIT_ID, SCHEDULES_ID]
+const PANEL_PREFIXES = [PINBOARD_ID, INFO_ID, FILES_ID, RAC_ID, USAGE_ID, GIT_ID, SCHEDULES_ID, TROLLBOX_ID]
 const panelIdForTab = (base: string, tabId: string): string => `${base}::${tabId}`
 const isPanelWindow = (id: string): boolean => PANEL_PREFIXES.some(p => id === p || id.startsWith(p + '::'))
 
@@ -63,6 +64,7 @@ export function App(): React.ReactElement {
   const usageOpen = tabWindows.some(w => w.id === panelIdForTab(USAGE_ID, activeTabId))
   const gitOpen = tabWindows.some(w => w.id === panelIdForTab(GIT_ID, activeTabId))
   const schedulesOpen = tabWindows.some(w => w.id === panelIdForTab(SCHEDULES_ID, activeTabId))
+  const trollboxOpen = tabWindows.some(w => w.id === panelIdForTab(TROLLBOX_ID, activeTabId))
 
   const handleSpawn = useCallback(async (config: Omit<AgentConfig, 'id'>) => {
     setShowSpawnDialog(false)
@@ -162,6 +164,11 @@ export function App(): React.ReactElement {
     const id = panelIdForTab(SCHEDULES_ID, activeTabId)
     if (schedulesOpen) { removeWindow(id) } else { addWindow(id, 'Schedules', undefined, activeTabId) }
   }, [schedulesOpen, addWindow, removeWindow, activeTabId])
+
+  const toggleTrollbox = useCallback(() => {
+    const id = panelIdForTab(TROLLBOX_ID, activeTabId)
+    if (trollboxOpen) { removeWindow(id) } else { addWindow(id, 'Trollbox', undefined, activeTabId) }
+  }, [trollboxOpen, addWindow, removeWindow, activeTabId])
 
   // Load links & groups when project changes
   useEffect(() => {
@@ -307,6 +314,7 @@ export function App(): React.ReactElement {
         usage: USAGE_ID,
         git: GIT_ID,
         schedules: SCHEDULES_ID,
+        trollbox: TROLLBOX_ID,
       }
       const base = baseById[type]
       if (!base) return
@@ -320,6 +328,7 @@ export function App(): React.ReactElement {
         usage: 'Usage',
         git: 'Git',
         schedules: 'Schedules',
+        trollbox: 'Trollbox',
       }
       if (action === 'open' || (action === 'toggle' && !isOpen)) {
         if (isOpen) {
@@ -368,6 +377,8 @@ export function App(): React.ReactElement {
             onToggleGit={toggleGit}
             schedulesOpen={schedulesOpen}
             onToggleSchedules={toggleSchedules}
+            trollboxOpen={trollboxOpen}
+            onToggleTrollbox={toggleTrollbox}
             onPresetsClick={() => setShowPresetDialog(true)}
             onBugReport={() => setShowBugReport(true)}
             onSettingsClick={() => setShowSettings(true)}

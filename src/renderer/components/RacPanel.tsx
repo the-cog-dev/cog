@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { hashCrewPassword as hashPassword, CREW_ACCESS_HASH } from '../../shared/crew-auth'
 
 interface RacSlot {
   slot_id: string
@@ -39,13 +40,7 @@ function formatTimeLeft(ms: number | null): string {
 }
 
 // R.A.C. is in-house only — password gate for the crew
-const RAC_ACCESS_HASH = '368fa83a780bba3be2be74ed7560b7a5d8dc46639f4646c997d631bc548ecda9' // sha256 of crew password
-
-async function hashPassword(pw: string): Promise<string> {
-  const data = new TextEncoder().encode(pw)
-  const hash = await crypto.subtle.digest('SHA-256', data)
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
-}
+const RAC_ACCESS_HASH = CREW_ACCESS_HASH
 
 type PanelView = 'list' | 'rent-dialog' | 'session-detail'
 

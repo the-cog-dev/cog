@@ -53,6 +53,8 @@ declare global {
       getStaleAlertSnooze: () => Promise<{ muteUntil: number | null }>
       setStaleAlertSnooze: (durationMs: number | null) => Promise<{ muteUntil: number | null }>
       onStaleAlertUpdate: (cb: (state: { muteUntil: number | null }) => void) => () => void
+      // Machine identity (trollbox / community starring)
+      getMachineHash: () => Promise<string>
       // Community Teams
       communityList: (opts?: { force?: boolean }) => Promise<{ success: true; items: CommunityTeamListItem[] } | { success: false; error: string }>
       communityGet: (issueNumber: number) => Promise<{ success: true; team: CommunityTeam; isStarredByMe: boolean } | { success: false; error: string }>

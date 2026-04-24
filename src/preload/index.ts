@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(IPC.STALE_ALERT_UPDATE, handler)
     return () => ipcRenderer.removeListener(IPC.STALE_ALERT_UPDATE, handler)
   },
+  // Machine identity (trollbox / community starring)
+  getMachineHash: (): Promise<string> => ipcRenderer.invoke(IPC.GET_MACHINE_HASH),
   // Community Teams
   communityList: (opts?: { force?: boolean }) => ipcRenderer.invoke(IPC.COMMUNITY_LIST, opts),
   communityGet: (issueNumber: number) => ipcRenderer.invoke(IPC.COMMUNITY_GET, issueNumber),

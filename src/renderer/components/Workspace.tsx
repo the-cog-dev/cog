@@ -10,6 +10,7 @@ import { RacPanel } from './RacPanel'
 import { UsagePanel } from './UsagePanel'
 import { GitPanel } from './GitPanel'
 import { SchedulesPanel } from './SchedulesPanel'
+import { TrollboxPanel } from './TrollboxPanel'
 import { RacAgentChat } from './RacAgentChat'
 import { ZoomControls } from './ZoomControls'
 import type { WindowState } from '../hooks/useWindowManager'
@@ -24,6 +25,7 @@ const PANEL_IDS: Record<string, string> = {
   '__usage__': 'usage',
   '__git__': 'git',
   '__schedules__': 'schedules',
+  '__trollbox__': 'trollbox',
 }
 
 // Extract panel type from a potentially tab-qualified ID (e.g. '__pinboard__::tab-1')
@@ -407,6 +409,8 @@ export function Workspace({
             content = <GitPanel />
           } else if (panelType === 'schedules') {
             content = <SchedulesPanel agents={agents} tabs={tabs} />
+          } else if (panelType === 'trollbox') {
+            content = <TrollboxPanel />
           } else if (agent && agent.name.startsWith('rac-')) {
             content = <RacAgentChat agentName={agent.name} />
           } else {

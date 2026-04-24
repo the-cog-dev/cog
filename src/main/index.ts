@@ -507,7 +507,7 @@ function createWindow(): BrowserWindow {
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:; font-src 'self' data:"
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* https://*.supabase.co wss://*.supabase.co; img-src 'self' data:; font-src 'self' data:"
         ]
       }
     })
@@ -2040,6 +2040,9 @@ function setupIPC(): void {
       return { success: false, error: err.message }
     }
   })
+
+  // Machine hash — deterministic per-machine 12-char hex id (non-PII); used by trollbox + community starring
+  ipcMain.handle(IPC.GET_MACHINE_HASH, () => communityClient.getMachineHash())
 
   // Per-agent theme — updates the in-memory config, persists to disk, broadcasts state
   ipcMain.handle(IPC.AGENT_SET_THEME, (_event, agentId: string, theme: AgentTheme | null) => {

@@ -213,6 +213,8 @@ export const IPC = {
   COMMUNITY_THEME_GET: 'community-theme:get',
   COMMUNITY_THEME_SHARE: 'community-theme:share',
   COMMUNITY_THEME_TOGGLE_STAR: 'community-theme:toggle-star',
+  // Machine identity (trollbox / community starring)
+  GET_MACHINE_HASH: 'get-machine-hash',
 } as const
 
 export interface Skill {
