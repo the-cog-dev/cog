@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 export type TrollboxStyle = 'chatroom' | 'cli'
 
@@ -105,7 +105,60 @@ export function resolveTheme(style: TrollboxStyle, override: TrollboxTheme): Req
   return { ...DEFAULTS[style], ...override }
 }
 
-// ---- React hook (thin wrapper over the pure helpers above) ----
+// ---- Module-level store (shared across all useTrollboxStyle instances) ----
+//
+// The panel and the theme menu both call useTrollboxStyle(). If each call
+// owned its own React state, clicking a button in the menu wouldn't update
+// the panel. A single module-level store + pub/sub lets every hook instance
+// observe the same state.
+
+interface Store {
+  style: TrollboxStyle
+  themes: Record<TrollboxStyle, TrollboxTheme>
+}
+
+const store: Store = {
+  style: readStyle(),
+  themes: {
+    chatroom: readTheme('chatroom'),
+    cli:      readTheme('cli'),
+  },
+}
+
+const subscribers = new Set<() => void>()
+
+function notify(): void {
+  for (const cb of subscribers) cb()
+}
+
+function storeSetStyle(s: TrollboxStyle): void {
+  if (store.style === s) return
+  store.style = s
+  writeStyle(s)
+  notify()
+}
+
+function storeSetTheme(patch: TrollboxTheme): void {
+  const current = store.themes[store.style]
+  const next: TrollboxTheme = { ...current, ...patch }
+  store.themes = { ...store.themes, [store.style]: next }
+  writeTheme(store.style, next)
+  notify()
+}
+
+function storeSetThemeWhole(theme: TrollboxTheme): void {
+  store.themes = { ...store.themes, [store.style]: theme }
+  writeTheme(store.style, theme)
+  notify()
+}
+
+function storeResetTheme(): void {
+  store.themes = { ...store.themes, [store.style]: {} }
+  removeTheme(store.style)
+  notify()
+}
+
+// ---- React hook (observes the module store) ----
 
 export interface UseTrollboxStyleResult {
   style: TrollboxStyle
@@ -117,62 +170,37 @@ export interface UseTrollboxStyleResult {
 }
 
 export function useTrollboxStyle(): UseTrollboxStyleResult {
-  const [style, setStyleState] = useState<TrollboxStyle>(() => readStyle())
-  const [themes, setThemes] = useState<Record<TrollboxStyle, TrollboxTheme>>(() => ({
+  // Force a re-render when the shared store changes.
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const onChange = () => setTick(t => t + 1)
+    subscribers.add(onChange)
+    return () => { subscribers.delete(onChange) }
+  }, [])
+
+  const setStyle        = useCallback((s: TrollboxStyle) => { storeSetStyle(s) }, [])
+  const setTheme        = useCallback((patch: TrollboxTheme) => { storeSetTheme(patch) }, [])
+  const setThemeWhole   = useCallback((theme: TrollboxTheme) => { storeSetThemeWhole(theme) }, [])
+  const resetTheme      = useCallback(() => { storeResetTheme() }, [])
+
+  const resolved = resolveTheme(store.style, store.themes[store.style])
+
+  return {
+    style: store.style,
+    theme: resolved,
+    setStyle,
+    setTheme,
+    setThemeWhole,
+    resetTheme,
+  }
+}
+
+// Exposed for tests — resets the module store so each test starts from a
+// clean slate. Do NOT use from production code.
+export function __resetStoreForTests(): void {
+  store.style = readStyle()
+  store.themes = {
     chatroom: readTheme('chatroom'),
     cli:      readTheme('cli'),
-  }))
-  const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingWriteRef = useRef<{ style: TrollboxStyle; theme: TrollboxTheme } | null>(null)
-
-  // Debounce localStorage writes 200ms so color-picker drags don't thrash disk.
-  const scheduleWrite = useCallback((s: TrollboxStyle, t: TrollboxTheme) => {
-    pendingWriteRef.current = { style: s, theme: t }
-    if (writeTimerRef.current) return
-    writeTimerRef.current = setTimeout(() => {
-      if (pendingWriteRef.current) {
-        writeTheme(pendingWriteRef.current.style, pendingWriteRef.current.theme)
-      }
-      writeTimerRef.current = null
-      pendingWriteRef.current = null
-    }, 200)
-  }, [])
-
-  useEffect(() => () => {
-    // On unmount, flush any pending debounced write.
-    if (writeTimerRef.current && pendingWriteRef.current) {
-      clearTimeout(writeTimerRef.current)
-      writeTheme(pendingWriteRef.current.style, pendingWriteRef.current.theme)
-      writeTimerRef.current = null
-      pendingWriteRef.current = null
-    }
-  }, [])
-
-  const setStyle = useCallback((s: TrollboxStyle) => {
-    setStyleState(s)
-    writeStyle(s)
-  }, [])
-
-  const setTheme = useCallback((patch: TrollboxTheme) => {
-    setThemes(prev => {
-      const nextStyleTheme: TrollboxTheme = { ...prev[style], ...patch }
-      scheduleWrite(style, nextStyleTheme)
-      return { ...prev, [style]: nextStyleTheme }
-    })
-  }, [style, scheduleWrite])
-
-  const setThemeWhole = useCallback((theme: TrollboxTheme) => {
-    setThemes(prev => ({ ...prev, [style]: theme }))
-    // Immediate write (presets are discrete actions, not drag events).
-    writeTheme(style, theme)
-  }, [style])
-
-  const resetTheme = useCallback(() => {
-    setThemes(prev => ({ ...prev, [style]: {} }))
-    removeTheme(style)
-  }, [style])
-
-  const resolved = resolveTheme(style, themes[style])
-
-  return { style, theme: resolved, setStyle, setTheme, setThemeWhole, resetTheme }
+  }
 }
