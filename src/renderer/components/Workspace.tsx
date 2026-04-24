@@ -11,6 +11,7 @@ import { UsagePanel } from './UsagePanel'
 import { GitPanel } from './GitPanel'
 import { SchedulesPanel } from './SchedulesPanel'
 import { TrollboxPanel } from './TrollboxPanel'
+import { TrollboxThemeMenu } from './trollbox/TrollboxThemeMenu'
 import { RacAgentChat } from './RacAgentChat'
 import { ZoomControls } from './ZoomControls'
 import type { WindowState } from '../hooks/useWindowManager'
@@ -460,6 +461,13 @@ export function Workspace({
                 onLinkDragStart={agent ? (e: React.MouseEvent) => handleLinkDragStart(agent.name, e) : undefined}
                 theme={agent?.theme}
                 agentId={agent?.id}
+                onTitleBarContextMenu={
+                  panelType === 'trollbox'
+                    ? (event, closeMenu) => (
+                        <TrollboxThemeMenu event={event} closeMenu={closeMenu} />
+                      )
+                    : undefined
+                }
               >
                 {content}
               </FloatingWindow>

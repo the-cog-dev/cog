@@ -36,6 +36,18 @@ interface FloatingWindowProps {
   onLinkDragStart?: (e: React.MouseEvent) => void
   theme?: AgentTheme
   agentId?: string
+  /**
+   * Optional custom context menu for the window's title bar. When provided,
+   * right-clicking the title bar opens THIS menu instead of the default agent
+   * ThemeMenu. Panel windows (like Trollbox) use this hook to render their
+   * own panel-specific theme menus. Agent windows should NOT pass this prop.
+   *
+   * Returns null to suppress any menu for a particular event.
+   */
+  onTitleBarContextMenu?: (
+    event: React.MouseEvent,
+    closeMenu: () => void
+  ) => React.ReactNode | null
   children: React.ReactNode
 }
 
@@ -70,10 +82,12 @@ export function FloatingWindow({
   onLinkDragStart,
   theme,
   agentId,
+  onTitleBarContextMenu,
   children
 }: FloatingWindowProps): React.ReactElement | null {
   const [dragSizeOverride, setDragSizeOverride] = useState<{ width: number; height: number } | null>(null)
   const [themeMenu, setThemeMenu] = useState<{ x: number; y: number } | null>(null)
+  const [customMenu, setCustomMenu] = useState<React.ReactNode | null>(null)
   const resolvedTheme = resolveTheme(theme)
 
   const openThemeMenu = useCallback((e: React.MouseEvent) => {
@@ -82,6 +96,20 @@ export function FloatingWindow({
     e.stopPropagation()
     setThemeMenu({ x: e.clientX, y: e.clientY })
   }, [isAgent, agentId])
+
+  const openContextMenu = useCallback((e: React.MouseEvent) => {
+    if (onTitleBarContextMenu) {
+      e.preventDefault()
+      e.stopPropagation()
+      const closeMenu = () => setCustomMenu(null)
+      const rendered = onTitleBarContextMenu(e, closeMenu)
+      if (rendered !== null) {
+        setCustomMenu(rendered)
+      }
+      return
+    }
+    openThemeMenu(e)
+  }, [onTitleBarContextMenu, openThemeMenu])
 
   const applyPreset = useCallback(async (presetTheme: AgentTheme | null) => {
     if (!agentId) return
@@ -224,7 +252,7 @@ export function FloatingWindow({
           className="window-titlebar"
           style={themedTitleBarStyle}
           onDoubleClick={onMaximize}
-          onContextMenu={openThemeMenu}
+          onContextMenu={openContextMenu}
         >
           {statusColor && <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: statusColor, marginRight: 8 }} />}
           <span style={{ flex: 1, fontSize: '12px', color: '#ccc' }}>{title}</span>
@@ -234,6 +262,7 @@ export function FloatingWindow({
         </div>
         <div style={{ flex: 1, overflow: 'hidden' }}>{children}</div>
         {themeMenu && <ThemeMenu x={themeMenu.x} y={themeMenu.y} theme={theme} onClose={() => setThemeMenu(null)} onApplyPreset={applyPreset} onChangeField={updateThemeField} />}
+        {customMenu}
       </div>,
       viewportRef.current
     )
@@ -259,7 +288,7 @@ export function FloatingWindow({
           className="window-titlebar"
           style={themedTitleBarStyle}
           onDoubleClick={onMaximize}
-          onContextMenu={openThemeMenu}
+          onContextMenu={openContextMenu}
         >
           {statusColor && <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: statusColor, marginRight: 8 }} />}
           <span style={{ flex: 1, fontSize: '12px', color: '#ccc' }}>{title}</span>
@@ -291,6 +320,7 @@ export function FloatingWindow({
         <div style={{ flex: 1, overflow: 'hidden' }}>{children}</div>
       </div>
       {themeMenu && <ThemeMenu x={themeMenu.x} y={themeMenu.y} theme={theme} onClose={() => setThemeMenu(null)} onApplyPreset={applyPreset} onChangeField={updateThemeField} />}
+      {customMenu}
     </Rnd>
   )
 }
