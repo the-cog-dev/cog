@@ -9,7 +9,8 @@ import {
 } from '../../shared/trollbox-config'
 import { hashCrewPassword, CREW_ACCESS_HASH } from '../../shared/crew-auth'
 import { ChatroomLayout } from './trollbox/ChatroomLayout'
-import { CHATROOM_DEFAULT_THEME } from './trollbox/useTrollboxStyle'
+import { CliLayout } from './trollbox/CliLayout'
+import { useTrollboxStyle } from './trollbox/useTrollboxStyle'
 import { BAN_DURATIONS } from './trollbox/trollbox-render'
 
 // Crew-password hash (shared with RacPanel via crew-auth). Hides admin UI from
@@ -250,6 +251,7 @@ function ActiveBanRow({
 }
 
 export function TrollboxPanel(): React.ReactElement {
+  const { style, theme } = useTrollboxStyle()
   const [state, setState] = useState<TrollboxState>({
     status: 'closed',
     onlineCount: 0,
@@ -421,26 +423,28 @@ export function TrollboxPanel(): React.ReactElement {
     setAdminKeyStatus('none')
   }
 
+  const layoutProps = {
+    state,
+    theme,
+    nick,
+    nickDraft,
+    editingNick,
+    text,
+    sendHint,
+    adminKeyStatus,
+    clientRef,
+    logRef,
+    onStartEditNick: () => { setNickDraft(nick); setEditingNick(true) },
+    onNickDraftChange: setNickDraft,
+    onCommitNick: commitNick,
+    onTextChange: (v: string) => setText(v.slice(0, 280)),
+    onSend,
+    onOpenAdminDialog: () => setShowAdminDialog(true),
+  }
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <ChatroomLayout
-        state={state}
-        theme={CHATROOM_DEFAULT_THEME}
-        nick={nick}
-        nickDraft={nickDraft}
-        editingNick={editingNick}
-        text={text}
-        sendHint={sendHint}
-        adminKeyStatus={adminKeyStatus}
-        clientRef={clientRef}
-        logRef={logRef}
-        onStartEditNick={() => { setNickDraft(nick); setEditingNick(true) }}
-        onNickDraftChange={setNickDraft}
-        onCommitNick={commitNick}
-        onTextChange={(v) => setText(v.slice(0, 280))}
-        onSend={onSend}
-        onOpenAdminDialog={() => setShowAdminDialog(true)}
-      />
+      {style === 'chatroom' ? <ChatroomLayout {...layoutProps} /> : <CliLayout {...layoutProps} />}
       {showAdminDialog && (
         <div
           style={{
