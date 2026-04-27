@@ -48,6 +48,7 @@ interface FloatingWindowProps {
     event: React.MouseEvent,
     closeMenu: () => void
   ) => React.ReactNode | null
+  onEditAgent?: (agentId: string) => void
   children: React.ReactNode
 }
 
@@ -83,6 +84,7 @@ export function FloatingWindow({
   theme,
   agentId,
   onTitleBarContextMenu,
+  onEditAgent,
   children
 }: FloatingWindowProps): React.ReactElement | null {
   const [dragSizeOverride, setDragSizeOverride] = useState<{ width: number; height: number } | null>(null)
@@ -261,7 +263,7 @@ export function FloatingWindow({
           <button onMouseDown={e => e.stopPropagation()} onClick={onClose} style={{ ...btnStyle, color: '#e55' }}>✕</button>
         </div>
         <div style={{ flex: 1, overflow: 'hidden' }}>{children}</div>
-        {themeMenu && <ThemeMenu x={themeMenu.x} y={themeMenu.y} theme={theme} onClose={() => setThemeMenu(null)} onApplyPreset={applyPreset} onChangeField={updateThemeField} />}
+        {themeMenu && <ThemeMenu x={themeMenu.x} y={themeMenu.y} theme={theme} onClose={() => setThemeMenu(null)} onApplyPreset={applyPreset} onChangeField={updateThemeField} onEdit={onEditAgent && agentId ? () => onEditAgent(agentId) : undefined} />}
         {customMenu}
       </div>,
       viewportRef.current
@@ -319,7 +321,7 @@ export function FloatingWindow({
         )}
         <div style={{ flex: 1, overflow: 'hidden' }}>{children}</div>
       </div>
-      {themeMenu && <ThemeMenu x={themeMenu.x} y={themeMenu.y} theme={theme} onClose={() => setThemeMenu(null)} onApplyPreset={applyPreset} onChangeField={updateThemeField} />}
+      {themeMenu && <ThemeMenu x={themeMenu.x} y={themeMenu.y} theme={theme} onClose={() => setThemeMenu(null)} onApplyPreset={applyPreset} onChangeField={updateThemeField} onEdit={onEditAgent && agentId ? () => onEditAgent(agentId) : undefined} />}
       {customMenu}
     </Rnd>
   )
@@ -332,9 +334,10 @@ interface ThemeMenuProps {
   onClose: () => void
   onApplyPreset: (theme: AgentTheme | null) => void
   onChangeField: (field: keyof AgentTheme, value: string) => void
+  onEdit?: () => void
 }
 
-function ThemeMenu({ x, y, theme, onClose, onApplyPreset, onChangeField }: ThemeMenuProps) {
+function ThemeMenu({ x, y, theme, onClose, onApplyPreset, onChangeField, onEdit }: ThemeMenuProps) {
   const resolved = resolveTheme(theme)
   const fields: { key: keyof AgentTheme; label: string }[] = [
     { key: 'chrome', label: 'Title Bar' },
@@ -404,6 +407,19 @@ function ThemeMenu({ x, y, theme, onClose, onApplyPreset, onChangeField }: Theme
             color: '#888', cursor: 'pointer', fontFamily: 'monospace'
           }}
         >Reset to Default</button>
+        {onEdit && (
+          <>
+            <div style={{ borderTop: '1px solid #333', margin: '8px 0' }} />
+            <button
+              onClick={() => { onEdit(); onClose() }}
+              style={{
+                width: '100%', padding: '6px', fontSize: '11px',
+                background: 'transparent', border: '1px solid #444', borderRadius: '4px',
+                color: '#aaa', cursor: 'pointer', fontFamily: 'monospace'
+              }}
+            >Edit agent…</button>
+          </>
+        )}
       </div>
     </>,
     document.body
