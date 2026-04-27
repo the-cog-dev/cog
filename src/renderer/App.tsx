@@ -11,6 +11,7 @@ import { useWindowManager } from './hooks/useWindowManager'
 import { useAgents } from './hooks/useAgents'
 import { UpdateNotice } from './components/UpdateNotice'
 import { WhatsNewDialog } from './components/WhatsNewDialog'
+import { EditAgentDialog } from './components/EditAgentDialog'
 import type { AgentConfig, AgentGroup, RecentProject, WindowPosition, CanvasState, WorkspaceTab } from '../shared/types'
 
 declare const electronAPI: {
@@ -38,6 +39,7 @@ export function App(): React.ReactElement {
   const [activeTabId, setActiveTabId] = useState('tab-default')
   const [showSpawnDialog, setShowSpawnDialog] = useState(false)
   const [showPresetDialog, setShowPresetDialog] = useState(false)
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
   const [showBugReport, setShowBugReport] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showHelpMcpTools, setShowHelpMcpTools] = useState(false)
@@ -343,6 +345,13 @@ export function App(): React.ReactElement {
     return cleanup
   }, [windows, activeTabId, addWindow, removeWindow, focusWindow])
 
+  // Clear editingAgentId if the agent disappears (killed externally)
+  useEffect(() => {
+    if (editingAgentId && !agents.find(a => a.id === editingAgentId)) {
+      setEditingAgentId(null)
+    }
+  }, [editingAgentId, agents])
+
   const handleProjectOpened = useCallback((p: RecentProject) => {
     setProject(p)
     setShowProjectPicker(false)
@@ -415,6 +424,7 @@ export function App(): React.ReactElement {
               updateWindowSize(id, w, h)
             }}
             activeTabId={activeTabId}
+            onEditAgent={(id) => setEditingAgentId(id)}
           />
           {showSpawnDialog && (
             <SpawnDialog
@@ -487,6 +497,10 @@ export function App(): React.ReactElement {
               onCancel={() => setShowProjectPicker(false)}
             />
           )}
+          {editingAgentId && (() => {
+            const agent = agents.find(a => a.id === editingAgentId)
+            return agent ? <EditAgentDialog agent={agent} onClose={() => setEditingAgentId(null)} /> : null
+          })()}
           <UpdateNotice />
           <WhatsNewDialog />
         </>

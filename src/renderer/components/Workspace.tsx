@@ -65,6 +65,7 @@ interface WorkspaceProps {
   onDragStop: (id: string, x: number, y: number) => void
   onResizeStop: (id: string, x: number, y: number, width: number, height: number) => void
   activeTabId?: string
+  onEditAgent?: (agentId: string) => void
 }
 
 export function Workspace({
@@ -85,7 +86,8 @@ export function Workspace({
   onCloseWindow,
   onDragStop,
   onResizeStop,
-  activeTabId
+  activeTabId,
+  onEditAgent
 }: WorkspaceProps): React.ReactElement {
   const viewportRef = useRef<HTMLDivElement>(null)
   const [isPanning, setIsPanning] = useState(false)
@@ -461,6 +463,7 @@ export function Workspace({
                 onLinkDragStart={agent ? (e: React.MouseEvent) => handleLinkDragStart(agent.name, e) : undefined}
                 theme={agent?.theme}
                 agentId={agent?.id}
+                onEditAgent={agent && agent.cli !== 'terminal' ? onEditAgent : undefined}
                 onTitleBarContextMenu={
                   panelType === 'trollbox'
                     ? (event, closeMenu) => (
