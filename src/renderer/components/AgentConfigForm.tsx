@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, type Dispatch, type SetStateAction } from 'react'
 import type { AgentConfig } from '../../shared/types'
 import { SkillBrowser } from './SkillBrowser'
 
@@ -134,7 +134,7 @@ export interface AgentConfigFormValue {
 
 export interface AgentConfigFormProps {
   value: AgentConfigFormValue
-  onChange: (next: AgentConfigFormValue) => void
+  onChange: Dispatch<SetStateAction<AgentConfigFormValue>>
   /** Inline error messages keyed by field name */
   errors?: Partial<Record<keyof AgentConfigFormValue, string>>
 }
@@ -187,7 +187,7 @@ export function AgentConfigForm({ value, onChange, errors }: AgentConfigFormProp
   const shellOptions = isWindows ? WINDOWS_SHELLS : POSIX_SHELLS
 
   const set = <K extends keyof AgentConfigFormValue>(key: K, v: AgentConfigFormValue[K]) => {
-    onChange({ ...value, [key]: v })
+    onChange(prev => ({ ...prev, [key]: v }))
   }
 
   // Reset model + provider to defaults when CLI actually changes (not on mount)
@@ -195,13 +195,13 @@ export function AgentConfigForm({ value, onChange, errors }: AgentConfigFormProp
   useEffect(() => {
     if (prevCliRef.current !== value.cli) {
       prevCliRef.current = value.cli
-      onChange({
-        ...value,
+      onChange(prev => ({
+        ...prev,
         model: '',
         customModel: '',
         providerUrl: 'https://api.openai.com/v1',
         customProviderUrl: '',
-      })
+      }))
     }
   }, [value.cli])
 
