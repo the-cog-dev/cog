@@ -31,8 +31,9 @@ import * as themesStore from './themes/themes-store'
 import * as workspaceThemeStore from './themes/workspace-theme-store'
 import { getWorkspaceThemeById, WORKSPACE_THEMES } from '../shared/workspace-themes'
 import { migrateLegacyUserData } from './migration/userdata-migration'
-import type { AgentConfig, AgentTheme, RemoteSetupProgress, CommunityAgent, CommunityCategory } from '../shared/types'
+import type { AgentConfig, AgentTheme, RemoteSetupProgress, CommunityAgent, CommunityCategory, RespawnResult } from '../shared/types'
 import { IPC } from '../shared/types'
+import { validateRespawnRequest } from './respawn-validation'
 
 let hub: HubServer
 let mainWindow: BrowserWindow
@@ -1327,6 +1328,62 @@ function setupIPC(): void {
     writeToPty(managed, '/clear\r')
     // onClearDetected will fire via StatusDetector, which re-injects the initial prompt
     return { status: 'ok', agent: managed.config.name }
+  })
+
+  // Respawn an agent with a new config — kills the old PTY, wipes history, spawns fresh
+  ipcMain.handle(IPC.AGENT_RESPAWN, async (_event, agentId: string, newConfigInput: Omit<AgentConfig, 'id'>): Promise<RespawnResult> => {
+    const managed = agents.get(agentId)
+    if (!managed) return { ok: false, error: 'AGENT_NOT_FOUND' }
+
+    const currentConfig = managed.config
+    const otherAgentNames = hub.registry.list().map(a => a.name)
+
+    const validation = validateRespawnRequest({
+      currentConfig,
+      newConfig: newConfigInput,
+      otherAgentNames,
+      cwdExists: (p) => {
+        try {
+          return fs.statSync(p).isDirectory()
+        } catch {
+          return false
+        }
+      }
+    })
+    if (!validation.ok) return validation
+
+    const oldName = currentConfig.name
+    const newName = newConfigInput.name.trim()
+
+    // Suppress auto-reconnect from the upcoming PTY exit
+    manualKills.add(agentId)
+    killPty(managed)
+
+    // Wipe history under old name
+    try { hub.registry.remove(oldName) } catch { /* ignore */ }
+    hub.messages.clearAgent(oldName)
+    pendingNudges.delete(oldName)
+    lastNudgeDelivery.delete(oldName)
+    const fallbackTimer = nudgeFallbackTimers.get(oldName)
+    if (fallbackTimer) { clearTimeout(fallbackTimer); nudgeFallbackTimers.delete(oldName) }
+    if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
+    initialPrompts.delete(agentId)
+    hasReceivedInitialPrompt.delete(agentId)
+    agents.delete(agentId)
+
+    // Spawn fresh with new config — preserve agent.id so window position state survives
+    const mergedConfig: AgentConfig = {
+      ...newConfigInput,
+      name: newName,
+      id: agentId,
+    }
+
+    try {
+      handleSpawnAgent(mergedConfig)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: 'INTERNAL', message: (err as Error).message }
+    }
   })
 
   ipcMain.handle(IPC.KILL_AGENT, (_event, agentId: string) => {
