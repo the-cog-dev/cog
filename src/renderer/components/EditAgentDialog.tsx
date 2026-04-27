@@ -34,7 +34,7 @@ function configToFormValue(agent: AgentConfig): AgentConfigFormValue {
 
 export function EditAgentDialog({ agent, onClose }: EditAgentDialogProps): React.ReactElement {
   const [form, setForm] = useState<AgentConfigFormValue>(() => configToFormValue(agent))
-  const [errors, setErrors] = useState<Partial<Record<string, string>>>({})
+  const [errors, setErrors] = useState<Partial<Record<keyof AgentConfigFormValue, string>>>({})
   const [busyConfirm, setBusyConfirm] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
@@ -65,7 +65,7 @@ export function EditAgentDialog({ agent, onClose }: EditAgentDialogProps): React
       if (result.ok) {
         onClose()
       } else {
-        const next: Record<string, string> = {}
+        const next: Partial<Record<keyof AgentConfigFormValue, string>> = {}
         if (result.error === 'NAME_TAKEN') next.name = 'An agent with this name already exists'
         else if (result.error === 'CWD_MISSING') next.cwd = 'Directory does not exist'
         else next.name = result.message ?? 'Could not respawn agent'
@@ -100,7 +100,7 @@ export function EditAgentDialog({ agent, onClose }: EditAgentDialogProps): React
         <h2 style={{ margin: 0, fontSize: '16px', color: '#e0e0e0' }}>
           Edit Agent — <span style={{ color: '#888' }}>{agent.name}</span>
         </h2>
-        <AgentConfigForm value={form} onChange={setForm} errors={errors as any} />
+        <AgentConfigForm value={form} onChange={setForm} errors={errors} />
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
           <button type="button" onClick={handleCancel} style={cancelBtnStyle} disabled={submitting}>Cancel</button>
           <button type="submit" disabled={!form.name.trim() || submitting} style={saveBtnStyle}>
