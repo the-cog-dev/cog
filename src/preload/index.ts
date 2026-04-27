@@ -4,6 +4,7 @@ import { IPC } from '../shared/types'
 contextBridge.exposeInMainWorld('electronAPI', {
   spawnAgent: (config: unknown) => ipcRenderer.invoke(IPC.SPAWN_AGENT, config),
   killAgent: (agentId: string) => ipcRenderer.invoke(IPC.KILL_AGENT, agentId),
+  respawnAgent: (agentId: string, newConfig: unknown) => ipcRenderer.invoke(IPC.AGENT_RESPAWN, agentId, newConfig),
   clearAgentContext: (agentId: string) => ipcRenderer.invoke(IPC.AGENT_CLEAR_CONTEXT, agentId),
   getAgents: () => ipcRenderer.invoke(IPC.GET_AGENTS),
   getHubInfo: () => ipcRenderer.invoke(IPC.GET_HUB_INFO),

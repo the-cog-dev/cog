@@ -1,10 +1,11 @@
-import type { AgentConfig, AgentState, AgentTheme, HubInfo, PinboardTask, InfoEntry, WorkspacePreset, WorkspaceTheme, Skill, CreateScheduleInput, EditScheduleInput, CommunityTeam, CommunityTeamListItem, CommunityAgent, CommunityCategory, CommunityTheme, CommunityThemeListItem } from '../shared/types'
+import type { AgentConfig, AgentState, AgentTheme, HubInfo, PinboardTask, InfoEntry, WorkspacePreset, WorkspaceTheme, Skill, CreateScheduleInput, EditScheduleInput, CommunityTeam, CommunityTeamListItem, CommunityAgent, CommunityCategory, CommunityTheme, CommunityThemeListItem, RespawnResult } from '../shared/types'
 
 declare global {
   interface Window {
     electronAPI: {
       spawnAgent: (config: AgentConfig) => Promise<{ id: string; mcpConfigPath: string }>
       killAgent: (agentId: string) => Promise<void>
+      respawnAgent: (agentId: string, newConfig: Omit<AgentConfig, 'id'>) => Promise<RespawnResult>
       getAgents: () => Promise<AgentState[]>
       getHubInfo: () => Promise<HubInfo>
       writeToPty: (agentId: string, data: string) => Promise<void>

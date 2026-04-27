@@ -93,6 +93,7 @@ export interface PinboardTask {
 export const IPC = {
   SPAWN_AGENT: 'agent:spawn',
   KILL_AGENT: 'agent:kill',
+  AGENT_RESPAWN: 'agent:respawn',
   GET_AGENTS: 'agent:list',
   AGENT_STATE_UPDATE: 'agent:state-update',
   GET_HUB_INFO: 'hub:info',
@@ -420,6 +421,10 @@ export interface FireHistoryEntry {
 }
 
 export type ScheduleStatus = 'active' | 'paused' | 'stopped' | 'expired'
+
+export type RespawnResult =
+  | { ok: true }
+  | { ok: false; error: 'AGENT_NOT_FOUND' | 'NAME_TAKEN' | 'CWD_MISSING' | 'INTERNAL'; message?: string }
 
 export interface ScheduledPrompt {
   id: string
