@@ -668,26 +668,12 @@ function injectPrompt(managed: ManagedPty, prompt: string, delayMs: number): voi
   }, delayMs)
 }
 
-// Auto-reconnect: respawn an agent with its original config after an unexpected exit.
-function reconnectAgent(config: AgentConfig): void {
-  // Clean up stale state from previous instance
-  try { hub.registry.remove(config.name) } catch { /* already removed */ }
-  agents.delete(config.id)
-  hasReceivedInitialPrompt.delete(config.id)
-
-  const mcpServerPath = getMcpServerPath()
-  const mcpConfigPath = writeAgentMcpConfig({
-    agentId: config.id,
-    agentName: config.name,
-    hubPort: hub.port,
-    hubSecret: hub.secret,
-    mcpServerPath
-  })
-
-  // Dual-emit COG_* (new) and AGENTORCH_* (legacy) env vars so in-flight agents
-  // keep working across the rebrand. MCP server reads COG_* first, falls back
-  // to AGENTORCH_*. The AGENTORCH_* aliases can be dropped in a future release.
-  const mcpEnv: Record<string, string> = {
+// Build the env-var block passed to the PTY for MCP server discovery.
+// Dual-emits COG_* (new) and AGENTORCH_* (legacy) so in-flight agents keep
+// working across the rebrand. The AGENTORCH_* aliases can be dropped in a
+// future release.
+function buildMcpEnv(config: AgentConfig): Record<string, string> {
+  const env: Record<string, string> = {
     COG_HUB_PORT: String(hub.port),
     COG_HUB_SECRET: hub.secret,
     COG_AGENT_ID: config.id,
@@ -697,23 +683,29 @@ function reconnectAgent(config: AgentConfig): void {
     AGENTORCH_AGENT_ID: config.id,
     AGENTORCH_AGENT_NAME: config.name
   }
-  if (config.cli === 'grok' && config.model) {
-    mcpEnv.GROK_MODEL = config.model
-  }
+  if (config.cli === 'grok' && config.model) env.GROK_MODEL = config.model
   if (config.cli === 'openclaude') {
-    if (config.model) mcpEnv.OPENAI_MODEL = config.model
-    if (config.providerUrl) mcpEnv.OPENAI_BASE_URL = config.providerUrl
+    if (config.model) env.OPENAI_MODEL = config.model
+    if (config.providerUrl) env.OPENAI_BASE_URL = config.providerUrl
   }
   if (config.tabId) {
-    mcpEnv.COG_TAB_ID = config.tabId
-    mcpEnv.AGENTORCH_TAB_ID = config.tabId
+    env.COG_TAB_ID = config.tabId
+    env.AGENTORCH_TAB_ID = config.tabId
   }
+  return env
+}
 
-  hub.registry.register(config)
-  const initialPrompt = buildReconnectPrompt(config)
-  initialPrompts.set(config.id, initialPrompt)
-  // Block prompt injection until CLI commands are sent
-  hasReceivedInitialPrompt.add(config.id)
+// Spawn the PTY for an agent and wire up all side effects: data/exit/status
+// callbacks, agent map registration, state broadcast, CLI launch command
+// sequencing, and prompt-injection timers.
+// Called by both handleSpawnAgent and reconnectAgent — all pre-spawn setup
+// (hub registration, initial prompt building) must be done before calling this.
+function spawnPtyAndWire(
+  config: AgentConfig,
+  mcpConfigPath: string,
+  mcpEnv: Record<string, string>
+): void {
+  const mcpServerPath = getMcpServerPath()
 
   const managed = spawnAgentPty({
     config,
@@ -776,13 +768,40 @@ function reconnectAgent(config: AgentConfig): void {
     setTimeout(() => hasReceivedInitialPrompt.delete(config.id), delay)
 
     // Fallback: if StatusDetector doesn't detect prompt, inject after timeout
+    const initialPrompt = initialPrompts.get(config.id)
     setTimeout(() => {
       if (!hasReceivedInitialPrompt.has(config.id)) {
         hasReceivedInitialPrompt.add(config.id)
-        injectPrompt(managed, initialPrompt, 0)
+        if (initialPrompt) injectPrompt(managed, initialPrompt, 0)
       }
     }, delay + PROMPT_INJECT_FALLBACK_MS)
   }
+}
+
+// Auto-reconnect: respawn an agent with its original config after an unexpected exit.
+function reconnectAgent(config: AgentConfig): void {
+  // Clean up stale state from previous instance
+  try { hub.registry.remove(config.name) } catch { /* already removed */ }
+  agents.delete(config.id)
+  hasReceivedInitialPrompt.delete(config.id)
+
+  const mcpServerPath = getMcpServerPath()
+  const mcpConfigPath = writeAgentMcpConfig({
+    agentId: config.id,
+    agentName: config.name,
+    hubPort: hub.port,
+    hubSecret: hub.secret,
+    mcpServerPath
+  })
+
+  const mcpEnv = buildMcpEnv(config)
+  hub.registry.register(config)
+
+  const initialPrompt = buildReconnectPrompt(config)
+  initialPrompts.set(config.id, initialPrompt)
+  hasReceivedInitialPrompt.add(config.id)
+
+  spawnPtyAndWire(config, mcpConfigPath, mcpEnv)
 
   console.log(`Agent "${config.name}" reconnected successfully`)
 }
@@ -821,30 +840,7 @@ function handleSpawnAgent(config: AgentConfig): { id: string; mcpConfigPath: str
     mcpServerPath
   })
 
-  // Env vars for the MCP server — set on the PTY so child processes inherit them.
-  // Codex spawns MCP servers as subprocesses, so they'll pick these up.
-  // Dual-emit COG_* + AGENTORCH_* for in-flight agent compatibility across rebrand.
-  const mcpEnv: Record<string, string> = {
-    COG_HUB_PORT: String(hub.port),
-    COG_HUB_SECRET: hub.secret,
-    COG_AGENT_ID: config.id,
-    COG_AGENT_NAME: config.name,
-    AGENTORCH_HUB_PORT: String(hub.port),
-    AGENTORCH_HUB_SECRET: hub.secret,
-    AGENTORCH_AGENT_ID: config.id,
-    AGENTORCH_AGENT_NAME: config.name
-  }
-  if (config.cli === 'grok' && config.model) {
-    mcpEnv.GROK_MODEL = config.model
-  }
-  if (config.cli === 'openclaude') {
-    if (config.model) mcpEnv.OPENAI_MODEL = config.model
-    if (config.providerUrl) mcpEnv.OPENAI_BASE_URL = config.providerUrl
-  }
-  if (config.tabId) {
-    mcpEnv.COG_TAB_ID = config.tabId
-    mcpEnv.AGENTORCH_TAB_ID = config.tabId
-  }
+  const mcpEnv = buildMcpEnv(config)
 
   hub.registry.register(config)
   hub.agentMetrics.register(config.name)
@@ -865,81 +861,7 @@ function handleSpawnAgent(config: AgentConfig): { id: string; mcpConfigPath: str
   // Block prompt injection until CLI commands are sent
   hasReceivedInitialPrompt.add(config.id)
 
-  const managed = spawnAgentPty({
-    config,
-    mcpConfigPath,
-    extraEnv: mcpEnv,
-    onData: (data) => {
-      mainWindow.webContents.send(IPC.PTY_OUTPUT, config.id, data)
-    },
-    onExit: (exitCode) => {
-      hub.registry.updateStatus(config.name, 'disconnected')
-      mainWindow.webContents.send(IPC.PTY_EXIT, config.id, exitCode)
-      mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
-      if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
-
-      // Auto-reconnect: if this wasn't a manual kill, respawn after a delay
-      if (!manualKills.has(config.id) && config.cli !== 'terminal') {
-        console.log(`Agent "${config.name}" exited unexpectedly (code ${exitCode}), reconnecting in ${RECONNECT_DELAY}ms...`)
-        setTimeout(() => {
-          if (manualKills.has(config.id)) {
-            manualKills.delete(config.id)
-            return
-          }
-          reconnectAgent(config)
-        }, RECONNECT_DELAY)
-      } else {
-        manualKills.delete(config.id)
-      }
-    },
-    onStatusChange: (status) => {
-      hub.registry.updateStatus(config.name, status)
-      mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
-
-      // Status-driven prompt injection: inject when CLI first reaches prompt
-      if (status === 'active' && !hasReceivedInitialPrompt.has(config.id)) {
-        hasReceivedInitialPrompt.add(config.id)
-        const prompt = initialPrompts.get(config.id)
-        if (prompt) injectPrompt(managed, prompt, 0)
-      }
-
-      // Flush queued nudges when agent becomes active
-      if (status === 'active') flushPendingNudges(config.name)
-    },
-    onClearDetected: () => {
-      // Allow re-injection on next 'active' status
-      hasReceivedInitialPrompt.delete(config.id)
-    }
-  })
-
-  agents.set(config.id, managed)
-  mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
-
-  // Launch agent CLI after shell initializes (plain terminals skip this)
-  // Some CLIs need multiple commands (e.g., codex needs `mcp add` first)
-  const cmds = buildCliLaunchCommands(config, mcpConfigPath, mcpServerPath, hub.port, hub.secret)
-  if (cmds) {
-    let delay = 1000
-    for (const cmd of cmds) {
-      setTimeout(() => {
-        writeToPty(managed, cmd + '\r')
-      }, delay)
-      delay += 3000 // Give each command time to complete
-    }
-
-    // Enable status-driven injection after CLI commands are sent
-    setTimeout(() => hasReceivedInitialPrompt.delete(config.id), delay)
-
-    // Fallback: if StatusDetector doesn't detect prompt, inject after timeout
-    setTimeout(() => {
-      if (!hasReceivedInitialPrompt.has(config.id)) {
-        hasReceivedInitialPrompt.add(config.id)
-        injectPrompt(managed, initialPrompt, 0)
-      }
-    }, delay + PROMPT_INJECT_FALLBACK_MS)
-  }
-
-  // For non-MCP agents: poll and inject messages into stdin
+  spawnPtyAndWire(config, mcpConfigPath, mcpEnv)
 
   return { id: config.id, mcpConfigPath }
 }
