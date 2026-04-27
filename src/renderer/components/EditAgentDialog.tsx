@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import type { AgentConfig, AgentState } from '../../shared/types'
-import { AgentConfigForm, buildSubmitConfig, emptyFormValue, type AgentConfigFormValue } from './AgentConfigForm'
+import { AgentConfigForm, buildSubmitConfig, emptyFormValue, CLI_MODELS, OPENCLAUDE_PROVIDERS, type AgentConfigFormValue } from './AgentConfigForm'
 
 interface EditAgentDialogProps {
   agent: AgentState
@@ -10,6 +10,20 @@ interface EditAgentDialogProps {
 function configToFormValue(agent: AgentConfig): AgentConfigFormValue {
   const isPresetCli = ['claude', 'codex', 'kimi', 'gemini', 'openclaude', 'copilot', 'grok', 'terminal'].includes(agent.cli)
   const isPresetRole = ['orchestrator', 'worker', 'researcher', 'reviewer'].includes(agent.role)
+
+  // Model: route to customModel if not a preset for this CLI
+  const modelValue = agent.model ?? ''
+  const presetModels = CLI_MODELS[agent.cli] ?? []
+  const isPresetModel = modelValue === '' || presetModels.some(m => m.value === modelValue)
+  const formModel = isPresetModel ? modelValue : ''
+  const formCustomModel = isPresetModel ? '' : modelValue
+
+  // Provider URL: route to customProviderUrl if not a preset
+  const providerValue = agent.providerUrl ?? 'https://api.openai.com/v1'
+  const isPresetProvider = OPENCLAUDE_PROVIDERS.some(p => p.url === providerValue)
+  const formProviderUrl = isPresetProvider ? providerValue : ''
+  const formCustomProviderUrl = isPresetProvider ? '' : providerValue
+
   return {
     ...emptyFormValue(),
     name: agent.name,
@@ -23,10 +37,10 @@ function configToFormValue(agent: AgentConfig): AgentConfigFormValue {
     admin: agent.admin,
     autoMode: agent.autoMode,
     promptRegex: agent.promptRegex ?? '',
-    model: agent.model ?? '',
-    customModel: '',
-    providerUrl: agent.providerUrl ?? 'https://api.openai.com/v1',
-    customProviderUrl: '',
+    model: formModel,
+    customModel: formCustomModel,
+    providerUrl: formProviderUrl,
+    customProviderUrl: formCustomProviderUrl,
     selectedSkills: (agent.skills ?? []).map(id => ({ id, name: id })),  // names re-resolved below
     showAdvanced: !!agent.promptRegex,
   }
