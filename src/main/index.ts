@@ -1367,6 +1367,13 @@ function setupIPC(): void {
 
     // Suppress auto-reconnect from the upcoming PTY exit
     manualKills.add(agentId)
+    // Null out the old PTY's mcpConfigPath BEFORE killing it so the async onExit
+    // callback can't delete the MCP config file. The new spawn reuses the same
+    // filename (since agent.id is preserved) and writeAgentMcpConfig overwrites
+    // in place — a stray cleanupConfig from the old onExit firing after the new
+    // file is written would race-delete the freshly-written config and break
+    // the CLI launch.
+    managed.mcpConfigPath = null
     killPty(managed)
 
     // Wipe history under old name
@@ -1376,7 +1383,6 @@ function setupIPC(): void {
     lastNudgeDelivery.delete(oldName)
     const fallbackTimer = nudgeFallbackTimers.get(oldName)
     if (fallbackTimer) { clearTimeout(fallbackTimer); nudgeFallbackTimers.delete(oldName) }
-    if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
     initialPrompts.delete(agentId)
     hasReceivedInitialPrompt.delete(agentId)
     agents.delete(agentId)
