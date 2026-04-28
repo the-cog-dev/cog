@@ -490,12 +490,22 @@ function getMcpServerPath(): string {
   return path.join(__dirname, '../mcp-server/index.js')
 }
 
+function getAppIconPath(): string | undefined {
+  // In packaged builds Windows uses the .ico baked into the .exe by electron-builder.
+  // In dev, point BrowserWindow at build/icon.png so the taskbar shows the Cogsworth
+  // icon instead of the default Electron logo.
+  if (app.isPackaged) return undefined
+  const candidate = path.join(__dirname, '../../build/icon.png')
+  return fs.existsSync(candidate) ? candidate : undefined
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
     backgroundColor: '#1a1a1a',
     title: 'The Cog',
+    icon: getAppIconPath(),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
@@ -2202,6 +2212,10 @@ function setupIPC(): void {
 }
 
 async function main(): Promise<void> {
+  // Bind the Windows taskbar icon to our AppUserModelID so it doesn't fall back
+  // to the Electron logo. Must be set before any window is created.
+  if (process.platform === 'win32') app.setAppUserModelId('dev.thecog.app')
+
   await app.whenReady()
 
   // One-time migration: copy global app data from the old AgentOrch userData
