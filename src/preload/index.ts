@@ -308,4 +308,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   boardDeletePage: (id: string) => ipcRenderer.invoke(IPC.BOARD_DELETE_PAGE, id),
   boardSaveImage: (base64: string, ext: string) => ipcRenderer.invoke(IPC.BOARD_SAVE_IMAGE, base64, ext),
   boardSaveRender: (pageId: string, base64: string) => ipcRenderer.invoke(IPC.BOARD_SAVE_RENDER, pageId, base64),
+  boardImagePath: (file: string) => ipcRenderer.invoke(IPC.BOARD_IMAGE_PATH, file),
 })

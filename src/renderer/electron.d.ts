@@ -143,6 +143,7 @@ declare global {
       boardDeletePage: (id: string) => Promise<boolean>
       boardSaveImage: (base64: string, ext: string) => Promise<string | null>
       boardSaveRender: (pageId: string, base64: string) => Promise<string | null>
+      boardImagePath: (file: string) => Promise<string | null>
     }
   }
 }

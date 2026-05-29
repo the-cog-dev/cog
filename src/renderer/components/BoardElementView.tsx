@@ -11,6 +11,59 @@ interface BoardElementViewProps {
   onDelete: () => void
 }
 
+// Separate component so hooks are always called unconditionally
+function ImageContent({ file }: { file: string }): React.ReactElement {
+  const [imgSrc, setImgSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!file) return
+    // Already an absolute path, file: URI, or data: URI — use directly
+    if (
+      file.startsWith('file:') ||
+      file.startsWith('data:') ||
+      file.startsWith('/') ||
+      /^[A-Za-z]:[/\\]/.test(file)
+    ) {
+      setImgSrc(
+        file.startsWith('file:') || file.startsWith('data:') ? file : `file://${file}`
+      )
+      return
+    }
+    // Bare filename — resolve absolute path via IPC
+    window.electronAPI.boardImagePath(file).then((abs) => {
+      if (abs) setImgSrc(`file://${abs}`)
+    })
+  }, [file])
+
+  if (!imgSrc) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          background: 'rgba(255,255,255,0.05)',
+          borderRadius: 2,
+        }}
+      />
+    )
+  }
+
+  return (
+    <img
+      src={imgSrc}
+      alt=""
+      draggable={false}
+      style={{
+        width: '100%',
+        height: '100%',
+        objectFit: 'contain',
+        display: 'block',
+        pointerEvents: 'none',
+      }}
+    />
+  )
+}
+
 export function BoardElementView({
   element,
   zoom,
@@ -148,20 +201,7 @@ export function BoardElementView({
     )
   } else {
     // type === 'image'
-    content = (
-      <img
-        src={element.file}
-        alt=""
-        draggable={false}
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          display: 'block',
-          pointerEvents: 'none',
-        }}
-      />
-    )
+    content = <ImageContent file={element.file} />
   }
 
   return (

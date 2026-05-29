@@ -15,6 +15,22 @@ interface BoardPageCanvasProps {
   onChange: (p: BoardPage) => void
 }
 
+/** Read a File as a base64 data URL, return the base64 portion and mime ext. */
+function readFileAsBase64(file: File): Promise<{ base64: string; ext: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      // e.g. "data:image/png;base64,iVBOR..."
+      const match = dataUrl.match(/^data:image\/([a-z0-9+]+);base64,(.+)$/)
+      if (!match) { reject(new Error('Could not parse data URL')); return }
+      resolve({ ext: match[1] === 'jpeg' ? 'jpg' : match[1], base64: match[2] })
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
 export function BoardPageCanvas({
   page,
   tool = DEFAULT_TOOL,
@@ -33,6 +49,9 @@ export function BoardPageCanvas({
   // Pan-drag state (left-button drag on empty canvas in select mode)
   const isPanningRef = useRef(false)
   const panStartRef = useRef({ mouseX: 0, mouseY: 0, panX: 0, panY: 0 })
+
+  // Last known mouse position in screen coords (relative to viewport) for paste placement
+  const lastMouseRef = useRef({ x: 0, y: 0 })
 
   const viewportRef = useRef<HTMLDivElement>(null)
 
@@ -76,6 +95,35 @@ export function BoardPageCanvas({
     return () => el.removeEventListener('wheel', handleWheel)
   }, [])
 
+  // ── Image drop helper ──────────────────────────────────────────────────────
+  /** Save an image File to disk and add it as a new element at the given canvas coords. */
+  const addImageElement = useCallback(
+    async (file: File, canvasX: number, canvasY: number) => {
+      try {
+        const { base64, ext } = await readFileAsBase64(file)
+        const filename = await window.electronAPI.boardSaveImage(base64, ext)
+        if (!filename) return
+        const maxZ = page.elements.reduce((acc, el) => Math.max(acc, el.z), 0)
+        const newEl: BoardElement = {
+          type: 'image',
+          id: crypto.randomUUID(),
+          x: canvasX - 160,
+          y: canvasY - 120,
+          w: 320,
+          h: 240,
+          file: filename,
+          z: maxZ + 1,
+        }
+        const updated = { ...page, elements: [...page.elements, newEl] }
+        onChange(updated)
+        setSelectedId(newEl.id)
+      } catch (err) {
+        console.error('[BoardPageCanvas] addImageElement failed:', err)
+      }
+    },
+    [page, onChange]
+  )
+
   // ── Canvas background mouse handlers (pan drag + element creation) ──────────
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -100,14 +148,22 @@ export function BoardPageCanvas({
     [tool.kind]
   )
 
-  const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isPanningRef.current) return
-    const s = panStartRef.current
-    setPan({
-      x: s.panX + (e.clientX - s.mouseX),
-      y: s.panY + (e.clientY - s.mouseY),
-    })
-  }, [])
+  const handleCanvasMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      // Track position for paste placement
+      if (viewportRef.current) {
+        const rect = viewportRef.current.getBoundingClientRect()
+        lastMouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      }
+      if (!isPanningRef.current) return
+      const s = panStartRef.current
+      setPan({
+        x: s.panX + (e.clientX - s.mouseX),
+        y: s.panY + (e.clientY - s.mouseY),
+      })
+    },
+    []
+  )
 
   const handleCanvasMouseUp = useCallback(() => {
     isPanningRef.current = false
@@ -163,6 +219,67 @@ export function BoardPageCanvas({
     [tool, pan, zoom, page, onChange]
   )
 
+  // ── Paste handler ────────────────────────────────────────────────────────────
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLDivElement>) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          const file = items[i].getAsFile()
+          if (!file) continue
+          e.preventDefault()
+          // Place at last known mouse position (or viewport center as fallback)
+          const el = viewportRef.current
+          const fallbackX = el ? el.clientWidth / 2 : 400
+          const fallbackY = el ? el.clientHeight / 2 : 300
+          const pos = lastMouseRef.current
+          const screenX = pos.x || fallbackX
+          const screenY = pos.y || fallbackY
+          const p = panRef.current
+          const z = zoomRef.current
+          const canvasX = (screenX - p.x) / z
+          const canvasY = (screenY - p.y) / z
+          addImageElement(file, canvasX, canvasY)
+          return
+        }
+      }
+    },
+    [addImageElement]
+  )
+
+  // ── Drag-and-drop handlers ───────────────────────────────────────────────────
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    // Allow drop only if there are image files
+    const hasImage = Array.from(e.dataTransfer.items).some(
+      (item) => item.kind === 'file' && item.type.startsWith('image/')
+    )
+    if (hasImage) e.preventDefault()
+  }, [])
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      const files = Array.from(e.dataTransfer.files).filter((f) =>
+        f.type.startsWith('image/')
+      )
+      if (files.length === 0) return
+      const rect = viewportRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const p = panRef.current
+      const z = zoomRef.current
+      // Place each image with slight offset so they don't stack exactly
+      files.forEach((file, idx) => {
+        const screenX = e.clientX - rect.left + idx * 20
+        const screenY = e.clientY - rect.top + idx * 20
+        const canvasX = (screenX - p.x) / z
+        const canvasY = (screenY - p.y) / z
+        addImageElement(file, canvasX, canvasY)
+      })
+    },
+    [addImageElement]
+  )
+
   // ── Element callbacks ────────────────────────────────────────────────────────
   const handleElementChange = useCallback(
     (updated: BoardElement) => {
@@ -187,6 +304,7 @@ export function BoardPageCanvas({
   return (
     <div
       ref={viewportRef}
+      tabIndex={0}
       style={{
         position: 'absolute',
         inset: 0,
@@ -195,12 +313,16 @@ export function BoardPageCanvas({
         background: '#101010',
         cursor: isPanning ? 'grabbing' : tool.kind === 'select' ? 'default' : 'crosshair',
         userSelect: 'none',
+        outline: 'none',
       }}
       onMouseDown={handleCanvasMouseDown}
       onMouseMove={handleCanvasMouseMove}
       onMouseUp={handleCanvasMouseUp}
       onMouseLeave={handleCanvasMouseUp}
       onClick={handleCanvasClick}
+      onPaste={handlePaste}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
       {/* Transformed canvas — zoom + pan applied here */}
       <div

@@ -2934,6 +2934,11 @@ async function main(): Promise<void> {
     if (!root) return null
     return saveRenderBytes(root, pageId, base64)
   })
+  ipcMain.handle(IPC.BOARD_IMAGE_PATH, (_e, file: string) => {
+    const root = projectManager.currentProject?.path
+    if (!root) return null
+    return path.join(root, '.cog', 'board', 'images', file)
+  })
 }
 
 main()
