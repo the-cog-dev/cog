@@ -57,7 +57,11 @@ export function TerminalWindow({ agentId, theme }: TerminalWindowProps): React.R
       if (ev.ctrlKey && ev.key === 'v' && ev.type === 'keydown') {
         ev.preventDefault() // prevent native paste → onData double-write
         navigator.clipboard.readText().then(text => {
-          if (text) window.electronAPI.writeToPty(agentId, text)
+          // Route through xterm's paste() so multi-line pastes get wrapped in
+          // bracketed-paste sequences when the CLI enables that mode — without
+          // it, raw newlines hit the CLI as Enter and submit after the first
+          // line. paste() fires onData, which forwards to writeToPty.
+          if (text) term.paste(text)
         })
         return false
       }
