@@ -162,4 +162,27 @@ describe('POST /schedules/:id/cancel', () => {
     expect(res.status).toBe(403)
     expect(res.body.error).toBe('nope')
   })
+
+  it('returns 400 when requestedBy is missing from body', async () => {
+    const bridge = makeBridge(true)
+    const app = makeApp(bridge, makeProposalsChannel())
+
+    const res = await request(app).post('/schedules/sch1/cancel').send({})
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('requestedBy required')
+  })
+})
+
+describe('POST /schedules — bridge.create throws', () => {
+  it('returns 500 with error message when bridge.create throws', async () => {
+    const bridge: ScheduleBridge = {
+      ...makeBridge(true),
+      create: () => { throw new Error('Scheduler unavailable') }
+    }
+    const app = makeApp(bridge, makeProposalsChannel())
+
+    const res = await request(app).post('/schedules').send(validBody)
+    expect(res.status).toBe(500)
+    expect(res.body.error).toBe('Scheduler unavailable')
+  })
 })

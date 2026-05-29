@@ -407,10 +407,16 @@ export function createRoutes(
     const target = scheduleBridge.resolveTarget(targetAgent)
     if (!target) { res.status(404).json({ error: `Agent not found: ${targetAgent}` }); return }
     if (scheduleBridge.autonomyEnabled()) {
-      const created = scheduleBridge.create({
-        agentId: target.agentId, tabId: target.tabId, name,
-        promptText: promptText.trim(), intervalMinutes, durationHours, createdBy: proposedBy
-      })
+      let created
+      try {
+        created = scheduleBridge.create({
+          agentId: target.agentId, tabId: target.tabId, name,
+          promptText: promptText.trim(), intervalMinutes, durationHours, createdBy: proposedBy
+        })
+      } catch (err: any) {
+        res.status(500).json({ error: err?.message || 'Failed to create schedule' })
+        return
+      }
       res.json({ status: 'scheduled', scheduleId: created.id, nextFireAt: created.nextFireAt, expiresAt: created.expiresAt })
       return
     }
@@ -434,8 +440,14 @@ export function createRoutes(
   router.post('/schedules/:id/cancel', (req: Request, res: Response) => {
     const scheduleBridge = getScheduleBridge?.()
     if (!scheduleBridge) { res.status(503).json({ error: 'Scheduler unavailable' }); return }
-    const byAgent = (req.body && req.body.requestedBy) || ''
-    const result = scheduleBridge.cancel(req.params.id, byAgent)
+    const requestedBy = req.body && req.body.requestedBy
+    if (typeof requestedBy !== 'string' || !requestedBy.trim()) { res.status(400).json({ error: 'requestedBy required' }); return }
+    let result
+    try {
+      result = scheduleBridge.cancel(req.params.id, requestedBy)
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Cancel failed' }); return
+    }
     if (!result.ok) { res.status(403).json({ error: result.error || 'Not allowed' }); return }
     res.json({ ok: true })
   })
