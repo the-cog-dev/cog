@@ -206,6 +206,7 @@ describe('ScheduledPrompts table', () => {
     const colNames = cols.map(c => c.name).sort()
     expect(colNames).toEqual([
       'agent_id',
+      'created_by',
       'duration_hours',
       'expires_at',
       'fire_history',
