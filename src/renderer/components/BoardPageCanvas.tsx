@@ -359,17 +359,18 @@ export function BoardPageCanvas({
 
   // ── Drag-and-drop handlers ───────────────────────────────────────────────────
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    // During a dragover the browser hides item.type (privacy), so checking for
-    // 'image/*' here fails and the drop is silently rejected. dataTransfer.types
-    // DOES expose 'Files' for OS file drags — preventDefault on that so `drop` fires.
-    if (e.dataTransfer.types.includes('Files')) e.preventDefault()
+    // Always preventDefault so the drop event fires — item.type is hidden during
+    // dragover and `types` isn't reliable across platforms, so don't gate on it.
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
   }, [])
 
   const handleDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault()
-      const files = Array.from(e.dataTransfer.files).filter((f) =>
-        f.type.startsWith('image/')
+      // Some OSes don't set f.type on dropped files — also accept by extension.
+      const files = Array.from(e.dataTransfer.files).filter(
+        (f) => f.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(f.name)
       )
       if (files.length === 0) return
       const rect = viewportRef.current?.getBoundingClientRect()

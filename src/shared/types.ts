@@ -292,6 +292,7 @@ export const IPC = {
   BOARD_SAVE_IMAGE: 'board:save-image',
   BOARD_SAVE_RENDER: 'board:save-render',
   BOARD_IMAGE_PATH: 'board:image-path',
+  BOARD_READ_IMAGE: 'board:read-image',
   BOARD_APPEARANCE_GET: 'board:appearance-get',
   BOARD_APPEARANCE_SET: 'board:appearance-set',
 } as const

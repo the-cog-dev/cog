@@ -17,22 +17,14 @@ function ImageContent({ file }: { file: string }): React.ReactElement {
 
   useEffect(() => {
     if (!file) return
-    // Already an absolute path, file: URI, or data: URI — use directly
-    if (
-      file.startsWith('file:') ||
-      file.startsWith('data:') ||
-      file.startsWith('/') ||
-      /^[A-Za-z]:[/\\]/.test(file)
-    ) {
-      setImgSrc(
-        file.startsWith('file:') || file.startsWith('data:') ? file : `file://${file}`
-      )
-      return
-    }
-    // Bare filename — resolve absolute path via IPC
-    window.electronAPI.boardImagePath(file).then((abs) => {
-      if (abs) setImgSrc(`file://${abs}`)
+    // data: URIs render as-is. Everything else (bare filename) is read back as a
+    // data URL via IPC — file:// URLs are blocked in the http-served renderer.
+    if (file.startsWith('data:')) { setImgSrc(file); return }
+    let cancelled = false
+    window.electronAPI.boardReadImage(file).then((dataUrl) => {
+      if (!cancelled && dataUrl) setImgSrc(dataUrl)
     })
+    return () => { cancelled = true }
   }, [file])
 
   if (!imgSrc) {

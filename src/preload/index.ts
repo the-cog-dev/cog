@@ -309,6 +309,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   boardSaveImage: (base64: string, ext: string) => ipcRenderer.invoke(IPC.BOARD_SAVE_IMAGE, base64, ext),
   boardSaveRender: (pageId: string, base64: string) => ipcRenderer.invoke(IPC.BOARD_SAVE_RENDER, pageId, base64),
   boardImagePath: (file: string) => ipcRenderer.invoke(IPC.BOARD_IMAGE_PATH, file),
+  boardReadImage: (file: string) => ipcRenderer.invoke(IPC.BOARD_READ_IMAGE, file),
   getBoardAppearance: () => ipcRenderer.invoke(IPC.BOARD_APPEARANCE_GET),
   setBoardAppearance: (value: { bgColor: string; showGrid: boolean; gridColor: string }) => ipcRenderer.invoke(IPC.BOARD_APPEARANCE_SET, value),
 })

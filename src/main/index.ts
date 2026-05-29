@@ -2943,6 +2943,20 @@ async function main(): Promise<void> {
     if (!root) return null
     return path.join(root, '.cog', 'board', 'images', file)
   })
+  // Return the image as a data URL. file:// URLs don't load in the renderer
+  // (served over http with webSecurity on), so we inline the bytes.
+  ipcMain.handle(IPC.BOARD_READ_IMAGE, (_e, file: string) => {
+    const root = projectManager.currentProject?.path
+    if (!root) return null
+    try {
+      const buf = fs.readFileSync(path.join(root, '.cog', 'board', 'images', file))
+      const ext = path.extname(file).slice(1).toLowerCase() || 'png'
+      const mime = ext === 'jpg' ? 'jpeg' : ext === 'svg' ? 'svg+xml' : ext
+      return `data:image/${mime};base64,${buf.toString('base64')}`
+    } catch {
+      return null
+    }
+  })
   ipcMain.handle(IPC.BOARD_APPEARANCE_GET, () => boardAppearanceStore?.get() ?? { bgColor: '#101010', showGrid: false, gridColor: '#2a2a2a' })
   ipcMain.handle(IPC.BOARD_APPEARANCE_SET, (_e, value) => { boardAppearanceStore?.set(value); return boardAppearanceStore?.get() ?? value })
 }
