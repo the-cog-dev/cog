@@ -75,3 +75,23 @@ export function applyRestart(schedule: ScheduledPrompt, now: number): ScheduledP
     fireHistory: []
   }
 }
+
+export const MIN_AGENT_INTERVAL_MINUTES = 5
+
+/** Agents may only cancel schedules they themselves created. */
+export function canAgentCancelSchedule(schedule: ScheduledPrompt, agentName: string): boolean {
+  return schedule.createdBy === agentName && agentName !== 'user'
+}
+
+/** Footgun guards for agent-created schedules: required duration + min interval. */
+export function validateAgentScheduleRequest(
+  input: { intervalMinutes: number; durationHours: number | null }
+): { ok: true } | { ok: false; error: string } {
+  if (!Number.isInteger(input.intervalMinutes) || input.intervalMinutes < MIN_AGENT_INTERVAL_MINUTES) {
+    return { ok: false, error: `intervalMinutes must be an integer >= ${MIN_AGENT_INTERVAL_MINUTES}` }
+  }
+  if (!Number.isInteger(input.durationHours as number) || (input.durationHours as number) <= 0) {
+    return { ok: false, error: 'durationHours is required and must be a positive integer' }
+  }
+  return { ok: true }
+}
