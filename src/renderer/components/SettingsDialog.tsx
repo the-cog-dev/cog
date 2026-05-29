@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { AutonomySettings } from './AutonomySettings'
 import QRCode from 'qrcode-svg'
 import type { AgentState, WorkspaceTheme, CommunityThemeListItem, CommunityTheme, AgentTheme } from '../../shared/types'
 import { ROLE_THEME_DEFAULTS, getPresetById, THEME_PRESETS, WORKSPACE_THEMES, getWorkspaceThemeById } from '../themes'
@@ -183,6 +184,7 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
     }
   }
 
+  const [projectName, setProjectName] = useState<string | null>(null)
   const [settings, setSettings] = useState<Record<string, any>>({})
   const [remoteState, setRemoteState] = useState({ enabled: false, publicUrl: null as string | null, lanUrl: null as string | null, lanEnabled: false, connectionCount: 0, lastActivity: null as number | null })
   const [whichQr, setWhichQr] = useState<'tunnel' | 'lan'>('tunnel')
@@ -234,6 +236,7 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
   }, [plainQr, remoteState.lanUrl, remoteState.publicUrl])
 
   useEffect(() => {
+    window.electronAPI.getProject().then(p => setProjectName(p?.name ?? null))
     electronAPI.getSettings().then(s => {
       setSettings(s)
       const saved = s.remoteSessionTimeout as number | undefined
@@ -1006,6 +1009,9 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
             </>
           )}
         </div>
+
+        {/* Agent Autonomy section */}
+        <AutonomySettings projectName={projectName} />
 
         {/* Stream Deck section */}
         <StreamDeckSection />
