@@ -357,37 +357,43 @@ export function BoardPageCanvas({
     [addImageElement]
   )
 
-  // ── Drag-and-drop handlers ───────────────────────────────────────────────────
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    // Always preventDefault so the drop event fires — item.type is hidden during
-    // dragover and `types` isn't reliable across platforms, so don't gate on it.
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
-  }, [])
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
+  // ── OS file drag-and-drop ────────────────────────────────────────────────────
+  // React's synthetic onDrop is unreliable for OS-file drops in Electron, and the
+  // window will try to navigate to the dropped file unless default is prevented at
+  // the document level. So we install native document listeners and act only when
+  // the drop lands inside THIS board's viewport.
+  useEffect(() => {
+    const inViewport = (t: EventTarget | null): boolean =>
+      !!viewportRef.current && t instanceof Node && viewportRef.current.contains(t)
+    const onDragOver = (e: DragEvent) => {
+      if (!inViewport(e.target)) return
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+    }
+    const onDrop = (e: DragEvent) => {
+      if (!inViewport(e.target) || !e.dataTransfer) return
       e.preventDefault()
       // Some OSes don't set f.type on dropped files — also accept by extension.
       const files = Array.from(e.dataTransfer.files).filter(
         (f) => f.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(f.name)
       )
       if (files.length === 0) return
-      const rect = viewportRef.current?.getBoundingClientRect()
-      if (!rect) return
+      const rect = viewportRef.current!.getBoundingClientRect()
       const p = panRef.current
       const z = zoomRef.current
-      // Place each image with slight offset so they don't stack exactly
       files.forEach((file, idx) => {
         const screenX = e.clientX - rect.left + idx * 20
         const screenY = e.clientY - rect.top + idx * 20
-        const canvasX = (screenX - p.x) / z
-        const canvasY = (screenY - p.y) / z
-        addImageElement(file, canvasX, canvasY)
+        addImageElement(file, (screenX - p.x) / z, (screenY - p.y) / z)
       })
-    },
-    [addImageElement]
-  )
+    }
+    document.addEventListener('dragover', onDragOver)
+    document.addEventListener('drop', onDrop)
+    return () => {
+      document.removeEventListener('dragover', onDragOver)
+      document.removeEventListener('drop', onDrop)
+    }
+  }, [addImageElement])
 
   // ── Element callbacks ────────────────────────────────────────────────────────
   const handleElementChange = useCallback(
@@ -441,8 +447,6 @@ export function BoardPageCanvas({
       onMouseLeave={handleCanvasMouseUp}
       onClick={handleCanvasClick}
       onPaste={handlePaste}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
     >
       {/* Capture wrapper — rasterized for agent vision; contains both layers */}
       <div
