@@ -47,6 +47,11 @@ export function ScheduleRow({ schedule, agentName, tabName, now, onPause, onResu
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ color: '#e0e0e0', fontSize: 13, fontWeight: 600 }}>
           📅 {schedule.name}
+          {schedule.createdBy && schedule.createdBy !== 'user'
+            ? <span title={`Created by ${schedule.createdBy}`} style={{ fontSize: 11, color: '#9aa', marginLeft: 6 }}>
+                🤖 {schedule.createdBy}
+              </span>
+            : <span title="Created by you" style={{ fontSize: 11, color: '#9aa', marginLeft: 6 }}>👤 you</span>}
         </span>
         <div style={{ display: 'flex', gap: 4 }}>
           {isPaused ? (
