@@ -1646,6 +1646,7 @@ async function closeProject(): Promise<void> {
   }
   scheduleBridge = null
   currentSchedulesStore = null
+  autonomyStore = null  // backed by the project DB we're about to close; null so autonomy IPC falls back instead of hitting a closed handle
 
   await disableRemoteView()
 
