@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import type { PinboardTask } from '../../shared/types'
+import { useContainCanvasScroll } from '../hooks/useContainCanvasScroll'
 
 const PRIORITY_COLORS: Record<PinboardTask['priority'], string> = {
   high: '#ef4444',
@@ -79,9 +80,10 @@ function TaskCard({ task, onClick }: { task: PinboardTask; onClick: () => void }
 
 function TaskDetail({ task, onBack }: { task: PinboardTask; onBack: () => void }) {
   const statusColor = COLUMN_CONFIG.find(c => c.key === task.status)?.accent ?? '#888'
+  const attachWheelGuard = useContainCanvasScroll<HTMLDivElement>()
 
   return (
-    <div style={{
+    <div ref={attachWheelGuard} style={{
       width: '100%', height: '100%',
       backgroundColor: '#1a1a1a',
       fontFamily: 'monospace',
@@ -371,6 +373,7 @@ function SnoozeControl() {
 export function PinboardPanel({ tabId }: { tabId?: string }) {
   const [tasks, setTasks] = useState<PinboardTask[]>([])
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const attachWheelGuard = useContainCanvasScroll<HTMLDivElement>()
 
   useEffect(() => {
     window.electronAPI.getPinboardTasks(tabId).then(setTasks)
@@ -397,7 +400,7 @@ export function PinboardPanel({ tabId }: { tabId?: string }) {
 
   if (tasks.length === 0) {
     return (
-      <div style={{
+      <div ref={attachWheelGuard} style={{
         width: '100%', height: '100%',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         backgroundColor: '#1a1a1a', color: '#666',
@@ -419,7 +422,7 @@ export function PinboardPanel({ tabId }: { tabId?: string }) {
   ) as Record<PinboardTask['status'], PinboardTask[]>
 
   return (
-    <div style={{
+    <div ref={attachWheelGuard} style={{
       width: '100%', height: '100%',
       display: 'flex',
       backgroundColor: '#1a1a1a',

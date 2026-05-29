@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { InfoEntry } from '../../shared/types'
+import { useContainCanvasScroll } from '../hooks/useContainCanvasScroll'
 
 const containerStyle: React.CSSProperties = {
   width: '100%',
@@ -102,6 +103,7 @@ function sortNewestFirst(entries: InfoEntry[]): InfoEntry[] {
 export function InfoChannelPanel({ tabId }: { tabId?: string }): React.ReactElement {
   const [entries, setEntries] = useState<InfoEntry[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
+  const attachWheelGuard = useContainCanvasScroll<HTMLDivElement>()
 
   useEffect(() => {
     let isMounted = true
@@ -135,7 +137,7 @@ export function InfoChannelPanel({ tabId }: { tabId?: string }): React.ReactElem
   const renderedEntries = useMemo(() => sortNewestFirst(entries), [entries])
 
   return (
-    <div style={containerStyle}>
+    <div ref={attachWheelGuard} style={containerStyle}>
       {renderedEntries.length === 0 ? (
         <div style={emptyStateStyle}>No info entries yet</div>
       ) : (
