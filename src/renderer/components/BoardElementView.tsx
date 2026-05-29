@@ -95,6 +95,11 @@ export function BoardElementView({
     return () => window.removeEventListener('keydown', handleKey)
   }, [selected, editing, onDelete])
 
+  // Focus the text field when we enter edit mode (double-click).
+  useEffect(() => {
+    if (editing) textRef.current?.focus()
+  }, [editing])
+
   const handleDragStop = useCallback(
     (_e: unknown, d: { x: number; y: number }) => {
       onChange({ ...element, x: d.x, y: d.y })
@@ -145,6 +150,8 @@ export function BoardElementView({
         <textarea
           ref={textRef as React.RefObject<HTMLTextAreaElement>}
           defaultValue={element.text}
+          readOnly={!editing}
+          tabIndex={editing ? 0 : -1}
           onFocus={() => setEditing(true)}
           onBlur={(e) => {
             setEditing(false)
@@ -153,7 +160,8 @@ export function BoardElementView({
               onChange({ ...element, text: newText })
             }
           }}
-          onMouseDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => { if (editing) e.stopPropagation() }}
+          onKeyDown={(e) => { if (e.key === 'Escape') e.currentTarget.blur() }}
           style={{
             flex: 1,
             background: 'transparent',
@@ -164,6 +172,9 @@ export function BoardElementView({
             fontFamily: 'sans-serif',
             color: '#111',
             lineHeight: 1.5,
+            // Inert until editing so clicking the note SELECTS it (Del works)
+            // instead of focusing the textarea and swallowing the key.
+            pointerEvents: editing ? 'auto' : 'none',
           }}
         />
       </div>
@@ -171,7 +182,7 @@ export function BoardElementView({
   } else if (element.type === 'text') {
     content = (
       <div
-        contentEditable
+        contentEditable={editing}
         suppressContentEditableWarning
         ref={textRef as React.RefObject<HTMLDivElement>}
         onFocus={() => setEditing(true)}
@@ -182,7 +193,8 @@ export function BoardElementView({
             onChange({ ...element, text: newText })
           }
         }}
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => { if (editing) e.stopPropagation() }}
+        onKeyDown={(e) => { if (e.key === 'Escape') e.currentTarget.blur() }}
         style={{
           width: '100%',
           height: '100%',
@@ -194,6 +206,8 @@ export function BoardElementView({
           wordBreak: 'break-word',
           padding: 4,
           boxSizing: 'border-box',
+          // Inert until editing so a single click selects (Del works).
+          pointerEvents: editing ? 'auto' : 'none',
         }}
       >
         {element.text}
@@ -220,7 +234,12 @@ export function BoardElementView({
       onDragStop={handleDragStop}
       onResizeStop={handleResizeStop}
     >
-      {content}
+      <div
+        style={{ width: '100%', height: '100%' }}
+        onDoubleClick={() => { if (element.type !== 'image') setEditing(true) }}
+      >
+        {content}
+      </div>
     </Rnd>
   )
 }
