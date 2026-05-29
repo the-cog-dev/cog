@@ -4,6 +4,12 @@ export interface ProjectAutonomy {
   scheduling: boolean   // V1; spawn/reap added later
 }
 
+export interface BoardAppearance {
+  bgColor: string
+  showGrid: boolean
+  gridColor: string
+}
+
 // Per-agent visual theme — colors customize the window chrome and terminal.
 // Any field can be omitted to fall back to the default. Sharing-safe (no PII).
 export interface AgentTheme {
@@ -286,6 +292,8 @@ export const IPC = {
   BOARD_SAVE_IMAGE: 'board:save-image',
   BOARD_SAVE_RENDER: 'board:save-render',
   BOARD_IMAGE_PATH: 'board:image-path',
+  BOARD_APPEARANCE_GET: 'board:appearance-get',
+  BOARD_APPEARANCE_SET: 'board:appearance-set',
 } as const
 
 export interface Skill {

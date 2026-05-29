@@ -144,6 +144,8 @@ declare global {
       boardSaveImage: (base64: string, ext: string) => Promise<string | null>
       boardSaveRender: (pageId: string, base64: string) => Promise<string | null>
       boardImagePath: (file: string) => Promise<string | null>
+      getBoardAppearance: () => Promise<import('../shared/types').BoardAppearance>
+      setBoardAppearance: (value: import('../shared/types').BoardAppearance) => Promise<import('../shared/types').BoardAppearance>
     }
   }
 }

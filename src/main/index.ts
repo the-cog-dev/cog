@@ -44,6 +44,7 @@ import { validateRespawnRequest } from './respawn-validation'
 import { initStreamDeck, disposeStreamDeck, resolveCogsworthDir, getStreamDeckStatus, reconnectStreamDeck } from './streamdeck'
 import { prepareLocalWhisper, isLocalWhisperReady } from './streamdeck/local-whisper-prepare'
 import { BoardStore } from './db/board-store'
+import { BoardAppearanceStore } from './db/board-appearance-store'
 import { saveImageBytes, saveRenderBytes, renderPathForPage } from './board/board-files'
 
 let hub: HubServer
@@ -57,6 +58,7 @@ let currentMessageStore: MessageStore | null = null
 let currentSchedulesStore: SchedulesStore | null = null
 let autonomyStore: AutonomyStore | null = null
 let boardStore: BoardStore | null = null
+let boardAppearanceStore: BoardAppearanceStore | null = null
 let currentInboxStore: InboxStore | null = null
 let currentProposalsStore: ProposalsStore | null = null
 let promptScheduler: PromptScheduler | null = null
@@ -1410,6 +1412,7 @@ async function openProject(projectPath: string): Promise<void> {
   currentSchedulesStore = new SchedulesStore(db)
   autonomyStore = new AutonomyStore(db)
   boardStore = new BoardStore(db)
+  boardAppearanceStore = new BoardAppearanceStore(db)
 
   hub = await createHubServer(0, () => scheduleBridge ?? undefined, () => boardBridge ?? undefined)
   hub.setProjectPath(projectPath)
@@ -1671,6 +1674,7 @@ async function closeProject(): Promise<void> {
   currentSchedulesStore = null
   autonomyStore = null  // backed by the project DB we're about to close; null so autonomy IPC falls back instead of hitting a closed handle
   boardStore = null
+  boardAppearanceStore = null
 
   await disableRemoteView()
 
@@ -2939,6 +2943,8 @@ async function main(): Promise<void> {
     if (!root) return null
     return path.join(root, '.cog', 'board', 'images', file)
   })
+  ipcMain.handle(IPC.BOARD_APPEARANCE_GET, () => boardAppearanceStore?.get() ?? { bgColor: '#101010', showGrid: false, gridColor: '#2a2a2a' })
+  ipcMain.handle(IPC.BOARD_APPEARANCE_SET, (_e, value) => { boardAppearanceStore?.set(value); return boardAppearanceStore?.get() ?? value })
 }
 
 main()
