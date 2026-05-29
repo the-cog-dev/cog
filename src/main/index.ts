@@ -10,7 +10,7 @@ import { InboxStore } from './db/inbox-store'
 import { ProposalsStore } from './db/proposals-store'
 import { meetsThreshold } from './hub/inbox-channel'
 import { createHubServer, type HubServer } from './hub/server'
-import type { ScheduleBridge } from './hub/routes'
+import type { ScheduleBridge, BoardBridge } from './hub/routes'
 import { spawnAgentPty, writeToPty, resizePty, killPty, type ManagedPty } from './shell/pty-manager'
 import { buildCliLaunchCommands as buildCliLaunchCommandsForConfig } from './cli-launch'
 import { writeAgentMcpConfig, cleanupConfig } from './mcp/config-writer'
@@ -44,7 +44,7 @@ import { validateRespawnRequest } from './respawn-validation'
 import { initStreamDeck, disposeStreamDeck, resolveCogsworthDir, getStreamDeckStatus, reconnectStreamDeck } from './streamdeck'
 import { prepareLocalWhisper, isLocalWhisperReady } from './streamdeck/local-whisper-prepare'
 import { BoardStore } from './db/board-store'
-import { saveImageBytes, saveRenderBytes } from './board/board-files'
+import { saveImageBytes, saveRenderBytes, renderPathForPage } from './board/board-files'
 
 let hub: HubServer
 let mainWindow: BrowserWindow
@@ -64,6 +64,9 @@ let promptScheduler: PromptScheduler | null = null
 // hub via a getter so route handlers can schedule prompts / read autonomy.
 // Module-level so a later task (approveProposal) can reach it too.
 let scheduleBridge: ScheduleBridge | null = null
+// Built after boardStore is assigned; injected into the hub via a getter so
+// route handlers can list board pages and resolve render paths.
+let boardBridge: BoardBridge | null = null
 const agents = new Map<string, ManagedPty>()
 const hasReceivedInitialPrompt = new Set<string>()
 const initialPrompts = new Map<string, string>()
@@ -1408,7 +1411,7 @@ async function openProject(projectPath: string): Promise<void> {
   autonomyStore = new AutonomyStore(db)
   boardStore = new BoardStore(db)
 
-  hub = await createHubServer(0, () => scheduleBridge ?? undefined)
+  hub = await createHubServer(0, () => scheduleBridge ?? undefined, () => boardBridge ?? undefined)
   hub.setProjectPath(projectPath)
   hub.setMessageStore(messageStore)
 
@@ -1620,6 +1623,21 @@ async function openProject(projectPath: string): Promise<void> {
     }
   }
 
+  // Wire the board bridge now that boardStore exists. The hub holds a getter
+  // (() => boardBridge ?? undefined) so route handlers resolve it lazily.
+  boardBridge = {
+    listPages: () => (boardStore?.listPages() ?? []).map(p => ({
+      page: p.orderIndex, elementCount: p.elements.length, strokeCount: p.strokes.length
+    })),
+    renderPath: (n) => {
+      const root = projectManager.currentProject?.path
+      if (!root || !boardStore) return null
+      const rp = renderPathForPage(root, boardStore.listPages(), n)
+      if (rp === null) return null
+      return fs.existsSync(rp) ? rp : ''
+    }
+  }
+
   // Update window title
   if (mainWindow) {
     mainWindow.setTitle(`The Cog — ${projectManager.currentProject!.name}`)
@@ -1649,6 +1667,7 @@ async function closeProject(): Promise<void> {
     promptScheduler = null
   }
   scheduleBridge = null
+  boardBridge = null
   currentSchedulesStore = null
   autonomyStore = null  // backed by the project DB we're about to close; null so autonomy IPC falls back instead of hitting a closed handle
   boardStore = null

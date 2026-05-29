@@ -32,6 +32,17 @@ export interface ScheduleBridge {
   cancel: (id: string, byAgentName: string) => { ok: boolean; error?: string }
 }
 
+/**
+ * Injected by index.ts so the hub routes can reach the board store and the
+ * per-project render-path resolver, which both live in the main process.
+ * Passed in as a getter (see createRoutes) so it can be wired up after the
+ * hub is created.
+ */
+export interface BoardBridge {
+  listPages: () => { page: number; elementCount: number; strokeCount: number }[]
+  renderPath: (pageNumber: number) => string | null // null=out-of-range, ''=no render yet, else abs path
+}
+
 export function createRoutes(
   registry: AgentRegistry,
   messages: MessageRouter,
@@ -43,7 +54,8 @@ export function createRoutes(
   groupManager?: GroupManager,
   inboxChannel?: InboxChannel,
   proposalsChannel?: ProposalsChannel,
-  getScheduleBridge?: () => ScheduleBridge | undefined
+  getScheduleBridge?: () => ScheduleBridge | undefined,
+  getBoardBridge?: () => BoardBridge | undefined
 ): Router {
   const router = Router()
 
@@ -450,6 +462,27 @@ export function createRoutes(
     }
     if (!result.ok) { res.status(403).json({ error: result.error || 'Not allowed' }); return }
     res.json({ ok: true })
+  })
+
+  // --- Board routes ---
+  // Agents (via MCP) hit these to enumerate board pages and get the abs path
+  // to a rendered PNG. The bridge is injected by index.ts so the hub does not
+  // need to reach the board store / project path directly.
+
+  router.get('/board/pages', (_req: Request, res: Response) => {
+    const b = getBoardBridge?.()
+    res.json(b ? b.listPages() : [])
+  })
+
+  router.get('/board/pages/:n/render', (req: Request, res: Response) => {
+    const b = getBoardBridge?.()
+    if (!b) { res.status(503).json({ error: 'Board unavailable' }); return }
+    const n = parseInt(req.params.n, 10)
+    if (!Number.isInteger(n) || n <= 0) { res.status(400).json({ error: 'invalid page number' }); return }
+    const p = b.renderPath(n)
+    if (p === null) { res.status(404).json({ error: `No page ${n}` }); return }
+    if (p === '') { res.status(409).json({ error: `Page ${n} has no render yet — open it in the Workboard first` }); return }
+    res.json({ path: p, page: n })
   })
 
   // --- File operation routes ---
