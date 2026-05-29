@@ -4,10 +4,12 @@ import { BoardElementView } from './BoardElementView'
 
 // Exported so callers/toolbar can reference the tool state shape.
 export interface ToolState {
-  kind: 'select' | 'note' | 'text'
+  kind: 'select' | 'note' | 'text' | 'image' | 'pen' | 'line' | 'arrow' | 'ellipse' | 'eraser'
+  color: string
+  width: number
 }
 
-const DEFAULT_TOOL: ToolState = { kind: 'select' }
+const DEFAULT_TOOL: ToolState = { kind: 'select', color: '#ffd400', width: 4 }
 
 interface BoardPageCanvasProps {
   page: BoardPage
@@ -173,7 +175,7 @@ export function BoardPageCanvas({
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if ((e.target as HTMLElement).closest('[data-board-element]')) return
-      if (tool.kind === 'select') return
+      if (tool.kind !== 'note' && tool.kind !== 'text') return
 
       const rect = viewportRef.current?.getBoundingClientRect()
       if (!rect) return

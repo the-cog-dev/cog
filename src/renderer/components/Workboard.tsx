@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BoardPage } from '../../shared/types'
 import { BoardPageCanvas } from './BoardPageCanvas'
+import type { ToolState } from './BoardPageCanvas'
+import { BoardToolbar } from './BoardToolbar'
 
 export function Workboard() {
   const [pages, setPages] = useState<BoardPage[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [tool, setTool] = useState<ToolState>({ kind: 'select', color: '#ffd400', width: 4 })
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -109,8 +112,11 @@ export function Workboard() {
         >🗑 Delete</button>
       </div>
 
+      {/* Tool palette */}
+      <BoardToolbar tool={tool} setTool={setTool} />
+
       {/* Page canvas */}
-      <BoardPageCanvas page={page} onChange={handlePageChange} />
+      <BoardPageCanvas page={page} tool={tool} onChange={handlePageChange} />
     </div>
   )
 }
