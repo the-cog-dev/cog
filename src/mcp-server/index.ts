@@ -744,6 +744,30 @@ server.tool(
   }
 )
 
+server.tool(
+  'list_board_pages',
+  'List the pages of the project Workboard (a visual canvas the user draws/notes/pins photos on), with element and stroke counts per page. Use before view_board_page to see what exists.',
+  {},
+  async () => {
+    try { return toolResult(await hubFetch('/board/pages')) }
+    catch (err: any) { return toolError(`Failed to list board pages: ${err.message}`) }
+  }
+)
+
+server.tool(
+  'view_board_page',
+  'Get the rendered image of a Workboard page so you can SEE it — the photos, sticky notes, text, and the user\'s freehand drawing (arrows, circles, sketches). Returns a PNG file path; open it with your image/vision read. Page numbers are 1-based, exactly as the user refers to them ("page 3").',
+  { page: z.number().int().describe('1-based page number, e.g. the 3 in "look at page 3".') },
+  async ({ page }) => {
+    try {
+      const r = await hubFetch(`/board/pages/${page}/render`)
+      return toolResult({ ...r, next: `Open the image at "${r.path}" with your file/vision read to see page ${page}.` })
+    } catch (err: any) {
+      return toolError(`Failed to view board page ${page}: ${err.message}`)
+    }
+  }
+)
+
 async function main() {
   const transport = new StdioServerTransport()
   await server.connect(transport)
