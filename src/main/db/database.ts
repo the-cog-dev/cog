@@ -75,6 +75,11 @@ export function createDatabase(dbPath: string): Database.Database {
       kind TEXT NOT NULL DEFAULT 'team',
       payload TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS project_settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `)
 
   // Migrations for existing DBs — safe to fail if column already exists

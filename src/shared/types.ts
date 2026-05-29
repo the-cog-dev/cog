@@ -1,5 +1,9 @@
 export type AgentStatus = 'idle' | 'active' | 'working' | 'disconnected'
 
+export interface ProjectAutonomy {
+  scheduling: boolean   // V1; spawn/reap added later
+}
+
 // Per-agent visual theme — colors customize the window chrome and terminal.
 // Any field can be omitted to fall back to the default. Sharing-safe (no PII).
 export interface AgentTheme {
