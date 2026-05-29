@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { BoardElement, BoardPage } from '../../shared/types'
 import { BoardElementView } from './BoardElementView'
+import { useBoardDrawing } from '../hooks/useBoardDrawing'
 
 // Exported so callers/toolbar can reference the tool state shape.
 export interface ToolState {
@@ -41,6 +42,10 @@ export function BoardPageCanvas({
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [viewport, setViewport] = useState({ w: 800, h: 600 })
+
+  // Drawing overlay canvas ref
+  const drawingCanvasRef = useRef<HTMLCanvasElement>(null)
 
   // Refs so the native wheel handler always sees current values
   const zoomRef = useRef(zoom)
@@ -96,6 +101,33 @@ export function BoardPageCanvas({
     el.addEventListener('wheel', handleWheel, { passive: false })
     return () => el.removeEventListener('wheel', handleWheel)
   }, [])
+
+  // ── Track viewport size for the drawing canvas ───────────────────────────
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      const { width, height } = entry.contentRect
+      setViewport({ w: Math.round(width), h: Math.round(height) })
+    })
+    ro.observe(el)
+    // Initialise immediately
+    setViewport({ w: el.clientWidth, h: el.clientHeight })
+    return () => ro.disconnect()
+  }, [])
+
+  // ── Freehand drawing layer ───────────────────────────────────────────────
+  useBoardDrawing({
+    canvasRef: drawingCanvasRef,
+    tool,
+    strokes: page.strokes,
+    zoom,
+    pan,
+    viewport,
+    onCommit: (newStrokes) => onChange({ ...page, strokes: newStrokes }),
+  })
 
   // ── Image drop helper ──────────────────────────────────────────────────────
   /** Save an image File to disk and add it as a new element at the given canvas coords. */
@@ -350,6 +382,27 @@ export function BoardPageCanvas({
           </div>
         ))}
       </div>
+
+      {/* Drawing canvas overlay — sits above elements, receives pointer events only when a draw tool is active */}
+      <canvas
+        ref={drawingCanvasRef}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: viewport.w,
+          height: viewport.h,
+          zIndex: 10,
+          pointerEvents:
+            tool.kind === 'pen' ||
+            tool.kind === 'line' ||
+            tool.kind === 'arrow' ||
+            tool.kind === 'ellipse' ||
+            tool.kind === 'eraser'
+              ? 'auto'
+              : 'none',
+        }}
+      />
 
       {/* Zoom indicator — outside the transform */}
       <div
