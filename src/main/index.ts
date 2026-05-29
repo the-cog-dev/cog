@@ -462,6 +462,29 @@ async function enableRemoteView(): Promise<void> {
       if (proposal.status !== 'pending') {
         return { success: false, error: `Proposal already ${proposal.status}` }
       }
+      if (proposal.kind === 'schedule') {
+        if (!proposal.payload) {
+          return { success: false, error: 'Schedule proposal missing payload' }
+        }
+        if (!scheduleBridge) {
+          return { success: false, error: 'Scheduler unavailable' }
+        }
+        try {
+          scheduleBridge.create({
+            agentId: proposal.payload.targetAgentId,
+            tabId: proposal.payload.tabId,
+            name: proposal.payload.name,
+            promptText: proposal.payload.promptText,
+            intervalMinutes: proposal.payload.intervalMinutes,
+            durationHours: proposal.payload.durationHours,
+            createdBy: proposal.proposedBy
+          })
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to create schedule' }
+        }
+        hub.proposalsChannel.resolve(proposalId, 'approved')
+        return { success: true }
+      }
       // 3DS approves as-stored — no per-agent edits available on the small
       // screen. Sort by role priority so the orchestrator lands top-left.
       const ordered = [...proposal.agents].sort((a, b) => roleRank(a.role) - roleRank(b.role))
