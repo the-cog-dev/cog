@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { TopBar } from './components/TopBar'
 import { Workspace } from './components/Workspace'
+import { Workboard } from './components/Workboard'
 import { SpawnDialog } from './components/SpawnDialog'
 import { PresetDialog } from './components/PresetDialog'
 import { BugReportDialog } from './components/BugReportDialog'
@@ -52,6 +53,7 @@ export function App(): React.ReactElement {
   const [showProjectPicker, setShowProjectPicker] = useState(false)
   const [links, setLinks] = useState<Array<{ from: string; to: string }>>([])
   const [groups, setGroups] = useState<AgentGroup[]>([])
+  const [showBoard, setShowBoard] = useState(false)
   const [linkDraggingFrom, setLinkDraggingFrom] = useState<string | null>(null)
   const {
     windows, zoom, pan,
@@ -588,8 +590,10 @@ export function App(): React.ReactElement {
             onCreateTab={handleCreateTab}
             onCloseTab={handleCloseTab}
             onRenameTab={handleRenameTab}
+            boardActive={showBoard}
+            onToggleBoard={() => setShowBoard(v => !v)}
           />
-          <Workspace
+          {showBoard ? <Workboard /> : <Workspace
             windows={tabWindows}
             agents={tabAgents}
             tabs={tabs}
@@ -612,7 +616,7 @@ export function App(): React.ReactElement {
             }}
             activeTabId={activeTabId}
             onEditAgent={(id) => setEditingAgentId(id)}
-          />
+          />}
           {showSpawnDialog && (
             <SpawnDialog
               onSpawn={handleSpawn}

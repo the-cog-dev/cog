@@ -51,6 +51,8 @@ interface TopBarProps {
   onCreateTab: () => void
   onCloseTab: (tabId: string) => void
   onRenameTab: (tabId: string, name: string) => void
+  boardActive?: boolean
+  onToggleBoard?: () => void
 }
 
 function DropdownMenu({ items, onClose, style }: {
@@ -121,7 +123,8 @@ export function TopBar({
   inboxOpen, onToggleInbox, inboxUnreadCount,
   onPresetsClick, onBugReport, onSettingsClick, onHelpMcpToolsClick,
   groups, onLinkDragStart, linkDraggingFrom,
-  tabs, activeTabId, onSwitchTab, onCreateTab, onCloseTab, onRenameTab
+  tabs, activeTabId, onSwitchTab, onCreateTab, onCloseTab, onRenameTab,
+  boardActive, onToggleBoard
 }: TopBarProps): React.ReactElement {
   const [agentMenuOpen, setAgentMenuOpen] = useState(false)
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
@@ -294,6 +297,16 @@ export function TopBar({
             />
           )}
         </div>
+
+        <button
+          onClick={onToggleBoard}
+          style={{
+            ...btnStyle,
+            backgroundColor: boardActive ? '#2a3a4a' : '#2a2a2a',
+            border: boardActive ? '1px solid #4a8cc4' : '1px solid #444',
+            color: boardActive ? '#8cc4ff' : '#999',
+          }}
+        >📖 Board</button>
 
         <button onClick={onPresetsClick} style={btnStyle}>Presets</button>
 
