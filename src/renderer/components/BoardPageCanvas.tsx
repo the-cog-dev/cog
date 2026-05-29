@@ -4,6 +4,7 @@ import { BoardElementView } from './BoardElementView'
 import { useBoardDrawing } from '../hooks/useBoardDrawing'
 import { useBoardHistory } from '../hooks/useBoardHistory'
 import { rasterizeNode } from '../hooks/useBoardRasterizer'
+import { useContainCanvasScroll } from '../hooks/useContainCanvasScroll'
 
 // Exported so callers/toolbar can reference the tool state shape.
 export interface ToolState {
@@ -13,6 +14,40 @@ export interface ToolState {
 }
 
 const DEFAULT_TOOL: ToolState = { kind: 'select', color: '#ffd400', width: 4 }
+
+// Shared styles for the zoom control overlay
+const zoomBtnStyle: React.CSSProperties = {
+  background: '#222',
+  color: '#ccc',
+  border: '1px solid #444',
+  borderRadius: 4,
+  width: 24,
+  height: 24,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+  fontSize: 14,
+  lineHeight: 1,
+  padding: 0,
+  flexShrink: 0,
+}
+
+const zoomLabelStyle: React.CSSProperties = {
+  background: '#222',
+  color: '#ccc',
+  border: '1px solid #444',
+  borderRadius: 4,
+  fontSize: 10,
+  fontFamily: 'monospace',
+  padding: '0 6px',
+  height: 24,
+  display: 'flex',
+  alignItems: 'center',
+  cursor: 'pointer',
+  userSelect: 'none',
+  flexShrink: 0,
+}
 
 interface BoardPageCanvasProps {
   page: BoardPage
@@ -58,11 +93,14 @@ export function BoardPageCanvas({
   const captureWrapperNodeRef = useRef<HTMLDivElement | null>(null)
   const pageIdRef = useRef<string>(page.id)
 
-  // Refs so the native wheel handler always sees current values
+  // Refs so handlers always see current values without stale closures
   const zoomRef = useRef(zoom)
   const panRef = useRef(pan)
   zoomRef.current = zoom
   panRef.current = pan
+
+  // Wheel guard — stops wheel events from bubbling to the agent canvas behind the board
+  const attachWheelGuard = useContainCanvasScroll<HTMLDivElement>()
 
   // Pan-drag state (left-button drag on empty canvas in select mode)
   const isPanningRef = useRef(false)
@@ -73,45 +111,28 @@ export function BoardPageCanvas({
 
   const viewportRef = useRef<HTMLDivElement>(null)
 
-  // ── Native wheel listener (passive:false so we can preventDefault) ──────────
-  useEffect(() => {
-    const el = viewportRef.current
-    if (!el) return
-
-    const handleWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) {
-        e.preventDefault()
-
-        const rect = el.getBoundingClientRect()
-        const screenX = e.clientX - rect.left
-        const screenY = e.clientY - rect.top
-
-        const oldZoom = zoomRef.current
-        const delta = e.deltaY > 0 ? -0.1 : 0.1
-        const newZoom = Math.min(4.0, Math.max(0.1, oldZoom + delta))
-
-        const p = panRef.current
-        const canvasX = (screenX - p.x) / oldZoom
-        const canvasY = (screenY - p.y) / oldZoom
-        const newPanX = screenX - canvasX * newZoom
-        const newPanY = screenY - canvasY * newZoom
-
-        setZoom(newZoom)
-        setPan({ x: newPanX, y: newPanY })
-      } else {
-        // Plain scroll → pan
-        const target = e.target as HTMLElement
-        if (target === el || target.closest('[data-board-canvas]')) {
-          e.preventDefault()
-          const p = panRef.current
-          setPan({ x: p.x - e.deltaX, y: p.y - e.deltaY })
-        }
-      }
-    }
-
-    el.addEventListener('wheel', handleWheel, { passive: false })
-    return () => el.removeEventListener('wheel', handleWheel)
-  }, [])
+  // ── zoomTo: pivot zoom around the viewport center ────────────────────────
+  // Given a new zoom level, adjusts pan so the canvas point currently under
+  // the viewport center stays fixed after the zoom change.
+  const zoomTo = useCallback(
+    (newZoom: number) => {
+      const clamped = Math.min(3, Math.max(0.25, newZoom))
+      const { w, h } = viewport
+      const cx = w / 2
+      const cy = h / 2
+      const oldZoom = zoomRef.current
+      const p = panRef.current
+      // Canvas point currently under the viewport center
+      const canvasX = (cx - p.x) / oldZoom
+      const canvasY = (cy - p.y) / oldZoom
+      // Adjust pan so that same canvas point is still under center after zoom
+      const newPanX = cx - canvasX * clamped
+      const newPanY = cy - canvasY * clamped
+      setZoom(clamped)
+      setPan({ x: newPanX, y: newPanY })
+    },
+    [viewport]
+  )
 
   // ── Track viewport size for the drawing canvas ───────────────────────────
   useEffect(() => {
@@ -379,7 +400,10 @@ export function BoardPageCanvas({
 
   return (
     <div
-      ref={viewportRef}
+      ref={(node) => {
+        ;(viewportRef as React.MutableRefObject<HTMLDivElement | null>).current = node
+        attachWheelGuard(node)
+      }}
       tabIndex={0}
       style={{
         position: 'absolute',
@@ -460,19 +484,42 @@ export function BoardPageCanvas({
         />
       </div>
 
-      {/* Zoom indicator — outside the transform */}
+      {/* Zoom controls — outside the transform, bottom-right */}
       <div
         style={{
           position: 'absolute',
           bottom: 12,
-          right: 16,
-          fontSize: 11,
-          color: '#555',
-          fontFamily: 'monospace',
-          pointerEvents: 'none',
+          right: 12,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          pointerEvents: 'auto',
+          zIndex: 20,
         }}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
-        {Math.round(zoom * 100)}%
+        <button
+          title="Zoom out"
+          onClick={(e) => { e.stopPropagation(); zoomTo(zoom - 0.2) }}
+          style={zoomBtnStyle}
+        >
+          −
+        </button>
+        <span
+          title="Reset zoom"
+          onClick={(e) => { e.stopPropagation(); setZoom(1); setPan({ x: 0, y: 0 }) }}
+          style={zoomLabelStyle}
+        >
+          {Math.round(zoom * 100)}%
+        </span>
+        <button
+          title="Zoom in"
+          onClick={(e) => { e.stopPropagation(); zoomTo(zoom + 0.2) }}
+          style={zoomBtnStyle}
+        >
+          ＋
+        </button>
       </div>
     </div>
   )
