@@ -131,6 +131,9 @@ declare global {
       onStreamDeckRunPreset(cb: (name: string) => void): () => void
       prepareLocalWhisper(): Promise<{ ok: boolean; error?: string }>
       onLocalWhisperProgress(cb: (evt: { stage: string; percent: number; detail?: string }) => void): () => void
+      // Project autonomy
+      getAutonomy: () => Promise<{ scheduling: boolean }>
+      setAutonomy: (value: { scheduling: boolean }) => Promise<{ scheduling: boolean }>
     }
   }
 }

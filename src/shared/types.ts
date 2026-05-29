@@ -156,6 +156,8 @@ export const IPC = {
   GROUP_GET_LINKS: 'group:get-links',
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
+  AUTONOMY_GET: 'autonomy:get',
+  AUTONOMY_SET: 'autonomy:set',
   AGENT_CLEAR_CONTEXT: 'agent:clear-context',
   USAGE_GET_METRICS: 'usage:get-metrics',
   USAGE_REFRESH_LIMITS: 'usage:refresh-limits',

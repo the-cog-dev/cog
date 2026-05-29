@@ -19,6 +19,7 @@ import { SkillManager } from './skills/skill-manager'
 import { RacClient } from './rac/rac-client'
 import { UpdateChecker } from './updater/update-checker'
 import { SchedulesStore } from './scheduler/schedules-store'
+import { AutonomyStore } from './db/autonomy-store'
 import { PromptScheduler } from './scheduler/prompt-scheduler'
 import type { Server as HttpServer } from 'http'
 import * as https from 'https'
@@ -35,7 +36,7 @@ import * as themesStore from './themes/themes-store'
 import * as workspaceThemeStore from './themes/workspace-theme-store'
 import { getWorkspaceThemeById, WORKSPACE_THEMES } from '../shared/workspace-themes'
 import { migrateLegacyUserData } from './migration/userdata-migration'
-import type { AgentConfig, AgentTheme, RemoteSetupProgress, CommunityAgent, CommunityCategory, RespawnResult, NotificationThreshold, ProposedAgent, TeamProposal } from '../shared/types'
+import type { AgentConfig, AgentTheme, RemoteSetupProgress, CommunityAgent, CommunityCategory, RespawnResult, NotificationThreshold, ProposedAgent, TeamProposal, ProjectAutonomy } from '../shared/types'
 import { IPC } from '../shared/types'
 import { validateRespawnRequest } from './respawn-validation'
 import { initStreamDeck, disposeStreamDeck, resolveCogsworthDir, getStreamDeckStatus, reconnectStreamDeck } from './streamdeck'
@@ -50,6 +51,7 @@ let updateChecker: UpdateChecker
 let currentDb: import('better-sqlite3').Database | null = null
 let currentMessageStore: MessageStore | null = null
 let currentSchedulesStore: SchedulesStore | null = null
+let autonomyStore: AutonomyStore | null = null
 let currentInboxStore: InboxStore | null = null
 let currentProposalsStore: ProposalsStore | null = null
 let promptScheduler: PromptScheduler | null = null
@@ -1371,6 +1373,7 @@ async function openProject(projectPath: string): Promise<void> {
   currentInboxStore = inboxStore
   currentProposalsStore = proposalsStore
   currentSchedulesStore = new SchedulesStore(db)
+  autonomyStore = new AutonomyStore(db)
 
   hub = await createHubServer()
   hub.setProjectPath(projectPath)
@@ -1980,6 +1983,13 @@ function setupIPC(): void {
   ipcMain.handle(IPC.SETTINGS_SET, (_event, key: string, value: any) => {
     saveSetting(key, value)
     return { status: 'ok' }
+  })
+
+  // Autonomy IPC
+  ipcMain.handle(IPC.AUTONOMY_GET, () => autonomyStore?.get() ?? { scheduling: false })
+  ipcMain.handle(IPC.AUTONOMY_SET, (_e, value: ProjectAutonomy) => {
+    autonomyStore?.set({ scheduling: !!value?.scheduling })
+    return autonomyStore?.get() ?? { scheduling: false }
   })
 
   // ── Inbox IPC ──────────────────────────────────────────────────────────────

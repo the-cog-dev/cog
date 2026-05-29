@@ -160,6 +160,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Settings
   getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke(IPC.SETTINGS_SET, key, value),
+  // Autonomy
+  getAutonomy: () => ipcRenderer.invoke(IPC.AUTONOMY_GET),
+  setAutonomy: (value: { scheduling: boolean }) => ipcRenderer.invoke(IPC.AUTONOMY_SET, value),
   // Stream Deck status + reconnect
   getStreamDeckStatus: () => ipcRenderer.invoke(IPC.STREAMDECK_STATUS),
   reconnectStreamDeck: () => ipcRenderer.invoke(IPC.STREAMDECK_RECONNECT),
