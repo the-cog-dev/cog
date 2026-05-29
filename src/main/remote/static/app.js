@@ -117,8 +117,18 @@
 
   function showDisconnected() {
     $('disconnected-overlay').classList.remove('hidden')
+    // Hide any open workshop overlay so the disconnected screen (and the main
+    // view after reconnect) isn't covered by a z-index:20 remnant panel that
+    // silently swallows every tap.
+    $('workshop-view').classList.add('hidden')
+    $('workshop-detail').classList.add('hidden')
+    $('workshop-panel').classList.add('hidden')
+    $('workshop-panels').classList.add('hidden')
+    $('workshop-spawn').classList.add('hidden')
     if (pollHandle) { clearInterval(pollHandle); pollHandle = null }
     if (panelPollHandle) { clearInterval(panelPollHandle); panelPollHandle = null }
+    if (workshopPollHandle) { clearInterval(workshopPollHandle); workshopPollHandle = null }
+    if (detailPollHandle) { clearInterval(detailPollHandle); detailPollHandle = null }
   }
 
   function render(state) {
@@ -708,6 +718,12 @@
     workshopActive = false
     $('workshop-view').classList.add('hidden')
     $('workshop-detail').classList.add('hidden')
+    // Also hide the panel-detail / panels-menu / spawn overlays. Without this,
+    // an expiry (403) while inside one of these z-index:20 overlays leaves it
+    // pinned over the restored main view, blocking all taps.
+    $('workshop-panel').classList.add('hidden')
+    $('workshop-panels').classList.add('hidden')
+    $('workshop-spawn').classList.add('hidden')
     $('content').classList.remove('hidden')
     $('send-bar').classList.remove('hidden')
     $('header').classList.remove('hidden')
@@ -1043,7 +1059,9 @@
   }
 
   // Panel detail views (pinboard, info, inbox, trollbox)
-  function openPanelDetail(win) {
+  let panelOpenedFrom = 'canvas'  // 'canvas' | 'panels-menu' — where the detail was opened from
+  function openPanelDetail(win, calledFrom) {
+    panelOpenedFrom = calledFrom || 'canvas'
     const panelType = (win.panelType || win.title || '').toLowerCase()
     $('workshop-view').classList.add('hidden')
     $('workshop-panel').classList.remove('hidden')
@@ -1071,7 +1089,13 @@
 
   function closePanelDetail() {
     $('workshop-panel').classList.add('hidden')
-    $('workshop-view').classList.remove('hidden')
+    // Return to wherever the panel was opened from, instead of always dropping
+    // to the canvas (which skips a nav level when opened via the panels menu).
+    if (panelOpenedFrom === 'panels-menu') {
+      $('workshop-panels').classList.remove('hidden')
+    } else {
+      $('workshop-view').classList.remove('hidden')
+    }
     if (panelPollHandle) { clearInterval(panelPollHandle); panelPollHandle = null }
   }
 
@@ -1784,7 +1808,7 @@
         openPanelDetail({
           panelType: panel,
           title: panel === 'inbox' ? '📬 Inbox' : '💬 Trollbox'
-        })
+        }, 'panels-menu')
         return
       }
       try {
