@@ -3,6 +3,7 @@ import type { BoardElement, BoardPage } from '../../shared/types'
 import { BoardElementView } from './BoardElementView'
 import { useBoardDrawing } from '../hooks/useBoardDrawing'
 import { useBoardHistory } from '../hooks/useBoardHistory'
+import { rasterizeNode } from '../hooks/useBoardRasterizer'
 
 // Exported so callers/toolbar can reference the tool state shape.
 export interface ToolState {
@@ -50,6 +51,12 @@ export function BoardPageCanvas({
 
   // Drawing overlay canvas ref
   const drawingCanvasRef = useRef<HTMLCanvasElement>(null)
+
+  // Capture wrapper ref — wraps the elements layer + drawing canvas for rasterization
+  const captureWrapperRef = useRef<HTMLDivElement>(null)
+  // Stable refs for unmount cleanup (avoids stale closure issues)
+  const captureWrapperNodeRef = useRef<HTMLDivElement | null>(null)
+  const pageIdRef = useRef<string>(page.id)
 
   // Refs so the native wheel handler always sees current values
   const zoomRef = useRef(zoom)
@@ -120,6 +127,37 @@ export function BoardPageCanvas({
     // Initialise immediately
     setViewport({ w: el.clientWidth, h: el.clientHeight })
     return () => ro.disconnect()
+  }, [])
+
+  // ── Keep stable refs in sync so unmount cleanup can use them ────────────
+  useEffect(() => {
+    captureWrapperNodeRef.current = captureWrapperRef.current
+    pageIdRef.current = page.id
+  })
+
+  // ── Debounced render-on-edit: save PNG 1500ms after any page change ──────
+  useEffect(() => {
+    const node = captureWrapperRef.current
+    if (!node) return
+    const id = page.id
+    const timer = setTimeout(() => {
+      rasterizeNode(node).then((b64) => {
+        if (b64) window.electronAPI.boardSaveRender(id, b64).catch(() => {})
+      })
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, [page])
+
+  // ── Fire-and-forget render on unmount ────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      const node = captureWrapperNodeRef.current
+      const id = pageIdRef.current
+      if (!node) return
+      rasterizeNode(node).then((b64) => {
+        if (b64) window.electronAPI.boardSaveRender(id, b64).catch(() => {})
+      })
+    }
   }, [])
 
   // ── Freehand drawing layer ───────────────────────────────────────────────
@@ -362,51 +400,65 @@ export function BoardPageCanvas({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      {/* Transformed canvas — zoom + pan applied here */}
+      {/* Capture wrapper — rasterized for agent vision; contains both layers */}
       <div
-        data-board-canvas
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          transformOrigin: '0 0',
-          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-        }}
-      >
-        {page.elements.map((el) => (
-          <div key={el.id} data-board-element>
-            <BoardElementView
-              element={el}
-              zoom={zoom}
-              selected={selectedId === el.id}
-              onSelect={() => setSelectedId(el.id)}
-              onChange={handleElementChange}
-              onDelete={() => handleElementDelete(el.id)}
-            />
-          </div>
-        ))}
-      </div>
-
-      {/* Drawing canvas overlay — sits above elements, receives pointer events only when a draw tool is active */}
-      <canvas
-        ref={drawingCanvasRef}
+        ref={captureWrapperRef}
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
           width: viewport.w,
           height: viewport.h,
-          zIndex: 10,
-          pointerEvents:
-            tool.kind === 'pen' ||
-            tool.kind === 'line' ||
-            tool.kind === 'arrow' ||
-            tool.kind === 'ellipse' ||
-            tool.kind === 'eraser'
-              ? 'auto'
-              : 'none',
+          pointerEvents: 'none',
         }}
-      />
+      >
+        {/* Transformed canvas — zoom + pan applied here */}
+        <div
+          data-board-canvas
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            transformOrigin: '0 0',
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            pointerEvents: 'auto',
+          }}
+        >
+          {page.elements.map((el) => (
+            <div key={el.id} data-board-element>
+              <BoardElementView
+                element={el}
+                zoom={zoom}
+                selected={selectedId === el.id}
+                onSelect={() => setSelectedId(el.id)}
+                onChange={handleElementChange}
+                onDelete={() => handleElementDelete(el.id)}
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Drawing canvas overlay — sits above elements, receives pointer events only when a draw tool is active */}
+        <canvas
+          ref={drawingCanvasRef}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: viewport.w,
+            height: viewport.h,
+            zIndex: 10,
+            pointerEvents:
+              tool.kind === 'pen' ||
+              tool.kind === 'line' ||
+              tool.kind === 'arrow' ||
+              tool.kind === 'ellipse' ||
+              tool.kind === 'eraser'
+                ? 'auto'
+                : 'none',
+          }}
+        />
+      </div>
 
       {/* Zoom indicator — outside the transform */}
       <div
