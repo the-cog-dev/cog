@@ -689,6 +689,61 @@ server.tool(
   }
 )
 
+server.tool(
+  'schedule_prompt',
+  'Schedule a recurring prompt to be injected into an agent in this workspace (yourself or another agent). Use for self-directed check-ins or to drive a worker (e.g. "post a sitrep every 40 minutes for 6 hours"). If the project has Scheduling autonomy enabled, the schedule starts immediately; otherwise it is PROPOSED for the user to approve in their inbox. Minimum interval is 5 minutes; duration_hours is required (no infinite schedules).',
+  {
+    target_agent: z.string().describe('Name (or id) of the agent the prompt fires at. Use your own name to self-schedule.'),
+    prompt_text: z.string().describe('The text injected into the target agent on each fire.'),
+    interval_minutes: z.number().int().describe('Minutes between fires. Minimum 5.'),
+    duration_hours: z.number().int().describe('How many hours the schedule runs before auto-expiring. Required.'),
+    name: z.string().optional().describe('Optional human-readable label.')
+  },
+  async ({ target_agent, prompt_text, interval_minutes, duration_hours, name }) => {
+    try {
+      const result = await hubFetch('/schedules', {
+        method: 'POST',
+        body: JSON.stringify({
+          proposedBy: AGENT_NAME, targetAgent: target_agent, promptText: prompt_text,
+          intervalMinutes: interval_minutes, durationHours: duration_hours, name
+        })
+      })
+      if (result.status === 'proposed') {
+        return toolResult({ ...result, next: 'Awaiting user approval in their inbox. Continue other work; you will be notified when they decide.' })
+      }
+      return toolResult(result)
+    } catch (err: any) {
+      return toolError(`Failed to schedule prompt: ${err.message}`)
+    }
+  }
+)
+
+server.tool(
+  'list_schedules',
+  'List active scheduled prompts in this workspace, including who created each one. Use to avoid creating duplicate schedules and to find the ids of schedules you created (so you can cancel them).',
+  {},
+  async () => {
+    try { return toolResult(await hubFetch('/schedules')) }
+    catch (err: any) { return toolError(`Failed to list schedules: ${err.message}`) }
+  }
+)
+
+server.tool(
+  'cancel_schedule',
+  'Cancel a scheduled prompt by id. You may only cancel schedules YOU created (not the user\'s or another agent\'s). Get ids from list_schedules().',
+  { schedule_id: z.string().describe('The id of the schedule to cancel.') },
+  async ({ schedule_id }) => {
+    try {
+      const result = await hubFetch(`/schedules/${encodeURIComponent(schedule_id)}/cancel`, {
+        method: 'POST', body: JSON.stringify({ requestedBy: AGENT_NAME })
+      })
+      return toolResult(result)
+    } catch (err: any) {
+      return toolError(`Failed to cancel schedule: ${err.message}`)
+    }
+  }
+)
+
 async function main() {
   const transport = new StdioServerTransport()
   await server.connect(transport)
