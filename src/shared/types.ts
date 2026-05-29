@@ -392,6 +392,16 @@ export interface ProposedAgent {
 
 export type TeamProposalStatus = 'pending' | 'approved' | 'rejected' | 'expired'
 
+export interface SchedulePayload {
+  targetAgentId: string
+  targetAgentName: string
+  tabId: string
+  promptText: string
+  intervalMinutes: number
+  durationHours: number      // required for agent-created schedules (no infinite)
+  name?: string
+}
+
 export interface TeamProposal {
   id: string
   proposedBy: string       // orchestrator agent name
@@ -402,6 +412,8 @@ export interface TeamProposal {
   resolvedAt?: string
   feedback?: string        // user's optional reason on reject
   tabId?: string           // workspace tab the team should land in
+  kind: 'team' | 'schedule'
+  payload?: SchedulePayload   // present when kind === 'schedule'
 }
 
 export interface RecentProject {

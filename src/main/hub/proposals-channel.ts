@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid'
-import type { ProposedAgent, TeamProposal, TeamProposalStatus } from '../../shared/types'
+import type { ProposedAgent, SchedulePayload, TeamProposal, TeamProposalStatus } from '../../shared/types'
 
 const MAX_AGENTS_PER_PROPOSAL = 24
 const MAX_SUMMARY_SIZE = 2 * 1024
@@ -53,7 +53,8 @@ export class ProposalsChannel {
       agents,
       status: 'pending',
       createdAt: new Date().toISOString(),
-      tabId: tabId ?? undefined
+      tabId: tabId ?? undefined,
+      kind: 'team' as const
     }
 
     this.proposals.unshift(proposal)
@@ -104,6 +105,27 @@ export class ProposalsChannel {
 
   clear(): void {
     this.proposals = []
+  }
+
+  /** Create a pending schedule proposal (no agents; carries a SchedulePayload). */
+  createScheduleProposal(
+    proposedBy: string,
+    summary: string,
+    payload: SchedulePayload,
+    tabId?: string
+  ): TeamProposal {
+    if (!summary || typeof summary !== 'string') throw new Error('summary is required')
+    if (!payload || typeof payload.promptText !== 'string' || !payload.promptText.trim()) {
+      throw new Error('payload.promptText is required')
+    }
+    const proposal: TeamProposal = {
+      id: uuid(), proposedBy, summary, agents: [], status: 'pending',
+      createdAt: new Date().toISOString(), tabId: tabId ?? undefined,
+      kind: 'schedule', payload
+    }
+    this.proposals.unshift(proposal)
+    this.onProposalAdded?.(proposal)
+    return proposal
   }
 }
 

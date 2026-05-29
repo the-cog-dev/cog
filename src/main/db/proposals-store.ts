@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { ProposedAgent, TeamProposal, TeamProposalStatus } from '../../shared/types'
+import type { ProposedAgent, SchedulePayload, TeamProposal, TeamProposalStatus } from '../../shared/types'
 
 export class ProposalsStore {
   private insertStmt: Database.Statement
@@ -12,8 +12,8 @@ export class ProposalsStore {
   constructor(private db: Database.Database) {
     this.insertStmt = db.prepare(
       `INSERT INTO team_proposals
-         (id, proposed_by, summary, agents, status, created_at, resolved_at, feedback, tab_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, proposed_by, summary, agents, status, created_at, resolved_at, feedback, tab_id, kind, payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     this.loadAllStmt = db.prepare(
       `SELECT id,
@@ -24,7 +24,9 @@ export class ProposalsStore {
               created_at  AS createdAt,
               resolved_at AS resolvedAt,
               feedback,
-              tab_id      AS tabId
+              tab_id      AS tabId,
+              kind,
+              payload
        FROM team_proposals
        ORDER BY created_at DESC`
     )
@@ -37,7 +39,9 @@ export class ProposalsStore {
               created_at  AS createdAt,
               resolved_at AS resolvedAt,
               feedback,
-              tab_id      AS tabId
+              tab_id      AS tabId,
+              kind,
+              payload
        FROM team_proposals
        WHERE status = 'pending'
        ORDER BY created_at ASC`
@@ -51,7 +55,9 @@ export class ProposalsStore {
               created_at  AS createdAt,
               resolved_at AS resolvedAt,
               feedback,
-              tab_id      AS tabId
+              tab_id      AS tabId,
+              kind,
+              payload
        FROM team_proposals
        WHERE id = ?`
     )
@@ -71,7 +77,9 @@ export class ProposalsStore {
       proposal.createdAt,
       proposal.resolvedAt ?? null,
       proposal.feedback ?? null,
-      proposal.tabId ?? null
+      proposal.tabId ?? null,
+      proposal.kind,
+      proposal.payload ? JSON.stringify(proposal.payload) : null
     )
   }
 
@@ -114,6 +122,8 @@ interface RawProposal {
   resolvedAt: string | null
   feedback: string | null
   tabId: string | null
+  kind: 'team' | 'schedule'
+  payload: string | null
 }
 
 function rowToProposal(row: RawProposal): TeamProposal {
@@ -126,6 +136,8 @@ function rowToProposal(row: RawProposal): TeamProposal {
     createdAt: row.createdAt,
     resolvedAt: row.resolvedAt ?? undefined,
     feedback: row.feedback ?? undefined,
-    tabId: row.tabId ?? undefined
+    tabId: row.tabId ?? undefined,
+    kind: row.kind ?? 'team',
+    payload: row.payload ? JSON.parse(row.payload) as SchedulePayload : undefined
   }
 }

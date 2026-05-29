@@ -71,7 +71,9 @@ export function createDatabase(dbPath: string): Database.Database {
       created_at TEXT NOT NULL,
       resolved_at TEXT,
       feedback TEXT,
-      tab_id TEXT
+      tab_id TEXT,
+      kind TEXT NOT NULL DEFAULT 'team',
+      payload TEXT
     );
   `)
 
@@ -80,6 +82,8 @@ export function createDatabase(dbPath: string): Database.Database {
   try { db.exec('ALTER TABLE pinboard_tasks ADD COLUMN created_by TEXT') } catch { /* column exists */ }
   try { db.exec('ALTER TABLE pinboard_tasks ADD COLUMN tab_id TEXT') } catch { /* column exists */ }
   try { db.exec('ALTER TABLE pinboard_tasks ADD COLUMN target_agent TEXT') } catch { /* column exists */ }
+  try { db.exec("ALTER TABLE team_proposals ADD COLUMN kind TEXT NOT NULL DEFAULT 'team'") } catch { /* exists */ }
+  try { db.exec("ALTER TABLE team_proposals ADD COLUMN payload TEXT") } catch { /* exists */ }
 
   return db
 }
