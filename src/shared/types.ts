@@ -94,6 +94,28 @@ export interface PinboardTask {
   tabId?: string
 }
 
+export type BoardTool = 'pen' | 'line' | 'arrow' | 'ellipse'
+
+export interface BoardStroke {
+  id: string
+  tool: BoardTool
+  color: string
+  width: number
+  points: { x: number; y: number }[]
+}
+
+export type BoardElement =
+  | { type: 'note';  id: string; x: number; y: number; w: number; h: number; text: string; color: string; z: number }
+  | { type: 'text';  id: string; x: number; y: number; w: number; h: number; text: string; fontSize: number; z: number }
+  | { type: 'image'; id: string; x: number; y: number; w: number; h: number; file: string; z: number }
+
+export interface BoardPage {
+  id: string
+  orderIndex: number
+  elements: BoardElement[]
+  strokes: BoardStroke[]
+}
+
 export const IPC = {
   SPAWN_AGENT: 'agent:spawn',
   KILL_AGENT: 'agent:kill',
@@ -256,6 +278,14 @@ export const IPC = {
   STREAMDECK_RECONNECT: 'streamdeck:reconnect',
   STREAMDECK_LOCAL_PREPARE: 'streamdeck:local-prepare',
   STREAMDECK_LOCAL_PROGRESS: 'streamdeck:local-progress',
+  // Workboard
+  BOARD_LIST_PAGES: 'board:list-pages',
+  BOARD_SAVE_PAGE: 'board:save-page',
+  BOARD_ADD_PAGE: 'board:add-page',
+  BOARD_DELETE_PAGE: 'board:delete-page',
+  BOARD_SAVE_IMAGE: 'board:save-image',
+  BOARD_SAVE_RENDER: 'board:save-render',
+  BOARD_IMAGE_PATH: 'board:image-path',
 } as const
 
 export interface Skill {
