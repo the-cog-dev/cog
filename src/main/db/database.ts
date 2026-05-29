@@ -80,6 +80,13 @@ export function createDatabase(dbPath: string): Database.Database {
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS board_pages (
+      id          TEXT PRIMARY KEY,
+      order_index INTEGER NOT NULL,
+      elements    TEXT NOT NULL DEFAULT '[]',
+      strokes     TEXT NOT NULL DEFAULT '[]'
+    );
   `)
 
   // Migrations for existing DBs — safe to fail if column already exists
