@@ -529,6 +529,7 @@ export interface ScheduledPrompt {
   pausedAt: number | null
   status: ScheduleStatus
   fireHistory: FireHistoryEntry[]
+  createdBy: string   // 'user' for panel-created, or the creator agent's name
 }
 
 export interface CreateScheduleInput {
@@ -538,6 +539,7 @@ export interface CreateScheduleInput {
   promptText: string
   intervalMinutes: number
   durationHours: number | null
+  createdBy?: string  // defaults to 'user' when omitted
 }
 
 export interface EditScheduleInput {

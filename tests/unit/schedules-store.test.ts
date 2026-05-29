@@ -19,6 +19,7 @@ function sampleSchedule(overrides: Partial<ScheduledPrompt> = {}): ScheduledProm
     pausedAt: null,
     status: 'active',
     fireHistory: [],
+    createdBy: 'user',
     ...overrides
   }
 }
@@ -112,5 +113,18 @@ describe('SchedulesStore', () => {
 
   it('load returns empty array when table is empty', () => {
     expect(store.load()).toEqual([])
+  })
+
+  it('round-trips createdBy', () => {
+    const db = createDatabase(':memory:')
+    const store = new SchedulesStore(db)
+    const s: ScheduledPrompt = {
+      id: 'sch1', tabId: 'tab-default', agentId: 'a1', name: 'Sitrep',
+      promptText: 'post sitrep', intervalMinutes: 40, durationHours: 6,
+      startedAt: 1000, expiresAt: 1000 + 6 * 3600_000, nextFireAt: 1000 + 40 * 60_000,
+      pausedAt: null, status: 'active', fireHistory: [], createdBy: 'orchestrator'
+    }
+    store.save(s)
+    expect(store.load().find(x => x.id === 'sch1')!.createdBy).toBe('orchestrator')
   })
 })

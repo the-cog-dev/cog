@@ -46,7 +46,8 @@ export function createDatabase(dbPath: string): Database.Database {
       next_fire_at INTEGER NOT NULL,
       paused_at INTEGER,
       status TEXT NOT NULL CHECK(status IN ('active', 'paused', 'stopped', 'expired')),
-      fire_history TEXT NOT NULL
+      fire_history TEXT NOT NULL,
+      created_by TEXT
     );
 
     CREATE TABLE IF NOT EXISTS inbox_messages (
@@ -75,6 +76,7 @@ export function createDatabase(dbPath: string): Database.Database {
   `)
 
   // Migrations for existing DBs — safe to fail if column already exists
+  try { db.exec('ALTER TABLE scheduled_prompts ADD COLUMN created_by TEXT') } catch { /* column exists */ }
   try { db.exec('ALTER TABLE pinboard_tasks ADD COLUMN created_by TEXT') } catch { /* column exists */ }
   try { db.exec('ALTER TABLE pinboard_tasks ADD COLUMN tab_id TEXT') } catch { /* column exists */ }
   try { db.exec('ALTER TABLE pinboard_tasks ADD COLUMN target_agent TEXT') } catch { /* column exists */ }

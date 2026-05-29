@@ -15,6 +15,7 @@ interface Row {
   paused_at: number | null
   status: string
   fire_history: string
+  created_by: string
 }
 
 export class SchedulesStore {
@@ -27,8 +28,8 @@ export class SchedulesStore {
     this.upsertStmt = db.prepare(`
       INSERT INTO scheduled_prompts
         (id, tab_id, agent_id, name, prompt_text, interval_minutes, duration_hours,
-         started_at, expires_at, next_fire_at, paused_at, status, fire_history)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         started_at, expires_at, next_fire_at, paused_at, status, fire_history, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         tab_id = excluded.tab_id,
         agent_id = excluded.agent_id,
@@ -41,7 +42,8 @@ export class SchedulesStore {
         next_fire_at = excluded.next_fire_at,
         paused_at = excluded.paused_at,
         status = excluded.status,
-        fire_history = excluded.fire_history
+        fire_history = excluded.fire_history,
+        created_by = excluded.created_by
     `)
     this.deleteStmt = db.prepare('DELETE FROM scheduled_prompts WHERE id = ?')
     this.deleteByTabStmt = db.prepare('DELETE FROM scheduled_prompts WHERE tab_id = ?')
@@ -62,7 +64,8 @@ export class SchedulesStore {
       s.nextFireAt,
       s.pausedAt,
       s.status,
-      JSON.stringify(s.fireHistory)
+      JSON.stringify(s.fireHistory),
+      s.createdBy
     )
   }
 
@@ -93,7 +96,8 @@ export class SchedulesStore {
       nextFireAt: row.next_fire_at,
       pausedAt: row.paused_at,
       status: row.status as ScheduleStatus,
-      fireHistory: JSON.parse(row.fire_history)
+      fireHistory: JSON.parse(row.fire_history),
+      createdBy: row.created_by ?? 'user'
     }
   }
 }

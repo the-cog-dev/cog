@@ -143,7 +143,8 @@ export class PromptScheduler {
       nextFireAt: computeNextFireAt(now, input.intervalMinutes),
       pausedAt: null,
       status: 'active',
-      fireHistory: []
+      fireHistory: [],
+      createdBy: input.createdBy && input.createdBy.trim() ? input.createdBy.trim() : 'user',
     }
 
     this.schedules.set(schedule.id, schedule)
