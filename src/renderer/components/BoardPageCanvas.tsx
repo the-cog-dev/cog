@@ -235,6 +235,10 @@ export function BoardPageCanvas({
       // Only fire when clicking the background itself, not an element
       if ((e.target as HTMLElement).closest('[data-board-element]')) return
 
+      // Focus the board so Ctrl+V paste targets it (onPaste only fires on the
+      // focused element).
+      viewportRef.current?.focus()
+
       if (tool.kind === 'select') {
         // Start panning via left-button drag
         if (e.button === 0) {
@@ -355,11 +359,10 @@ export function BoardPageCanvas({
 
   // ── Drag-and-drop handlers ───────────────────────────────────────────────────
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    // Allow drop only if there are image files
-    const hasImage = Array.from(e.dataTransfer.items).some(
-      (item) => item.kind === 'file' && item.type.startsWith('image/')
-    )
-    if (hasImage) e.preventDefault()
+    // During a dragover the browser hides item.type (privacy), so checking for
+    // 'image/*' here fails and the drop is silently rejected. dataTransfer.types
+    // DOES expose 'Files' for OS file drags — preventDefault on that so `drop` fires.
+    if (e.dataTransfer.types.includes('Files')) e.preventDefault()
   }, [])
 
   const handleDrop = useCallback(
@@ -403,6 +406,9 @@ export function BoardPageCanvas({
     },
     [page, commit]
   )
+
+  // Focus the board on mount so Ctrl+V paste works immediately (no click first).
+  useEffect(() => { viewportRef.current?.focus() }, [])
 
   const isPanning = isPanningRef.current
 
