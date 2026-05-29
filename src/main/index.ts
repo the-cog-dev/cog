@@ -43,6 +43,8 @@ import { IPC } from '../shared/types'
 import { validateRespawnRequest } from './respawn-validation'
 import { initStreamDeck, disposeStreamDeck, resolveCogsworthDir, getStreamDeckStatus, reconnectStreamDeck } from './streamdeck'
 import { prepareLocalWhisper, isLocalWhisperReady } from './streamdeck/local-whisper-prepare'
+import { BoardStore } from './db/board-store'
+import { saveImageBytes, saveRenderBytes } from './board/board-files'
 
 let hub: HubServer
 let mainWindow: BrowserWindow
@@ -54,6 +56,7 @@ let currentDb: import('better-sqlite3').Database | null = null
 let currentMessageStore: MessageStore | null = null
 let currentSchedulesStore: SchedulesStore | null = null
 let autonomyStore: AutonomyStore | null = null
+let boardStore: BoardStore | null = null
 let currentInboxStore: InboxStore | null = null
 let currentProposalsStore: ProposalsStore | null = null
 let promptScheduler: PromptScheduler | null = null
@@ -1403,6 +1406,7 @@ async function openProject(projectPath: string): Promise<void> {
   currentProposalsStore = proposalsStore
   currentSchedulesStore = new SchedulesStore(db)
   autonomyStore = new AutonomyStore(db)
+  boardStore = new BoardStore(db)
 
   hub = await createHubServer(0, () => scheduleBridge ?? undefined)
   hub.setProjectPath(projectPath)
@@ -1647,6 +1651,7 @@ async function closeProject(): Promise<void> {
   scheduleBridge = null
   currentSchedulesStore = null
   autonomyStore = null  // backed by the project DB we're about to close; null so autonomy IPC falls back instead of hitting a closed handle
+  boardStore = null
 
   await disableRemoteView()
 
@@ -2894,6 +2899,21 @@ async function main(): Promise<void> {
       mainWindow?.webContents.send(IPC.STREAMDECK_LOCAL_PROGRESS, { stage: 'error', percent: 0, detail: message })
       return { ok: false, error: message }
     }
+  })
+
+  ipcMain.handle(IPC.BOARD_LIST_PAGES, () => boardStore?.listPages() ?? [])
+  ipcMain.handle(IPC.BOARD_ADD_PAGE, () => boardStore?.addPage() ?? null)
+  ipcMain.handle(IPC.BOARD_SAVE_PAGE, (_e, page) => { boardStore?.savePage(page); return true })
+  ipcMain.handle(IPC.BOARD_DELETE_PAGE, (_e, id: string) => { boardStore?.deletePage(id); return true })
+  ipcMain.handle(IPC.BOARD_SAVE_IMAGE, (_e, base64: string, ext: string) => {
+    const root = projectManager.currentProject?.path
+    if (!root) return null
+    return saveImageBytes(root, base64, ext)
+  })
+  ipcMain.handle(IPC.BOARD_SAVE_RENDER, (_e, pageId: string, base64: string) => {
+    const root = projectManager.currentProject?.path
+    if (!root) return null
+    return saveRenderBytes(root, pageId, base64)
   })
 }
 

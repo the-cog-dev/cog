@@ -301,4 +301,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(IPC.STREAMDECK_LOCAL_PROGRESS, handler)
     return () => ipcRenderer.removeListener(IPC.STREAMDECK_LOCAL_PROGRESS, handler)
   },
+  // Workboard
+  boardListPages: () => ipcRenderer.invoke(IPC.BOARD_LIST_PAGES),
+  boardAddPage: () => ipcRenderer.invoke(IPC.BOARD_ADD_PAGE),
+  boardSavePage: (page: unknown) => ipcRenderer.invoke(IPC.BOARD_SAVE_PAGE, page),
+  boardDeletePage: (id: string) => ipcRenderer.invoke(IPC.BOARD_DELETE_PAGE, id),
+  boardSaveImage: (base64: string, ext: string) => ipcRenderer.invoke(IPC.BOARD_SAVE_IMAGE, base64, ext),
+  boardSaveRender: (pageId: string, base64: string) => ipcRenderer.invoke(IPC.BOARD_SAVE_RENDER, pageId, base64),
 })

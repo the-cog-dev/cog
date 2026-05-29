@@ -136,6 +136,13 @@ declare global {
       // Project autonomy
       getAutonomy: () => Promise<{ scheduling: boolean }>
       setAutonomy: (value: { scheduling: boolean }) => Promise<{ scheduling: boolean }>
+      // Workboard
+      boardListPages: () => Promise<import('../shared/types').BoardPage[]>
+      boardAddPage: () => Promise<import('../shared/types').BoardPage | null>
+      boardSavePage: (page: import('../shared/types').BoardPage) => Promise<boolean>
+      boardDeletePage: (id: string) => Promise<boolean>
+      boardSaveImage: (base64: string, ext: string) => Promise<string | null>
+      boardSaveRender: (pageId: string, base64: string) => Promise<string | null>
     }
   }
 }
