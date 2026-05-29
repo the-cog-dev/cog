@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import type { BoardPage } from '../../shared/types'
+import type { BoardAppearance, BoardPage } from '../../shared/types'
 import { BoardPageCanvas } from './BoardPageCanvas'
 import type { ToolState } from './BoardPageCanvas'
 import { BoardToolbar } from './BoardToolbar'
+
+const DEFAULT_APPEARANCE: BoardAppearance = { bgColor: '#101010', showGrid: false, gridColor: '#2a2a2a' }
 
 export function Workboard() {
   const [pages, setPages] = useState<BoardPage[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [loading, setLoading] = useState(true)
   const [tool, setTool] = useState<ToolState>({ kind: 'select', color: '#ffd400', width: 4 })
+  const [appearance, setAppearance] = useState<BoardAppearance>(DEFAULT_APPEARANCE)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -30,6 +33,16 @@ export function Workboard() {
     load()
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    window.electronAPI.getBoardAppearance().then(setAppearance)
+  }, [])
+
+  const updateAppearance = (patch: Partial<BoardAppearance>) => {
+    const next = { ...appearance, ...patch }
+    setAppearance(next)
+    window.electronAPI.setBoardAppearance(next)
+  }
 
   const handlePageChange = (updated: BoardPage) => {
     setPages(prev => prev.map(p => p.id === updated.id ? updated : p))
@@ -110,13 +123,44 @@ export function Workboard() {
           style={navBtnStyle(pages.length <= 1)}
           title="Delete page"
         >🗑 Delete</button>
+
+        <div style={{ width: 1, height: 20, background: '#383838', marginLeft: 4 }} />
+
+        <input
+          type="color"
+          value={appearance.bgColor}
+          onChange={e => updateAppearance({ bgColor: e.target.value })}
+          title="Background color"
+          style={{
+            width: 24,
+            height: 24,
+            padding: 0,
+            border: '1px solid #383838',
+            borderRadius: 4,
+            background: 'none',
+            cursor: 'pointer',
+          }}
+        />
+
+        <button
+          onClick={() => updateAppearance({ showGrid: !appearance.showGrid })}
+          style={{
+            ...navBtnStyle(false),
+            background: appearance.showGrid ? '#3a3a5c' : '#2c2c2c',
+            borderColor: appearance.showGrid ? '#5555aa' : '#383838',
+            color: appearance.showGrid ? '#aaaaff' : '#bbb',
+          }}
+          title="Toggle grid"
+        >
+          {appearance.showGrid ? '▦ Grid' : '▢ Grid'}
+        </button>
       </div>
 
       {/* Tool palette */}
       <BoardToolbar tool={tool} setTool={setTool} />
 
       {/* Page canvas */}
-      <BoardPageCanvas page={page} tool={tool} onChange={handlePageChange} />
+      <BoardPageCanvas page={page} tool={tool} appearance={appearance} onChange={handlePageChange} />
     </div>
   )
 }

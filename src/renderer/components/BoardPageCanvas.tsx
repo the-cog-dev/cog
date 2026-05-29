@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import type { BoardElement, BoardPage } from '../../shared/types'
+import type { BoardAppearance, BoardElement, BoardPage } from '../../shared/types'
 import { BoardElementView } from './BoardElementView'
 import { useBoardDrawing } from '../hooks/useBoardDrawing'
 import { useBoardHistory } from '../hooks/useBoardHistory'
@@ -49,9 +49,12 @@ const zoomLabelStyle: React.CSSProperties = {
   flexShrink: 0,
 }
 
+const DEFAULT_APPEARANCE: BoardAppearance = { bgColor: '#101010', showGrid: false, gridColor: '#2a2a2a' }
+
 interface BoardPageCanvasProps {
   page: BoardPage
   tool?: ToolState
+  appearance?: BoardAppearance
   onChange: (p: BoardPage) => void
 }
 
@@ -74,6 +77,7 @@ function readFileAsBase64(file: File): Promise<{ base64: string; ext: string }> 
 export function BoardPageCanvas({
   page,
   tool = DEFAULT_TOOL,
+  appearance = DEFAULT_APPEARANCE,
   onChange,
 }: BoardPageCanvasProps): React.ReactElement {
   const [zoom, setZoom] = useState(1)
@@ -92,6 +96,7 @@ export function BoardPageCanvas({
   // Stable refs for unmount cleanup (avoids stale closure issues)
   const captureWrapperNodeRef = useRef<HTMLDivElement | null>(null)
   const pageIdRef = useRef<string>(page.id)
+  const bgColorRef = useRef<string>(appearance.bgColor)
 
   // Refs so handlers always see current values without stale closures
   const zoomRef = useRef(zoom)
@@ -154,6 +159,7 @@ export function BoardPageCanvas({
   useEffect(() => {
     captureWrapperNodeRef.current = captureWrapperRef.current
     pageIdRef.current = page.id
+    bgColorRef.current = appearance.bgColor
   })
 
   // ── Debounced render-on-edit: save PNG 1500ms after any page change ──────
@@ -161,21 +167,23 @@ export function BoardPageCanvas({
     const node = captureWrapperRef.current
     if (!node) return
     const id = page.id
+    const bg = appearance.bgColor
     const timer = setTimeout(() => {
-      rasterizeNode(node).then((b64) => {
+      rasterizeNode(node, bg).then((b64) => {
         if (b64) window.electronAPI.boardSaveRender(id, b64).catch(() => {})
       })
     }, 1500)
     return () => clearTimeout(timer)
-  }, [page])
+  }, [page, appearance.bgColor])
 
   // ── Fire-and-forget render on unmount ────────────────────────────────────
   useEffect(() => {
     return () => {
       const node = captureWrapperNodeRef.current
       const id = pageIdRef.current
+      const bg = bgColorRef.current
       if (!node) return
-      rasterizeNode(node).then((b64) => {
+      rasterizeNode(node, bg).then((b64) => {
         if (b64) window.electronAPI.boardSaveRender(id, b64).catch(() => {})
       })
     }
@@ -410,7 +418,12 @@ export function BoardPageCanvas({
         inset: 0,
         top: 44, // below the board navigator bar
         overflow: 'hidden',
-        background: '#101010',
+        background: appearance.bgColor,
+        backgroundImage: appearance.showGrid
+          ? `linear-gradient(${appearance.gridColor} 1px, transparent 1px), linear-gradient(90deg, ${appearance.gridColor} 1px, transparent 1px)`
+          : undefined,
+        backgroundSize: appearance.showGrid ? `${40 * zoom}px ${40 * zoom}px` : undefined,
+        backgroundPosition: appearance.showGrid ? `${pan.x}px ${pan.y}px` : undefined,
         cursor: isPanning ? 'grabbing' : tool.kind === 'select' ? 'default' : 'crosshair',
         userSelect: 'none',
         outline: 'none',
