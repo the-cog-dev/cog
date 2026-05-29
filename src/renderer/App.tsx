@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { TopBar } from './components/TopBar'
 import { Workspace } from './components/Workspace'
-import { Workboard } from './components/Workboard'
 import { SpawnDialog } from './components/SpawnDialog'
 import { PresetDialog } from './components/PresetDialog'
 import { BugReportDialog } from './components/BugReportDialog'
@@ -31,9 +30,10 @@ const GIT_ID = '__git__'
 const SCHEDULES_ID = '__schedules__'
 const TROLLBOX_ID = '__trollbox__'
 const INBOX_ID = '__inbox__'
+const BOARD_ID = '__board__'
 
 // Helpers for per-tab panel isolation
-const PANEL_PREFIXES = [PINBOARD_ID, INFO_ID, FILES_ID, RAC_ID, USAGE_ID, GIT_ID, SCHEDULES_ID, TROLLBOX_ID, INBOX_ID]
+const PANEL_PREFIXES = [PINBOARD_ID, INFO_ID, FILES_ID, RAC_ID, USAGE_ID, GIT_ID, SCHEDULES_ID, TROLLBOX_ID, INBOX_ID, BOARD_ID]
 const panelIdForTab = (base: string, tabId: string): string => `${base}::${tabId}`
 const isPanelWindow = (id: string): boolean => PANEL_PREFIXES.some(p => id === p || id.startsWith(p + '::'))
 
@@ -53,7 +53,6 @@ export function App(): React.ReactElement {
   const [showProjectPicker, setShowProjectPicker] = useState(false)
   const [links, setLinks] = useState<Array<{ from: string; to: string }>>([])
   const [groups, setGroups] = useState<AgentGroup[]>([])
-  const [showBoard, setShowBoard] = useState(false)
   const [linkDraggingFrom, setLinkDraggingFrom] = useState<string | null>(null)
   const {
     windows, zoom, pan,
@@ -74,6 +73,7 @@ export function App(): React.ReactElement {
   const schedulesOpen = tabWindows.some(w => w.id === panelIdForTab(SCHEDULES_ID, activeTabId))
   const trollboxOpen = tabWindows.some(w => w.id === panelIdForTab(TROLLBOX_ID, activeTabId))
   const inboxOpen = tabWindows.some(w => w.id === panelIdForTab(INBOX_ID, activeTabId))
+  const boardOpen = tabWindows.some(w => w.id === panelIdForTab(BOARD_ID, activeTabId))
 
   const handleSpawn = useCallback(async (config: Omit<AgentConfig, 'id'>) => {
     setShowSpawnDialog(false)
@@ -101,6 +101,7 @@ export function App(): React.ReactElement {
       'Files': FILES_ID,
       'R.A.C.': RAC_ID,
       'Usage': USAGE_ID,
+      'Board': BOARD_ID,
     }
     for (const wp of savedWindows) {
       const panelBase = panelTitleToId[wp.agentName]
@@ -245,6 +246,11 @@ export function App(): React.ReactElement {
     const id = panelIdForTab(INBOX_ID, activeTabId)
     if (inboxOpen) { removeWindow(id) } else { addWindow(id, 'Inbox', undefined, activeTabId) }
   }, [inboxOpen, addWindow, removeWindow, activeTabId])
+
+  const toggleBoard = useCallback(() => {
+    const id = panelIdForTab(BOARD_ID, activeTabId)
+    if (boardOpen) { removeWindow(id) } else { addWindow(id, '📖 Board', undefined, activeTabId) }
+  }, [boardOpen, addWindow, removeWindow, activeTabId])
 
   // Load links & groups when project changes
   useEffect(() => {
@@ -461,6 +467,7 @@ export function App(): React.ReactElement {
         git: GIT_ID,
         schedules: SCHEDULES_ID,
         trollbox: TROLLBOX_ID,
+        board: BOARD_ID,
       }
       const base = baseById[type]
       if (!base) return
@@ -475,6 +482,7 @@ export function App(): React.ReactElement {
         git: 'Git',
         schedules: 'Schedules',
         trollbox: 'Trollbox',
+        board: '📖 Board',
       }
       if (action === 'open' || (action === 'toggle' && !isOpen)) {
         if (isOpen) {
@@ -590,10 +598,10 @@ export function App(): React.ReactElement {
             onCreateTab={handleCreateTab}
             onCloseTab={handleCloseTab}
             onRenameTab={handleRenameTab}
-            boardActive={showBoard}
-            onToggleBoard={() => setShowBoard(v => !v)}
+            boardOpen={boardOpen}
+            onToggleBoard={toggleBoard}
           />
-          {showBoard ? <Workboard /> : <Workspace
+          <Workspace
             windows={tabWindows}
             agents={tabAgents}
             tabs={tabs}
@@ -616,7 +624,7 @@ export function App(): React.ReactElement {
             }}
             activeTabId={activeTabId}
             onEditAgent={(id) => setEditingAgentId(id)}
-          />}
+          />
           {showSpawnDialog && (
             <SpawnDialog
               onSpawn={handleSpawn}

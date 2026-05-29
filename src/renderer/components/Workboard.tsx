@@ -60,7 +60,7 @@ export function Workboard() {
   if (loading || pages.length === 0) {
     return (
       <div style={{
-        position: 'absolute', inset: 0, background: '#141414', color: '#555',
+        width: '100%', height: '100%', background: '#141414', color: '#555',
         display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace'
       }}>
         {loading ? 'Loading…' : 'No pages'}
@@ -71,7 +71,7 @@ export function Workboard() {
   const page = pages[currentIndex]
 
   return (
-    <div style={{ position: 'absolute', inset: 0 }}>
+    <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', background: '#141414' }}>
       {/* Navigator bar */}
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0, height: 44,

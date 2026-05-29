@@ -51,7 +51,7 @@ interface TopBarProps {
   onCreateTab: () => void
   onCloseTab: (tabId: string) => void
   onRenameTab: (tabId: string, name: string) => void
-  boardActive?: boolean
+  boardOpen?: boolean
   onToggleBoard?: () => void
 }
 
@@ -124,7 +124,7 @@ export function TopBar({
   onPresetsClick, onBugReport, onSettingsClick, onHelpMcpToolsClick,
   groups, onLinkDragStart, linkDraggingFrom,
   tabs, activeTabId, onSwitchTab, onCreateTab, onCloseTab, onRenameTab,
-  boardActive, onToggleBoard
+  boardOpen, onToggleBoard
 }: TopBarProps): React.ReactElement {
   const [agentMenuOpen, setAgentMenuOpen] = useState(false)
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
@@ -152,7 +152,7 @@ export function TopBar({
   const hoverIn = (e: React.MouseEvent) => (e.currentTarget.style.backgroundColor = '#333')
   const hoverOut = (e: React.MouseEvent) => (e.currentTarget.style.backgroundColor = 'transparent')
 
-  const activePanelCount = [pinboardOpen, infoOpen, filesOpen, racOpen, usageOpen, gitOpen, schedulesOpen, trollboxOpen, inboxOpen].filter(Boolean).length
+  const activePanelCount = [pinboardOpen, infoOpen, filesOpen, racOpen, usageOpen, gitOpen, schedulesOpen, trollboxOpen, inboxOpen, boardOpen].filter(Boolean).length
 
   return (
     <div style={{
@@ -293,20 +293,11 @@ export function TopBar({
                 { label: `${schedulesOpen ? '\u25CF ' : '  '}Schedules`, onClick: onToggleSchedules, color: schedulesOpen ? '#8cc4ff' : '#888' },
                 { label: `${trollboxOpen ? '\u25CF ' : '  '}\uD83C\uDF7F Trollbox`, onClick: onToggleTrollbox, color: trollboxOpen ? '#8cc4ff' : '#888' },
                 { label: `${inboxOpen ? '\u25CF ' : '  '}\uD83D\uDCEC Inbox${inboxUnreadCount > 0 ? ` (${inboxUnreadCount})` : ''}`, onClick: onToggleInbox, color: inboxUnreadCount > 0 ? '#f5a25a' : (inboxOpen ? '#8cc4ff' : '#888') },
+                { label: `${boardOpen ? '● ' : '  '}📖 Board`, onClick: onToggleBoard ?? (() => {}), color: boardOpen ? '#8cc4ff' : '#888' },
               ]}
             />
           )}
         </div>
-
-        <button
-          onClick={onToggleBoard}
-          style={{
-            ...btnStyle,
-            backgroundColor: boardActive ? '#2a3a4a' : '#2a2a2a',
-            border: boardActive ? '1px solid #4a8cc4' : '1px solid #444',
-            color: boardActive ? '#8cc4ff' : '#999',
-          }}
-        >📖 Board</button>
 
         <button onClick={onPresetsClick} style={btnStyle}>Presets</button>
 
