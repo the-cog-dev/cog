@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { BoardElement, BoardPage } from '../../shared/types'
 import { BoardElementView } from './BoardElementView'
 import { useBoardDrawing } from '../hooks/useBoardDrawing'
+import { useBoardHistory } from '../hooks/useBoardHistory'
 
 // Exported so callers/toolbar can reference the tool state shape.
 export interface ToolState {
@@ -43,6 +44,9 @@ export function BoardPageCanvas({
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [viewport, setViewport] = useState({ w: 800, h: 600 })
+
+  // Per-page undo/redo — commit() wraps onChange for all user-initiated edits.
+  const { commit } = useBoardHistory({ page, onChange })
 
   // Drawing overlay canvas ref
   const drawingCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -126,7 +130,7 @@ export function BoardPageCanvas({
     zoom,
     pan,
     viewport,
-    onCommit: (newStrokes) => onChange({ ...page, strokes: newStrokes }),
+    onCommit: (newStrokes) => commit({ ...page, strokes: newStrokes }),
   })
 
   // ── Image drop helper ──────────────────────────────────────────────────────
@@ -149,13 +153,13 @@ export function BoardPageCanvas({
           z: maxZ + 1,
         }
         const updated = { ...page, elements: [...page.elements, newEl] }
-        onChange(updated)
+        commit(updated)
         setSelectedId(newEl.id)
       } catch (err) {
         console.error('[BoardPageCanvas] addImageElement failed:', err)
       }
     },
-    [page, onChange]
+    [page, commit]
   )
 
   // ── Canvas background mouse handlers (pan drag + element creation) ──────────
@@ -247,10 +251,10 @@ export function BoardPageCanvas({
         }
       }
 
-      onChange({ ...page, elements: [...page.elements, newEl] })
+      commit({ ...page, elements: [...page.elements, newEl] })
       setSelectedId(id)
     },
-    [tool, pan, zoom, page, onChange]
+    [tool, pan, zoom, page, commit]
   )
 
   // ── Paste handler ────────────────────────────────────────────────────────────
@@ -317,20 +321,20 @@ export function BoardPageCanvas({
   // ── Element callbacks ────────────────────────────────────────────────────────
   const handleElementChange = useCallback(
     (updated: BoardElement) => {
-      onChange({
+      commit({
         ...page,
         elements: page.elements.map((el) => (el.id === updated.id ? updated : el)),
       })
     },
-    [page, onChange]
+    [page, commit]
   )
 
   const handleElementDelete = useCallback(
     (id: string) => {
-      onChange({ ...page, elements: page.elements.filter((el) => el.id !== id) })
+      commit({ ...page, elements: page.elements.filter((el) => el.id !== id) })
       setSelectedId(null)
     },
-    [page, onChange]
+    [page, commit]
   )
 
   const isPanning = isPanningRef.current
