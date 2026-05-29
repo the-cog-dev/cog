@@ -5,8 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="theme-color" content="#0a0a0a">
   <title>The Cog Remote</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon.svg">
 </head>
 <body>
   <header id="header">
@@ -27,7 +31,10 @@
     </section>
 
     <section id="schedules-section" class="card-section">
-      <h2 class="section-header" data-toggle="schedules-list">▼ SCHEDULES</h2>
+      <h2 class="section-header" data-toggle="schedules-list">
+        ▼ SCHEDULES
+        <button id="add-schedule-btn" class="inline-btn" title="New schedule (Workshop)">+</button>
+      </h2>
       <div id="schedules-list" class="section-body"></div>
     </section>
 
@@ -192,6 +199,35 @@
       <div class="modal-actions">
         <button id="task-cancel">Cancel</button>
         <button id="task-submit">Post</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="schedule-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3>New Schedule</h3>
+      <label class="modal-label" for="schedule-agent">Agent</label>
+      <select id="schedule-agent"></select>
+      <label class="modal-label" for="schedule-name">Name (optional)</label>
+      <input id="schedule-name" placeholder="e.g., Hourly check-in" />
+      <label class="modal-label" for="schedule-prompt">Prompt text</label>
+      <textarea id="schedule-prompt" placeholder="What should we send the agent?" rows="3"></textarea>
+      <div class="modal-row">
+        <label class="modal-inline">
+          Every
+          <input id="schedule-interval" type="number" min="1" value="60" inputmode="numeric" />
+          min
+        </label>
+        <label class="modal-inline">
+          For
+          <input id="schedule-duration" type="number" min="0" value="8" inputmode="numeric" />
+          h (0 = ∞)
+        </label>
+      </div>
+      <div id="schedule-error" class="schedule-error"></div>
+      <div class="modal-actions">
+        <button id="schedule-cancel">Cancel</button>
+        <button id="schedule-submit">Create</button>
       </div>
     </div>
   </div>

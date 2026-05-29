@@ -2,6 +2,80 @@
   'use strict'
   const TOKEN = window.__TOKEN__
   const BASE = `/r/${TOKEN}`
+
+  // Register the service worker so the app shell is installable as a PWA.
+  // Scope follows the SW URL — `${BASE}/sw.js` gives scope `${BASE}/` which
+  // matches the manifest. Registration is best-effort: if the browser has no
+  // SW support (3DS, PSP, older feature phones) the rest of the app still
+  // works via plain network requests.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register(`${BASE}/sw.js`, { scope: `${BASE}/` }).catch(() => {
+        // Swallow: some embedded browsers refuse SWs, no user-facing impact.
+      })
+    })
+  }
+
+  // WebSocket — best-effort augmentation. Polling continues to run in
+  // parallel, so a dead WS just means we're back to 5s refresh latency.
+  // On state.delta the next polling tick will reflect server truth; on
+  // agent.output we append the chunk live into the detail view's textarea.
+  let ws = null
+  let wsBackoffMs = 1000
+  const wsListeners = { output: new Map() }  // agentId → handler
+
+  function connectWs() {
+    if (!('WebSocket' in window)) return
+    try {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+      ws = new WebSocket(`${proto}//${location.host}${BASE}/ws`)
+    } catch { return }
+    ws.addEventListener('open', () => {
+      wsBackoffMs = 1000
+      // Re-subscribe any agents the user is currently watching after reconnect.
+      for (const agentId of wsListeners.output.keys()) {
+        try { ws.send(JSON.stringify({ type: 'subscribe.output', agentId })) } catch { /* ignore */ }
+      }
+    })
+    ws.addEventListener('message', (event) => {
+      let msg
+      try { msg = JSON.parse(event.data) } catch { return }
+      if (!msg || typeof msg !== 'object') return
+      if (msg.type === 'agent.output') {
+        const handler = wsListeners.output.get(msg.agentId)
+        if (handler) handler(msg.chunk)
+      } else if (msg.type === 'state.delta') {
+        // Tell the dashboard to refresh sooner than the polling cadence.
+        if (Array.isArray(msg.changed) && msg.changed.length > 0) fetchState()
+      }
+    })
+    ws.addEventListener('close', () => {
+      ws = null
+      // Cap backoff at 30s. We rely on polling for liveness in the meantime.
+      const delay = Math.min(wsBackoffMs, 30_000)
+      setTimeout(connectWs, delay)
+      wsBackoffMs = Math.min(wsBackoffMs * 2, 30_000)
+    })
+    ws.addEventListener('error', () => {
+      // `close` will fire after this — handle reconnect there.
+    })
+  }
+  connectWs()
+
+  function subscribeAgentOutput(agentId, handler) {
+    wsListeners.output.set(agentId, handler)
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: 'subscribe.output', agentId })) } catch { /* ignore */ }
+    }
+  }
+  function unsubscribeAgentOutput(agentId) {
+    wsListeners.output.delete(agentId)
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: 'unsubscribe.output', agentId })) } catch { /* ignore */ }
+    }
+  }
+  // Expose so detail view can hook in below
+  window.__cogWs = { subscribeAgentOutput, unsubscribeAgentOutput }
   const POLL_INTERVAL_MS = 5000
   const OUTPUT_CACHE_MS = 5000
 
@@ -434,6 +508,103 @@
     }
   })
 
+  // Schedule creation modal. Workshop-gated server-side; if the user hasn't
+  // entered the PIN yet, the create endpoint returns 403 and we route them
+  // through the existing passcode flow with the submission queued as a
+  // continuation. This avoids forcing a passcode entry just to open the modal.
+  let pendingScheduleSubmission = null
+
+  function openScheduleModal() {
+    // Populate the agent picker from the current state. The schedule needs
+    // an agentId, not a name — names can clash and agentId is what the
+    // server's createSchedule resolves.
+    const select = $('schedule-agent')
+    const realAgents = (agents || []).filter(a => a.status !== 'panel')
+    if (realAgents.length === 0) {
+      statusMessage('Spawn an agent before scheduling prompts', 'error')
+      return
+    }
+    select.innerHTML = realAgents
+      .map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}</option>`)
+      .join('')
+    $('schedule-name').value = ''
+    $('schedule-prompt').value = ''
+    $('schedule-interval').value = '60'
+    $('schedule-duration').value = '8'
+    $('schedule-error').textContent = ''
+    $('schedule-modal').classList.remove('hidden')
+    setTimeout(() => $('schedule-prompt').focus(), 50)
+  }
+
+  $('add-schedule-btn').addEventListener('click', (e) => {
+    e.stopPropagation()
+    openScheduleModal()
+  })
+
+  $('schedule-cancel').addEventListener('click', () => {
+    $('schedule-modal').classList.add('hidden')
+    pendingScheduleSubmission = null
+  })
+
+  async function submitScheduleCreate(payload) {
+    const res = await fetch(`${BASE}/workshop/schedule/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    if (res.status === 403) {
+      // Not workshop-verified. Park the submission and prompt for PIN —
+      // verifyPasscode's success path will replay it before entering workshop.
+      pendingScheduleSubmission = payload
+      $('schedule-modal').classList.add('hidden')
+      $('workshop-passcode').classList.remove('hidden')
+      const boxes = document.querySelectorAll('.pin-box')
+      boxes.forEach(b => { b.value = '' })
+      boxes[0].focus()
+      $('passcode-error').textContent = ''
+      return { deferred: true }
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      return { error: err.error || `HTTP ${res.status}` }
+    }
+    return { ok: true }
+  }
+
+  $('schedule-submit').addEventListener('click', async () => {
+    const agentId = $('schedule-agent').value
+    const name = $('schedule-name').value.trim()
+    const promptText = $('schedule-prompt').value.trim()
+    const intervalMinutes = parseInt($('schedule-interval').value, 10)
+    const durationRaw = parseInt($('schedule-duration').value, 10)
+    const durationHours = !Number.isFinite(durationRaw) || durationRaw <= 0 ? null : durationRaw
+
+    if (!agentId) { $('schedule-error').textContent = 'Pick an agent'; return }
+    if (!promptText) { $('schedule-error').textContent = 'Prompt text required'; return }
+    if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) {
+      $('schedule-error').textContent = 'Interval must be > 0 minutes'
+      return
+    }
+
+    const payload = { agentId, name: name || undefined, promptText, intervalMinutes, durationHours }
+    try {
+      const result = await submitScheduleCreate(payload)
+      if (result.deferred) {
+        statusMessage('Enter Workshop passcode to confirm', 'info')
+        return
+      }
+      if (result.error) {
+        $('schedule-error').textContent = result.error
+        return
+      }
+      $('schedule-modal').classList.add('hidden')
+      statusMessage('Schedule created', 'success')
+      fetchState()
+    } catch {
+      $('schedule-error').textContent = 'Network error'
+    }
+  })
+
   // --- Workshop ---
   let workshopActive = false
   let workshopPollHandle = null
@@ -492,7 +663,22 @@
       const data = await res.json()
       if (data.verified) {
         $('workshop-passcode').classList.add('hidden')
-        enterWorkshop()
+        // If the user came here trying to create a schedule, replay the
+        // submission and stay on the dashboard. Otherwise enter workshop view
+        // as before.
+        if (pendingScheduleSubmission) {
+          const payload = pendingScheduleSubmission
+          pendingScheduleSubmission = null
+          const result = await submitScheduleCreate(payload)
+          if (result.ok) {
+            statusMessage('Schedule created', 'success')
+            fetchState()
+          } else if (result.error) {
+            statusMessage(result.error, 'error')
+          }
+        } else {
+          enterWorkshop()
+        }
       } else {
         $('passcode-error').textContent = data.error || `Wrong passcode (${data.attemptsLeft} left)`
         document.querySelectorAll('.pin-box').forEach(b => { b.value = '' })
@@ -828,9 +1014,28 @@
 
     await fetchDetailOutput()
     detailPollHandle = setInterval(fetchDetailOutput, POLL_INTERVAL_MS)
+
+    // Live stream new PTY chunks via WS. Polling stays as a backstop so a
+    // dropped WS still gets the next 5s tick. New chunks land at the bottom
+    // of the existing buffer; we keep the polling renderer authoritative on
+    // line breaks and scrollback — WS adds latency reduction, not extra UI.
+    if (window.__cogWs) {
+      window.__cogWs.subscribeAgentOutput(agent.id, (chunk) => {
+        const el = $('detail-output')
+        // Strip ANSI so we don't paint escape sequences onto the screen.
+        const text = stripAnsi(chunk)
+        if (!text) return
+        const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+        el.textContent += text
+        if (wasAtBottom) el.scrollTop = el.scrollHeight
+      })
+    }
   }
 
   function closeAgentDetail() {
+    if (currentDetailAgent && window.__cogWs) {
+      window.__cogWs.unsubscribeAgentOutput(currentDetailAgent.id)
+    }
     currentDetailAgent = null
     $('workshop-detail').classList.add('hidden')
     $('workshop-view').classList.remove('hidden')
@@ -1064,7 +1269,7 @@
           const status = (m.proposalStatus || '').toLowerCase()
           const proposalResolved = isProposal && status && status !== 'pending'
           return `
-            <div class="inbox-card ${isUnread ? 'unread' : ''}" data-msg-id="${escapeHtml(m.id)}" data-proposal-id="${escapeHtml(m.proposalId || '')}">
+            <div class="inbox-card ${isUnread ? 'unread' : ''}" data-msg-id="${escapeHtml(m.id)}" data-proposal-id="${escapeHtml(m.proposalId || '')}" data-agent-name="${escapeHtml(m.agentName)}">
               <div class="inbox-card-top">
                 <span class="inbox-priority ${pCls}">${priorityLabel(m.priority)}</span>
                 <span class="inbox-sender">${escapeHtml(m.agentName)}</span>
@@ -1084,6 +1289,10 @@
                   </div>
                 </div>
               ` : ''}
+              <div class="inbox-reply-slot"></div>
+              <div class="inbox-card-actions">
+                <button class="inbox-action-btn reply" data-action="reply">Reply</button>
+              </div>
               <div class="inbox-footer"></div>
             </div>
           `
@@ -1194,6 +1403,84 @@
 
           sendBtn.addEventListener('click', doSend)
           input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSend() })
+        })
+      }
+
+      // Free-form reply — mirrors the desktop InboxPanel's Reply button.
+      // Lives in its own slot below the proposal block (if any) so the
+      // approve/reject row stays untouched.
+      const replyBtn = card.querySelector('.inbox-action-btn.reply')
+      const replySlot = card.querySelector('.inbox-reply-slot')
+      const replyActions = card.querySelector('.inbox-card-actions')
+      const agentName = card.dataset.agentName || ''
+      if (replyBtn && replySlot && replyActions && agentName) {
+        replyBtn.addEventListener('click', () => {
+          inboxInteractionLocks.add(msgId)
+          replyActions.style.display = 'none'
+          replySlot.innerHTML = `
+            <textarea class="inbox-reply-input" placeholder="Reply to ${escapeHtml(agentName)}…" rows="3"></textarea>
+            <div class="inbox-reply-buttons">
+              <button class="inbox-action-btn reply-cancel">Cancel</button>
+              <button class="inbox-action-btn reply-send" disabled>Send</button>
+            </div>
+          `
+          const input = replySlot.querySelector('.inbox-reply-input')
+          const sendBtn = replySlot.querySelector('.reply-send')
+          const cancelBtn = replySlot.querySelector('.reply-cancel')
+          setTimeout(() => input.focus(), 50)
+
+          const restoreClosed = () => {
+            replySlot.innerHTML = ''
+            replyActions.style.display = ''
+            inboxInteractionLocks.delete(msgId)
+          }
+
+          input.addEventListener('input', () => {
+            sendBtn.disabled = !input.value.trim()
+          })
+
+          cancelBtn.addEventListener('click', restoreClosed)
+
+          const doSend = async () => {
+            const text = input.value.trim()
+            if (!text) return
+            sendBtn.disabled = true
+            cancelBtn.disabled = true
+            input.disabled = true
+            try {
+              const res = await fetch(`${BASE}/inbox/${encodeURIComponent(msgId)}/reply`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text })
+              })
+              const result = await res.json().catch(() => ({}))
+              if (res.ok && result.success !== false) {
+                replySlot.innerHTML = '<span class="inbox-action-resolved">Reply sent</span>'
+                footer.textContent = ''
+                card.classList.remove('unread')
+                inboxInteractionLocks.delete(msgId)
+              } else {
+                input.disabled = false
+                cancelBtn.disabled = false
+                sendBtn.disabled = false
+                footer.innerHTML = `<span class="inbox-error">${escapeHtml(result.error || 'Reply failed')}</span>`
+              }
+            } catch {
+              input.disabled = false
+              cancelBtn.disabled = false
+              sendBtn.disabled = false
+              footer.innerHTML = '<span class="inbox-error">Network error</span>'
+            }
+          }
+
+          sendBtn.addEventListener('click', doSend)
+          input.addEventListener('keydown', (e) => {
+            // Ctrl/Cmd+Enter to send; plain Enter inserts a newline as normal.
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault()
+              doSend()
+            }
+          })
         })
       }
     })

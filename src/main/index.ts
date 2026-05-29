@@ -29,6 +29,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { TokenManager } from './remote/token-manager'
 import { CloudflaredManager } from './remote/cloudflared-manager'
 import { RemoteServer } from './remote/remote-server'
+import { RemoteWsHub } from './remote/ws-hub'
 import * as communityClient from './community/community-client'
 import * as themesStore from './themes/themes-store'
 import * as workspaceThemeStore from './themes/workspace-theme-store'
@@ -74,6 +75,7 @@ let cloudflaredManager: CloudflaredManager | null = null
 let remoteServer: RemoteServer | null = null
 let remoteHttpServer: HttpServer | null = null
 let remoteLanServer: HttpServer | null = null  // LAN-accessible listener (bound to 0.0.0.0)
+let remoteWsHub: RemoteWsHub | null = null
 let remotePublicUrl: string | null = null
 let remoteLanUrl: string | null = null  // http://<lan-ip>:<port>/r/<token>/
 let remoteStatusTicker: ReturnType<typeof setInterval> | null = null
@@ -245,6 +247,7 @@ async function enableRemoteView(): Promise<void> {
   remoteServer = new RemoteServer({
     tokenManager: remoteTokenManager,
     getProjectName: () => projectManager?.currentProject?.name ?? 'The Cog',
+    getProjectPath: () => projectManager?.currentProject?.path ?? null,
     getAgents: () => {
       return getVisibleAgents().map(a => ({
         id: a.id, name: a.name, cli: a.cli, model: a.model || 'default', role: a.role, status: a.status
@@ -303,6 +306,23 @@ async function enableRemoteView(): Promise<void> {
     restartSchedule: (id: string) => {
       if (!promptScheduler) throw new Error('Scheduler unavailable')
       return promptScheduler.restart(id)
+    },
+    createSchedule: (input) => {
+      if (!promptScheduler) throw new Error('Scheduler unavailable')
+      // Resolve tabId from the agent's config so the schedule lives in the
+      // same workspace tab as the agent. Falls back to the default tab for
+      // older agents that pre-date workspace tabs.
+      const managed = agents.get(input.agentId)
+      if (!managed) throw new Error(`Agent ${input.agentId} not found`)
+      const tabId = managed.config.tabId || 'tab-default'
+      return promptScheduler.create({
+        tabId,
+        agentId: input.agentId,
+        name: input.name,
+        promptText: input.promptText,
+        intervalMinutes: input.intervalMinutes,
+        durationHours: input.durationHours
+      })
     },
     postTask: (title: string, description: string, priority: 'low' | 'medium' | 'high') => {
       if (!hub) throw new Error('Hub unavailable')
@@ -492,6 +512,15 @@ async function enableRemoteView(): Promise<void> {
       } catch { /* orchestrator may not be reachable */ }
       return { success: true }
     },
+    replyToInbox: (agentName: string, message: string) => {
+      if (!hub) return { success: false, error: 'Hub not ready' }
+      try {
+        hub.messages.send('user', agentName, message)
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Send failed' }
+      }
+    },
     // ── Trollbox bridge (Phase 4b) ─────────────────────────────────────────
     getTrollboxState: () => cachedTrollboxState,
     sendTrollboxMessage: (text: string, nick: string) =>
@@ -508,6 +537,12 @@ async function enableRemoteView(): Promise<void> {
     throw new Error('Failed to bind remote server')
   }
   const localPort = addr.port
+
+  // Attach the WebSocket hub to the same HTTP server. It handles its own
+  // upgrade routing and auth — adding `upgrade` listener on the http.Server
+  // is non-destructive to existing routes.
+  remoteWsHub = new RemoteWsHub(remoteTokenManager)
+  remoteWsHub.attachToServer(remoteHttpServer)
 
   try {
     const baseUrl = await cloudflaredManager.start(localPort)
@@ -527,6 +562,10 @@ async function enableRemoteView(): Promise<void> {
 
 async function disableRemoteView(): Promise<void> {
   if (cloudflaredManager) cloudflaredManager.stop()
+  if (remoteWsHub) {
+    remoteWsHub.close()
+    remoteWsHub = null
+  }
   if (remoteHttpServer) {
     await new Promise<void>((resolve) => remoteHttpServer!.close(() => resolve()))
     remoteHttpServer = null
@@ -598,6 +637,10 @@ async function enableLanAccess(): Promise<{ ok: boolean; error?: string }> {
   if (!addr || typeof addr === 'string') {
     return { ok: false, error: 'Failed to bind LAN server' }
   }
+  // Attach the shared WS hub to the LAN server too so phones on Wi-Fi get
+  // the same real-time stream as cloudflared clients. Reuses the same auth
+  // (token in URL) — no extra surface area.
+  if (remoteWsHub) remoteWsHub.attachToServer(remoteLanServer)
   const token = remoteTokenManager.getCurrentToken()
   remoteLanUrl = `http://${lanIp}:${addr.port}/r/${token}/`
   console.log(`[RemoteView] LAN access ready: ${remoteLanUrl}`)
@@ -881,6 +924,9 @@ function spawnPtyAndWire(
     extraEnv: mcpEnv,
     onData: (data) => {
       mainWindow.webContents.send(IPC.PTY_OUTPUT, config.id, data)
+      // Forward to mobile WS subscribers. No-op when nobody is watching
+      // this agent's detail view — pushAgentOutput pre-filters.
+      remoteWsHub?.pushAgentOutput(config.id, typeof data === 'string' ? data : String(data))
     },
     onExit: (exitCode) => {
       hub.registry.updateStatus(config.name, 'disconnected')
@@ -904,6 +950,7 @@ function spawnPtyAndWire(
     onStatusChange: (status) => {
       hub.registry.updateStatus(config.name, status)
       mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
+      remoteWsHub?.pushStateDelta(['agents'])
 
       // Status-driven prompt injection: inject when CLI first reaches prompt
       if (status === 'active' && !hasReceivedInitialPrompt.has(config.id)) {
@@ -1400,16 +1447,19 @@ async function openProject(projectPath: string): Promise<void> {
   hub.pinboard.onTaskDeleted = (taskId) => {
     pinboardStore.deleteTask(taskId)
     mainWindow?.webContents.send(IPC.PINBOARD_TASK_UPDATE, hub.pinboard.readTasks())
+    remoteWsHub?.pushStateDelta(['pinboard'])
   }
   hub.infoChannel.onEntryAdded = (entry) => {
     infoStore.saveEntry(entry)
     mainWindow?.webContents.send(IPC.INFO_ENTRY_ADDED, hub.infoChannel.readInfo())
     hub.agentMetrics.increment(entry.from, 'infoPosted')
+    remoteWsHub?.pushStateDelta(['info'])
   }
 
   hub.inboxChannel.onMessageAdded = (msg) => {
     inboxStore.saveMessage(msg)
     mainWindow?.webContents.send(IPC.INBOX_MESSAGE_ADDED, hub.inboxChannel.readAll())
+    remoteWsHub?.pushStateDelta(['inbox'])
     // Native notification if message priority meets the user-set threshold
     // (default 'high'). 'none' disables entirely.
     const settings = loadSettings()
@@ -1429,6 +1479,7 @@ async function openProject(projectPath: string): Promise<void> {
   hub.inboxChannel.onMessageUpdated = (msg) => {
     inboxStore.markRead(msg.id, msg.readAt ?? new Date().toISOString())
     mainWindow?.webContents.send(IPC.INBOX_MESSAGE_UPDATED, hub.inboxChannel.readAll())
+    remoteWsHub?.pushStateDelta(['inbox'])
   }
   hub.inboxChannel.onMessageDeleted = (id) => {
     inboxStore.deleteMessage(id)
@@ -1477,6 +1528,7 @@ async function openProject(projectPath: string): Promise<void> {
     onChange: () => {
       if (!promptScheduler) return
       mainWindow?.webContents.send(IPC.SCHEDULES_UPDATED, promptScheduler.list())
+      remoteWsHub?.pushStateDelta(['schedules'])
     },
     onResumed: (count) => {
       if (count > 0) {

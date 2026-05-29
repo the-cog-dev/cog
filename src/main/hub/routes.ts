@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express'
 import * as fs from 'fs'
 import * as path from 'path'
+import { resolveProjectPath as resolveProjectPathShared } from '../shared/project-path'
 import type { AgentRegistry } from './agent-registry'
 import type { MessageRouter } from './message-router'
 import type { Pinboard } from './pinboard'
@@ -371,39 +372,8 @@ export function createRoutes(
 
   // --- File operation routes ---
 
-  function resolveProjectPath(requestedPath: string): string | null {
-    if (!projectPathRef.path) return null
-    if (typeof requestedPath !== 'string' || requestedPath.length === 0) return null
-    const projectRoot = path.resolve(projectPathRef.path)
-    const resolved = path.resolve(projectRoot, requestedPath)
-    // Follow symlinks before containment check: without realpath, an attacker
-    // with project-write access could plant a symlink whose lexical path is
-    // inside the root but whose target is arbitrary (e.g. /etc/passwd).
-    // realpathSync throws on non-existent paths, so only apply when the target
-    // already exists (writes to new files go through the parent dir).
-    let realResolved = resolved
-    try {
-      realResolved = fs.realpathSync(resolved)
-    } catch { /* path doesn't exist yet — safe, containment checked below */ }
-    // For not-yet-existing targets, realpath the parent directory so a
-    // symlinked parent can't escape the sandbox on a subsequent write.
-    let anchor = realResolved
-    if (!fs.existsSync(realResolved)) {
-      try { anchor = fs.realpathSync(path.dirname(resolved)) } catch { anchor = path.dirname(resolved) }
-    }
-    let realRoot = projectRoot
-    try { realRoot = fs.realpathSync(projectRoot) } catch { /* keep lexical */ }
-    const normalize = (p: string): string => p.toLowerCase().replace(/\\/g, '/').replace(/\/+$/, '')
-    const normalizedRoot = normalize(realRoot)
-    const normalizedResolved = normalize(realResolved)
-    const normalizedAnchor = normalize(anchor)
-    // Append separator so `/home/u/proj` doesn't match `/home/u/proj-evil`.
-    const rootWithSep = normalizedRoot + '/'
-    const inRoot = (p: string) => p === normalizedRoot || p.startsWith(rootWithSep)
-    if (!inRoot(normalizedResolved)) return null
-    if (!inRoot(normalizedAnchor)) return null
-    return resolved
-  }
+  const resolveProjectPath = (requestedPath: string): string | null =>
+    resolveProjectPathShared(projectPathRef.path, requestedPath)
 
   router.get('/files/read', (req: Request, res: Response) => {
     const filePath = req.query.path as string

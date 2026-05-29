@@ -2,14 +2,43 @@ import express, { type Request, type Response, type NextFunction, type Applicati
 import * as fs from 'fs'
 import * as path from 'path'
 import { createHash, timingSafeEqual } from 'crypto'
+import { resolveProjectPath } from '../shared/project-path'
 import type { TokenManager } from './token-manager'
 
 const RATE_LIMIT_WINDOW_MS = 60_000
 const RATE_LIMIT_MAX = 60
 
+// Cookie scoped under /r/:token/ so each Remote View install has its own
+// device id. Lasts a year — long enough to survive token rotation reinstalls.
+const DEVICE_COOKIE_NAME = 'cog_did'
+const DEVICE_COOKIE_MAX_AGE = 365 * 24 * 60 * 60 // seconds
+
 interface RateBucket {
   count: number
   windowStart: number
+}
+
+// Parses a single cookie out of the `Cookie` header without pulling in
+// cookie-parser. Returns null if absent. Tolerates whitespace and ignores
+// other cookies — we only care about our own.
+function readCookie(header: string | string[] | undefined, name: string): string | null {
+  if (!header) return null
+  // `cookie` is always string-or-undefined per HTTP spec, but Node's
+  // IncomingHttpHeaders types it broader. Concatenate just in case.
+  const raw = Array.isArray(header) ? header.join('; ') : header
+  const parts = raw.split(';')
+  for (const raw of parts) {
+    const trimmed = raw.trim()
+    const eq = trimmed.indexOf('=')
+    if (eq <= 0) continue
+    if (trimmed.slice(0, eq) !== name) continue
+    const value = trimmed.slice(eq + 1)
+    // Cookie values are only [A-Za-z0-9_-] in our format. Reject anything
+    // else so a malformed header can't sneak control chars into logs.
+    if (!/^[A-Za-z0-9_-]+$/.test(value)) return null
+    return value
+  }
+  return null
 }
 
 export interface RemoteAgentSummary {
@@ -60,6 +89,11 @@ export interface RemoteInboxMessage {
 export interface RemoteServerDeps {
   tokenManager: TokenManager
   getProjectName: () => string
+  // Absolute path to the open project root, or null when no project is open.
+  // Used by the workshop-gated /files endpoints to sandbox reads/writes via
+  // resolveProjectPath. Optional so existing tests that don't open a project
+  // still construct a RemoteServer.
+  getProjectPath?: () => string | null
   getAgents: () => RemoteAgentSummary[]
   getSchedules: () => RemoteScheduleSummary[]
   getPinboardTasks: () => RemoteTaskSummary[]
@@ -68,6 +102,16 @@ export interface RemoteServerDeps {
   pauseSchedule: (id: string) => unknown
   resumeSchedule: (id: string) => unknown
   restartSchedule: (id: string) => unknown
+  // Creates a new scheduled prompt. Optional so tests that don't wire a
+  // scheduler still construct a RemoteServer. Returns the created schedule
+  // or throws on validation/agent-not-found.
+  createSchedule?: (input: {
+    agentId: string
+    name?: string
+    promptText: string
+    intervalMinutes: number
+    durationHours: number | null
+  }) => unknown
   postTask: (title: string, description: string, priority: 'low' | 'medium' | 'high') => unknown
   getInfoEntries: () => { id: string; from: string; note: string; tags: string[]; createdAt: string }[]
   getWorkshopPasscodeSet: () => boolean
@@ -106,6 +150,10 @@ export interface RemoteServerDeps {
   // the optional feedback back to the proposing orchestrator.
   approveProposal: (proposalId: string) => Promise<{ success: boolean; error?: string; spawned?: number }>
   rejectProposal: (proposalId: string, feedback?: string) => { success: boolean; error?: string }
+  // Free-form reply to the agent that sent an inbox message. Mirrors the
+  // desktop InboxPanel's Reply button — routed through the hub message
+  // channel as 'user' → <agentName> so the agent sees it like any other.
+  replyToInbox: (agentName: string, message: string) => { success: boolean; error?: string }
   // ── Trollbox bridge (Phase 4b) ──────────────────────────────────────────
   // The TrollboxClient lives in the renderer; main caches the latest state
   // it pushes us. If the renderer panel is closed, getTrollboxState returns
@@ -176,7 +224,23 @@ export class RemoteServer {
     this.app.use(express.json({ limit: '64kb' }))
     this.app.use('/r/:token', this.rateLimitMiddleware.bind(this))
     this.app.use('/r/:token', this.authMiddleware.bind(this))
-    this.app.use('/r/:token', express.static(this.staticDir, { index: false }))
+    this.app.use('/r/:token', express.static(this.staticDir, {
+      index: false,
+      // Some browsers (iOS Safari) refuse to install a PWA when the
+      // manifest comes back with the wrong Content-Type. Forcing the
+      // correct MIME on the way out is cheaper than depending on the
+      // ambient mime-types db being current.
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.webmanifest')) {
+          res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8')
+        } else if (filePath.endsWith('sw.js')) {
+          // SW updates must not be cached by the CDN/intermediaries —
+          // browsers also need a fresh fetch to detect SW byte changes.
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+          res.setHeader('Service-Worker-Allowed', '/')
+        }
+      }
+    }))
     this.registerRoutes()
   }
 
@@ -207,7 +271,31 @@ export class RemoteServer {
       return
     }
     this.deps.tokenManager.bumpActivity()
-    this.deps.tokenManager.trackSession(req.ip || 'unknown')
+
+    // Issue or honor the device cookie. Devices that don't store cookies
+    // (legacy 3DS/PSP browsers) just keep getting null — that path still
+    // works, falling back to per-IP session tracking.
+    let deviceId = readCookie(req.headers.cookie, DEVICE_COOKIE_NAME)
+    if (!deviceId) {
+      deviceId = this.deps.tokenManager.generateDeviceId()
+      const cookieParts = [
+        `${DEVICE_COOKIE_NAME}=${deviceId}`,
+        'HttpOnly',
+        'SameSite=Lax',
+        `Max-Age=${DEVICE_COOKIE_MAX_AGE}`,
+        `Path=/r/${token}/`
+      ]
+      // cloudflared serves over HTTPS but Express sees the loopback hop as
+      // plain http. Setting Secure unconditionally is safe in practice —
+      // browsers reaching the cloudflared URL are already over TLS.
+      cookieParts.push('Secure')
+      res.setHeader('Set-Cookie', cookieParts.join('; '))
+    }
+    const ua = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'].slice(0, 200) : undefined
+    this.deps.tokenManager.trackSession(req.ip || 'unknown', deviceId, ua)
+    // Expose the resolved deviceId on the request for downstream handlers
+    // (audit log, WS upgrade auth, future per-device rate limits).
+    ;(req as any).deviceId = deviceId
     next()
   }
 
@@ -271,6 +359,59 @@ export class RemoteServer {
     this.app.post('/r/:token/schedule/:id/pause', scheduleAction((id) => this.deps.pauseSchedule(id)))
     this.app.post('/r/:token/schedule/:id/resume', scheduleAction((id) => this.deps.resumeSchedule(id)))
     this.app.post('/r/:token/schedule/:id/restart', scheduleAction((id) => this.deps.restartSchedule(id)))
+
+    // POST /workshop/schedule/create — create a new scheduled prompt.
+    // Workshop-gated because it can trigger arbitrary prompts on agents.
+    // Validation mirrors the desktop UI: positive integer interval, optional
+    // positive integer duration in hours, non-empty prompt text.
+    this.app.post('/r/:token/workshop/schedule/create', (req: Request, res: Response, next: NextFunction) => {
+      // Inline workshop check — `requireWorkshop` is declared below this scope
+      // by historic ordering of the file. Keep the same guarantees by hand.
+      const ip = req.ip || 'unknown'
+      if (!this.deps.tokenManager.isWorkshopVerified(ip)) {
+        res.status(403).json({ error: 'Workshop not verified' })
+        return
+      }
+      if (!this.deps.createSchedule) {
+        res.status(503).json({ error: 'Scheduler not available' })
+        return
+      }
+      const { agentId, name, promptText, intervalMinutes, durationHours } = req.body ?? {}
+      if (typeof agentId !== 'string' || !agentId.trim()) {
+        res.status(400).json({ error: 'agentId required' })
+        return
+      }
+      if (typeof promptText !== 'string' || !promptText.trim()) {
+        res.status(400).json({ error: 'promptText required' })
+        return
+      }
+      if (!Number.isInteger(intervalMinutes) || intervalMinutes <= 0) {
+        res.status(400).json({ error: 'intervalMinutes must be a positive integer' })
+        return
+      }
+      let normalizedDuration: number | null = null
+      if (durationHours !== null && durationHours !== undefined) {
+        if (!Number.isInteger(durationHours) || durationHours <= 0) {
+          res.status(400).json({ error: 'durationHours must be null or a positive integer' })
+          return
+        }
+        normalizedDuration = durationHours
+      }
+      try {
+        const result = this.deps.createSchedule({
+          agentId: agentId.trim(),
+          name: typeof name === 'string' && name.trim() ? name.trim() : undefined,
+          promptText: promptText.trim(),
+          intervalMinutes,
+          durationHours: normalizedDuration
+        })
+        res.json({ ok: true, schedule: result })
+      } catch (err) {
+        res.status(400).json({ error: (err as Error).message })
+      }
+      // intentionally not calling next()
+      void next
+    })
 
     // POST /message - send a message to an agent (writes to their PTY)
     this.app.post('/r/:token/message', (req: Request, res: Response) => {
@@ -406,6 +547,28 @@ export class RemoteServer {
       } catch (err: any) {
         res.status(500).json({ success: false, error: err?.message || 'Respond failed' })
       }
+    })
+
+    // Free-form reply to the agent that sent an inbox message. Looks up the
+    // sender from the inbox by id (the 3DS doesn't send it — keeps the wire
+    // tight), routes through the hub message channel as 'user' → agent, and
+    // marks the message read so the badge clears on the next poll.
+    this.app.post('/r/:token/inbox/:id/reply', (req: Request, res: Response) => {
+      const { message } = req.body ?? {}
+      if (typeof message !== 'string' || !message.trim()) {
+        res.status(400).json({ success: false, error: 'message required' })
+        return
+      }
+      const msg = this.deps.getInboxMessages().find(m => m.id === req.params.id)
+      if (!msg) {
+        res.status(404).json({ success: false, error: 'message not found' })
+        return
+      }
+      const result = this.deps.replyToInbox(msg.agentName, message.trim())
+      if (result.success) {
+        try { this.deps.markInboxRead(req.params.id) } catch { /* ignore */ }
+      }
+      res.json(result)
     })
 
     // ── Workshop endpoints ────────────────────────────────────────────────
@@ -574,6 +737,85 @@ export class RemoteServer {
       if (typeof height === 'number' && height > 0) update.height = height
       this.deps.onWorkshopWindowUpdate(update)
       res.json({ ok: true })
+    })
+
+    // ── File operations (Phase 5 — mobile console) ───────────────────────
+    // Workshop-gated read/list/write inside the open project sandbox.
+    // resolveProjectPath enforces both lexical containment AND realpath
+    // containment (symlink-safe) — same helper hub/routes.ts uses for the
+    // local MCP file API. Writes are capped to the 64kb body limit.
+    const FILES_MAX_READ_BYTES = 1024 * 1024
+    const FILES_MAX_LIST_ENTRIES = 500
+
+    this.app.get('/r/:token/workshop/files/list', requireWorkshop, (req: Request, res: Response) => {
+      const dirPath = (req.query.path as string) || '.'
+      const root = this.deps.getProjectPath?.() ?? null
+      const resolved = resolveProjectPath(root, dirPath)
+      if (!resolved) { res.status(403).json({ error: 'Path outside project directory' }); return }
+      try {
+        if (!fs.existsSync(resolved)) { res.status(404).json({ error: `Directory not found: ${dirPath}` }); return }
+        const stat = fs.statSync(resolved)
+        if (!stat.isDirectory()) { res.status(400).json({ error: 'Path is a file, use /files/read instead' }); return }
+        const entries = fs.readdirSync(resolved, { withFileTypes: true }).slice(0, FILES_MAX_LIST_ENTRIES)
+        const items = entries.map(entry => {
+          let size: number | null = null
+          if (entry.isFile()) {
+            try { size = fs.statSync(path.join(resolved, entry.name)).size } catch { /* unreadable — leave null */ }
+          }
+          return {
+            name: entry.name,
+            type: entry.isDirectory() ? 'directory' : 'file',
+            path: path.join(dirPath, entry.name).replace(/\\/g, '/'),
+            size
+          }
+        })
+        items.sort((a, b) => {
+          if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
+          return a.name.localeCompare(b.name)
+        })
+        res.json({ path: dirPath, items })
+      } catch (err: any) {
+        res.status(500).json({ error: 'File operation failed' })
+      }
+    })
+
+    this.app.get('/r/:token/workshop/files/read', requireWorkshop, (req: Request, res: Response) => {
+      const filePath = req.query.path as string
+      if (!filePath) { res.status(400).json({ error: 'path query parameter is required' }); return }
+      const root = this.deps.getProjectPath?.() ?? null
+      const resolved = resolveProjectPath(root, filePath)
+      if (!resolved) { res.status(403).json({ error: 'Path outside project directory' }); return }
+      try {
+        if (!fs.existsSync(resolved)) { res.status(404).json({ error: `File not found: ${filePath}` }); return }
+        const stat = fs.statSync(resolved)
+        if (stat.isDirectory()) { res.status(400).json({ error: 'Path is a directory, use /files/list instead' }); return }
+        if (stat.size > FILES_MAX_READ_BYTES) {
+          res.status(413).json({ error: `File too large (${stat.size} bytes). Max ${FILES_MAX_READ_BYTES} bytes.` })
+          return
+        }
+        const content = fs.readFileSync(resolved, 'utf-8')
+        res.json({ path: filePath, content, size: stat.size })
+      } catch (err: any) {
+        res.status(500).json({ error: 'File operation failed' })
+      }
+    })
+
+    this.app.post('/r/:token/workshop/files/write', requireWorkshop, (req: Request, res: Response) => {
+      const { path: filePath, content } = req.body ?? {}
+      if (typeof filePath !== 'string' || content === undefined) { res.status(400).json({ error: 'path and content are required' }); return }
+      if (typeof content !== 'string') { res.status(400).json({ error: 'content must be a string' }); return }
+      const root = this.deps.getProjectPath?.() ?? null
+      const resolved = resolveProjectPath(root, filePath)
+      if (!resolved) { res.status(403).json({ error: 'Path outside project directory' }); return }
+      try {
+        const dir = path.dirname(resolved)
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+        fs.writeFileSync(resolved, content, 'utf-8')
+        const stat = fs.statSync(resolved)
+        res.json({ path: filePath, size: stat.size, status: 'ok' })
+      } catch (err: any) {
+        res.status(500).json({ error: 'File operation failed' })
+      }
     })
 
     this.app.post('/r/:token/workshop/panel/:type', requireWorkshop, (req: Request, res: Response) => {

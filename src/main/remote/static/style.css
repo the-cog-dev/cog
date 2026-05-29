@@ -349,10 +349,51 @@ body {
   cursor: pointer;
   min-height: 36px;
 }
-.modal-actions button#task-submit {
+.modal-actions button#task-submit,
+.modal-actions button#schedule-submit {
   background: #3b82f6;
   border: none;
   font-weight: 600;
+}
+
+.modal-card select {
+  background: #2a2a2a;
+  color: #e0e0e0;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.modal-label {
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+
+.modal-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #aaa;
+  flex: 1;
+}
+
+.modal-inline input {
+  width: 64px;
+  padding: 6px 8px !important;
+  font-size: 13px !important;
+  text-align: right;
+}
+
+.schedule-error {
+  color: #ef4444;
+  font-size: 12px;
+  min-height: 14px;
 }
 
 .overlay {
@@ -704,6 +745,39 @@ body {
   min-height: 32px;
 }
 .inbox-reject-input:focus { border-color: #a02030; outline: none; }
+
+/* Reply — always-available action; tapping swaps an inline textarea into the
+ * reply-slot. Mirrors the desktop InboxPanel's per-message Reply button. */
+.inbox-card-actions {
+  display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px;
+}
+.inbox-action-btn.reply {
+  background: #1f3147; border-color: #2d4d73; color: #8cc4ff; padding: 6px 12px;
+}
+.inbox-reply-slot:not(:empty) {
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid #2c2c2c;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.inbox-reply-input {
+  width: 100%; box-sizing: border-box;
+  background: #0d0d0d; border: 1px solid #333; border-radius: 4px;
+  color: #e0e0e0; padding: 8px; font-size: 13px; font-family: inherit;
+  resize: vertical; min-height: 64px;
+}
+.inbox-reply-input:focus { border-color: #2d4d73; outline: none; }
+.inbox-reply-buttons {
+  display: flex; justify-content: flex-end; gap: 6px;
+}
+.inbox-action-btn.reply-send {
+  background: #1f3147; border-color: #2d4d73; color: #8cc4ff;
+}
+.inbox-action-btn.reply-send:disabled {
+  background: #1a1a1a; border-color: #333; color: #555;
+}
+.inbox-action-btn.reply-cancel {
+  background: #1a1a1a; border-color: #333; color: #888;
+}
+
 .inbox-footer { min-height: 0; }
 .inbox-footer:not(:empty) { margin-top: 6px; font-size: 11px; color: #888; }
 .inbox-error { color: #ef4444; }

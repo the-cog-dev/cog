@@ -10,6 +10,17 @@ export interface RemoteSession {
   firstSeen: number
   lastSeen: number
   workshopVerified?: boolean
+  // Per-device identity. A device gets a random id on first connect and keeps
+  // it across reloads (cookie-backed). Multiple devices behind the same NAT
+  // share an `ip` — `devices` lets us count and audit each one separately.
+  devices?: Map<string, RemoteDevice>
+}
+
+export interface RemoteDevice {
+  id: string
+  firstSeen: number
+  lastSeen: number
+  userAgent?: string
 }
 
 export class TokenManager {
@@ -70,14 +81,44 @@ export class TokenManager {
     this.generate()  // also rotate the token
   }
 
-  trackSession(ip: string): void {
+  trackSession(ip: string, deviceId?: string, userAgent?: string): void {
     const now = this.clock()
-    const existing = this.sessions.get(ip)
-    if (existing) {
-      existing.lastSeen = now
+    let session = this.sessions.get(ip)
+    if (!session) {
+      session = { ip, firstSeen: now, lastSeen: now, devices: new Map() }
+      this.sessions.set(ip, session)
     } else {
-      this.sessions.set(ip, { ip, firstSeen: now, lastSeen: now })
+      session.lastSeen = now
+      if (!session.devices) session.devices = new Map()
     }
+    if (deviceId) {
+      const existing = session.devices!.get(deviceId)
+      if (existing) {
+        existing.lastSeen = now
+        if (userAgent && !existing.userAgent) existing.userAgent = userAgent
+      } else {
+        session.devices!.set(deviceId, { id: deviceId, firstSeen: now, lastSeen: now, userAgent })
+      }
+    }
+  }
+
+  // Issues a fresh device id. Caller is responsible for round-tripping it via
+  // a cookie. Format mirrors the session token: 16 random bytes, base64url —
+  // collision-resistant enough that we never reissue per IP.
+  generateDeviceId(): string {
+    return randomBytes(16).toString('base64url')
+  }
+
+  getActiveDevices(): RemoteDevice[] {
+    const now = this.clock()
+    const devices: RemoteDevice[] = []
+    for (const session of this.sessions.values()) {
+      if (!session.devices) continue
+      for (const dev of session.devices.values()) {
+        if (now - dev.lastSeen <= SESSION_EXPIRY_MS) devices.push(dev)
+      }
+    }
+    return devices
   }
 
   getActiveSessions(): RemoteSession[] {
@@ -102,7 +143,10 @@ export class TokenManager {
   }
 
   getConnectionCount(): number {
-    return this.getActiveSessions().length
+    // Prefer per-device count when at least one device has identified itself.
+    // Falls back to per-IP for legacy clients (3DS, PSP) that don't store cookies.
+    const devCount = this.getActiveDevices().length
+    return devCount > 0 ? devCount : this.getActiveSessions().length
   }
 
   getLastActivity(): number | null {
