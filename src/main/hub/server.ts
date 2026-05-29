@@ -7,7 +7,7 @@ import { InfoChannel } from './info-channel'
 import { InboxChannel } from './inbox-channel'
 import { ProposalsChannel } from './proposals-channel'
 import { generateSecret, validateSecret } from './auth'
-import { createRoutes, type OutputAccessor } from './routes'
+import { createRoutes, type OutputAccessor, type ScheduleBridge } from './routes'
 import { GroupManager } from './group-manager'
 import { AgentMetrics } from './agent-metrics'
 import type { MessageStore } from '../db/message-store'
@@ -29,7 +29,10 @@ export interface HubServer {
   close: () => void
 }
 
-export function createHubServer(preferredPort = 0): Promise<HubServer> {
+export function createHubServer(
+  preferredPort = 0,
+  getScheduleBridge?: () => ScheduleBridge | undefined
+): Promise<HubServer> {
   return new Promise((resolve, reject) => {
     const app = express()
     const secret = generateSecret()
@@ -56,7 +59,7 @@ export function createHubServer(preferredPort = 0): Promise<HubServer> {
     const outputRef: { accessor: OutputAccessor | null } = { accessor: null }
     const messageStoreRef: { store: MessageStore | null } = { store: null }
     const projectPathRef: { path: string | null } = { path: null }
-    app.use(createRoutes(registry, messages, outputRef, pinboard, infoChannel, messageStoreRef, projectPathRef, groupManager, inboxChannel, proposalsChannel))
+    app.use(createRoutes(registry, messages, outputRef, pinboard, infoChannel, messageStoreRef, projectPathRef, groupManager, inboxChannel, proposalsChannel, getScheduleBridge))
 
     // Bind to 0.0.0.0 so MCP servers running inside WSL2 can reach the hub via
     // the Windows host IP (their `127.0.0.1` is the WSL VM's loopback, not

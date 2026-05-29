@@ -11,8 +11,26 @@ import type { ProposalsChannel } from './proposals-channel'
 import type { GroupManager } from './group-manager'
 import type { AgentConfig, InboxPriority } from '../../shared/types'
 import type { MessageStore } from '../db/message-store'
+import { validateAgentScheduleRequest } from '../scheduler/scheduler-helpers'
 
 export type OutputAccessor = (agentName: string, lines: number) => string[] | null
+
+/**
+ * Injected by index.ts so the hub routes can reach the prompt scheduler and the
+ * per-project autonomy flag, which both live in the main process. Passed in as a
+ * getter (see createRoutes) so it can be wired up after the hub is created.
+ */
+export interface ScheduleBridge {
+  autonomyEnabled: () => boolean
+  resolveTarget: (agentNameOrId: string) => { agentId: string; tabId: string; name: string } | null
+  create: (p: { agentId: string; tabId: string; name?: string; promptText: string;
+                intervalMinutes: number; durationHours: number; createdBy: string }) =>
+    { id: string; nextFireAt: number; expiresAt: number | null }
+  list: () => Array<{ id: string; name: string; agentId: string; agentName: string;
+                      intervalMinutes: number; durationHours: number | null; nextFireAt: number;
+                      expiresAt: number | null; status: string; createdBy: string }>
+  cancel: (id: string, byAgentName: string) => { ok: boolean; error?: string }
+}
 
 export function createRoutes(
   registry: AgentRegistry,
@@ -24,7 +42,8 @@ export function createRoutes(
   projectPathRef: { path: string | null } = { path: null },
   groupManager?: GroupManager,
   inboxChannel?: InboxChannel,
-  proposalsChannel?: ProposalsChannel
+  proposalsChannel?: ProposalsChannel,
+  getScheduleBridge?: () => ScheduleBridge | undefined
 ): Router {
   const router = Router()
 
@@ -368,6 +387,57 @@ export function createRoutes(
     const proposal = proposalsChannel.get(req.params.id)
     if (!proposal) { res.status(404).json({ error: 'Proposal not found' }); return }
     res.json(proposal)
+  })
+
+  // --- Schedule routes ---
+  // Agents POST here (via MCP) to schedule a recurring prompt. If project
+  // autonomy `scheduling` is ON we create the schedule immediately; otherwise
+  // we route it through the existing proposal/approval system as a
+  // kind:'schedule' proposal that the human must approve.
+
+  router.post('/schedules', (req: Request, res: Response) => {
+    const scheduleBridge = getScheduleBridge?.()
+    if (!scheduleBridge) { res.status(503).json({ error: 'Scheduler unavailable' }); return }
+    const { proposedBy, targetAgent, promptText, intervalMinutes, durationHours, name } = req.body ?? {}
+    if (typeof proposedBy !== 'string' || !proposedBy.trim()) { res.status(400).json({ error: 'proposedBy required' }); return }
+    if (typeof targetAgent !== 'string' || !targetAgent.trim()) { res.status(400).json({ error: 'targetAgent required' }); return }
+    if (typeof promptText !== 'string' || !promptText.trim()) { res.status(400).json({ error: 'promptText required' }); return }
+    const v = validateAgentScheduleRequest({ intervalMinutes, durationHours })
+    if (!v.ok) { res.status(400).json({ error: v.error }); return }
+    const target = scheduleBridge.resolveTarget(targetAgent)
+    if (!target) { res.status(404).json({ error: `Agent not found: ${targetAgent}` }); return }
+    if (scheduleBridge.autonomyEnabled()) {
+      const created = scheduleBridge.create({
+        agentId: target.agentId, tabId: target.tabId, name,
+        promptText: promptText.trim(), intervalMinutes, durationHours, createdBy: proposedBy
+      })
+      res.json({ status: 'scheduled', scheduleId: created.id, nextFireAt: created.nextFireAt, expiresAt: created.expiresAt })
+      return
+    }
+    if (!proposalsChannel) { res.status(503).json({ error: 'Proposals unavailable' }); return }
+    const proposal = proposalsChannel.createScheduleProposal(
+      proposedBy,
+      `Schedule "${(name || 'prompt')}" for ${target.name} every ${intervalMinutes}m for ${durationHours}h`,
+      { targetAgentId: target.agentId, targetAgentName: target.name, tabId: target.tabId,
+        promptText: promptText.trim(), intervalMinutes, durationHours, name },
+      target.tabId
+    )
+    res.json({ status: 'proposed', proposalId: proposal.id })
+  })
+
+  router.get('/schedules', (_req: Request, res: Response) => {
+    const scheduleBridge = getScheduleBridge?.()
+    if (!scheduleBridge) { res.json([]); return }
+    res.json(scheduleBridge.list())
+  })
+
+  router.post('/schedules/:id/cancel', (req: Request, res: Response) => {
+    const scheduleBridge = getScheduleBridge?.()
+    if (!scheduleBridge) { res.status(503).json({ error: 'Scheduler unavailable' }); return }
+    const byAgent = (req.body && req.body.requestedBy) || ''
+    const result = scheduleBridge.cancel(req.params.id, byAgent)
+    if (!result.ok) { res.status(403).json({ error: result.error || 'Not allowed' }); return }
+    res.json({ ok: true })
   })
 
   // --- File operation routes ---

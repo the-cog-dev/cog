@@ -10,6 +10,7 @@ import { InboxStore } from './db/inbox-store'
 import { ProposalsStore } from './db/proposals-store'
 import { meetsThreshold } from './hub/inbox-channel'
 import { createHubServer, type HubServer } from './hub/server'
+import type { ScheduleBridge } from './hub/routes'
 import { spawnAgentPty, writeToPty, resizePty, killPty, type ManagedPty } from './shell/pty-manager'
 import { buildCliLaunchCommands as buildCliLaunchCommandsForConfig } from './cli-launch'
 import { writeAgentMcpConfig, cleanupConfig } from './mcp/config-writer'
@@ -21,6 +22,7 @@ import { UpdateChecker } from './updater/update-checker'
 import { SchedulesStore } from './scheduler/schedules-store'
 import { AutonomyStore } from './db/autonomy-store'
 import { PromptScheduler } from './scheduler/prompt-scheduler'
+import { canAgentCancelSchedule } from './scheduler/scheduler-helpers'
 import type { Server as HttpServer } from 'http'
 import * as https from 'https'
 import * as httpProto from 'http'
@@ -55,6 +57,10 @@ let autonomyStore: AutonomyStore | null = null
 let currentInboxStore: InboxStore | null = null
 let currentProposalsStore: ProposalsStore | null = null
 let promptScheduler: PromptScheduler | null = null
+// Built after promptScheduler + autonomyStore are assigned; injected into the
+// hub via a getter so route handlers can schedule prompts / read autonomy.
+// Module-level so a later task (approveProposal) can reach it too.
+let scheduleBridge: ScheduleBridge | null = null
 const agents = new Map<string, ManagedPty>()
 const hasReceivedInitialPrompt = new Set<string>()
 const initialPrompts = new Map<string, string>()
@@ -1375,7 +1381,7 @@ async function openProject(projectPath: string): Promise<void> {
   currentSchedulesStore = new SchedulesStore(db)
   autonomyStore = new AutonomyStore(db)
 
-  hub = await createHubServer()
+  hub = await createHubServer(0, () => scheduleBridge ?? undefined)
   hub.setProjectPath(projectPath)
   hub.setMessageStore(messageStore)
 
@@ -1551,6 +1557,42 @@ async function openProject(projectPath: string): Promise<void> {
   promptScheduler.load()
   promptScheduler.startTicker()
 
+  // Wire the schedule bridge now that promptScheduler + autonomyStore exist.
+  // The hub holds a getter to this (() => scheduleBridge ?? undefined), so it
+  // resolves lazily per request.
+  scheduleBridge = {
+    autonomyEnabled: () => autonomyStore?.get().scheduling ?? false,
+    resolveTarget: (key) => {
+      for (const m of agents.values()) {
+        if (m.config.id === key || m.config.name.toLowerCase() === key.toLowerCase()) {
+          return { agentId: m.config.id, tabId: m.config.tabId || 'tab-default', name: m.config.name }
+        }
+      }
+      return null
+    },
+    create: (p) => {
+      if (!promptScheduler) throw new Error('Scheduler unavailable')
+      const s = promptScheduler.create({
+        tabId: p.tabId, agentId: p.agentId, name: p.name, promptText: p.promptText,
+        intervalMinutes: p.intervalMinutes, durationHours: p.durationHours, createdBy: p.createdBy
+      })
+      return { id: s.id, nextFireAt: s.nextFireAt, expiresAt: s.expiresAt }
+    },
+    list: () => (promptScheduler?.list() ?? []).map(s => ({
+      id: s.id, name: s.name, agentId: s.agentId,
+      agentName: [...agents.values()].find(m => m.config.id === s.agentId)?.config.name ?? s.agentId,
+      intervalMinutes: s.intervalMinutes, durationHours: s.durationHours, nextFireAt: s.nextFireAt,
+      expiresAt: s.expiresAt, status: s.status, createdBy: s.createdBy
+    })),
+    cancel: (id, byAgentName) => {
+      const s = promptScheduler?.get(id)
+      if (!s) return { ok: false, error: 'Schedule not found' }
+      if (!canAgentCancelSchedule(s, byAgentName)) return { ok: false, error: 'Agents may only cancel schedules they created' }
+      promptScheduler!.delete(id)
+      return { ok: true }
+    }
+  }
+
   // Update window title
   if (mainWindow) {
     mainWindow.setTitle(`The Cog — ${projectManager.currentProject!.name}`)
@@ -1579,6 +1621,7 @@ async function closeProject(): Promise<void> {
     promptScheduler.stopTicker()
     promptScheduler = null
   }
+  scheduleBridge = null
   currentSchedulesStore = null
 
   await disableRemoteView()
