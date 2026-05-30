@@ -293,7 +293,7 @@ export function TopBar({
                 { label: `${schedulesOpen ? '\u25CF ' : '  '}Schedules`, onClick: onToggleSchedules, color: schedulesOpen ? '#8cc4ff' : '#888' },
                 { label: `${trollboxOpen ? '\u25CF ' : '  '}\uD83C\uDF7F Trollbox`, onClick: onToggleTrollbox, color: trollboxOpen ? '#8cc4ff' : '#888' },
                 { label: `${inboxOpen ? '\u25CF ' : '  '}\uD83D\uDCEC Inbox${inboxUnreadCount > 0 ? ` (${inboxUnreadCount})` : ''}`, onClick: onToggleInbox, color: inboxUnreadCount > 0 ? '#f5a25a' : (inboxOpen ? '#8cc4ff' : '#888') },
-                { label: `${boardOpen ? '● ' : '  '}📖 Board`, onClick: onToggleBoard ?? (() => {}), color: boardOpen ? '#8cc4ff' : '#888' },
+                { label: `${boardOpen ? '● ' : '  '}📖 Sketchpad`, onClick: onToggleBoard ?? (() => {}), color: boardOpen ? '#8cc4ff' : '#888' },
               ]}
             />
           )}

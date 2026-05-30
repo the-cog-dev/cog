@@ -101,7 +101,7 @@ export function App(): React.ReactElement {
       'Files': FILES_ID,
       'R.A.C.': RAC_ID,
       'Usage': USAGE_ID,
-      'Board': BOARD_ID,
+      '📖 Sketchpad': BOARD_ID,
     }
     for (const wp of savedWindows) {
       const panelBase = panelTitleToId[wp.agentName]
@@ -249,7 +249,7 @@ export function App(): React.ReactElement {
 
   const toggleBoard = useCallback(() => {
     const id = panelIdForTab(BOARD_ID, activeTabId)
-    if (boardOpen) { removeWindow(id) } else { addWindow(id, '📖 Board', undefined, activeTabId) }
+    if (boardOpen) { removeWindow(id) } else { addWindow(id, '📖 Sketchpad', undefined, activeTabId) }
   }, [boardOpen, addWindow, removeWindow, activeTabId])
 
   // Load links & groups when project changes
@@ -482,7 +482,7 @@ export function App(): React.ReactElement {
         git: 'Git',
         schedules: 'Schedules',
         trollbox: 'Trollbox',
-        board: '📖 Board',
+        board: '📖 Sketchpad',
       }
       if (action === 'open' || (action === 'toggle' && !isOpen)) {
         if (isOpen) {

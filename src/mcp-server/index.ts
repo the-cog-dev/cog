@@ -287,7 +287,7 @@ server.tool(
 
 server.tool(
   'read_tasks',
-  'List all tasks on the shared Pinboard — the task / to-do board (NOT the visual Workboard drawing canvas; for sketches/notes pages use list_board_pages / view_board_page). Shows id, title, description, priority, status, claimedBy, result, and createdAt. IMPORTANT: Do NOT poll this in a loop — you will be nudged automatically when a new task is posted.',
+  'List all tasks on the shared Pinboard — the task / to-do board (NOT the visual Sketchpad drawing canvas; for sketches/notes pages use list_sketchpad_pages / view_sketchpad_page). Shows id, title, description, priority, status, claimedBy, result, and createdAt. IMPORTANT: Do NOT poll this in a loop — you will be nudged automatically when a new task is posted.',
   {},
   async () => {
     try {
@@ -745,25 +745,25 @@ server.tool(
 )
 
 server.tool(
-  'list_board_pages',
-  'List the pages of the WORKBOARD — the user\'s visual whiteboard / drawing canvas (freehand sketches, sticky notes, text, placed photos). This is NOT the Pinboard: the Pinboard is the task/to-do list (use read_tasks for that). Returns element + stroke counts per page; use before view_board_page.',
+  'list_sketchpad_pages',
+  'List the pages of the SKETCHPAD — the user\'s visual drawing canvas / whiteboard (freehand sketches, sticky notes, text, placed photos). This is NOT the Pinboard: the Pinboard is the task / to-do list (use read_tasks for that). Returns element + stroke counts per page; use before view_sketchpad_page.',
   {},
   async () => {
     try { return toolResult(await hubFetch('/board/pages')) }
-    catch (err: any) { return toolError(`Failed to list board pages: ${err.message}`) }
+    catch (err: any) { return toolError(`Failed to list sketchpad pages: ${err.message}`) }
   }
 )
 
 server.tool(
-  'view_board_page',
-  'Get the rendered image of a WORKBOARD page so you can SEE it — the user\'s freehand drawing (sketches, arrows, circles), photos, sticky notes, and text. The Workboard is a visual drawing canvas, NOT the Pinboard (the Pinboard is the task list — use read_tasks). Returns a PNG file path; open it with your image/vision read. Page numbers are 1-based, exactly as the user refers to them ("page 3").',
+  'view_sketchpad_page',
+  'Get the rendered image of a SKETCHPAD page so you can SEE it — the user\'s freehand drawing (sketches, arrows, circles), photos, sticky notes, and text. The Sketchpad is a visual drawing canvas, NOT the Pinboard (the Pinboard is the task list — use read_tasks). Returns a PNG file path; open it with your image/vision read. Page numbers are 1-based, exactly as the user refers to them ("page 3").',
   { page: z.number().int().describe('1-based page number, e.g. the 3 in "look at page 3".') },
   async ({ page }) => {
     try {
       const r = await hubFetch(`/board/pages/${page}/render`)
       return toolResult({ ...r, next: `Open the image at "${r.path}" with your file/vision read to see page ${page}.` })
     } catch (err: any) {
-      return toolError(`Failed to view board page ${page}: ${err.message}`)
+      return toolError(`Failed to view sketchpad page ${page}: ${err.message}`)
     }
   }
 )
