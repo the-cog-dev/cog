@@ -365,16 +365,23 @@ export function BoardPageCanvas({
   useEffect(() => {
     const inViewport = (t: EventTarget | null): boolean =>
       !!viewportRef.current && t instanceof Node && viewportRef.current.contains(t)
-    const onDragOver = (e: DragEvent) => {
-      if (!inViewport(e.target)) return
+    const hasFiles = (e: DragEvent): boolean =>
+      !!e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')
+    // CAPTURE phase: run before any child (react-rnd / the canvas overlay) can
+    // stopPropagation in the bubble phase. preventDefault on dragenter/dragover
+    // tells the OS the drop is allowed (kills the red no-drop cursor) and stops
+    // the window from navigating to the file.
+    const allow = (e: DragEvent): void => {
+      if (!hasFiles(e)) return
       e.preventDefault()
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
     }
-    const onDrop = (e: DragEvent) => {
-      if (!inViewport(e.target) || !e.dataTransfer) return
+    const onDrop = (e: DragEvent): void => {
+      if (!hasFiles(e)) return
       e.preventDefault()
-      // Some OSes don't set f.type on dropped files — also accept by extension.
-      const files = Array.from(e.dataTransfer.files).filter(
+      // Only act when the file is dropped onto THIS board's viewport.
+      if (!inViewport(e.target)) return
+      const files = Array.from(e.dataTransfer!.files).filter(
         (f) => f.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(f.name)
       )
       if (files.length === 0) return
@@ -387,11 +394,13 @@ export function BoardPageCanvas({
         addImageElement(file, (screenX - p.x) / z, (screenY - p.y) / z)
       })
     }
-    document.addEventListener('dragover', onDragOver)
-    document.addEventListener('drop', onDrop)
+    document.addEventListener('dragenter', allow, true)
+    document.addEventListener('dragover', allow, true)
+    document.addEventListener('drop', onDrop, true)
     return () => {
-      document.removeEventListener('dragover', onDragOver)
-      document.removeEventListener('drop', onDrop)
+      document.removeEventListener('dragenter', allow, true)
+      document.removeEventListener('dragover', allow, true)
+      document.removeEventListener('drop', onDrop, true)
     }
   }, [addImageElement])
 
