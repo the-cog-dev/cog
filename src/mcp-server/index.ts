@@ -287,7 +287,7 @@ server.tool(
 
 server.tool(
   'read_tasks',
-  'List all tasks on the shared pinboard. Shows id, title, description, priority, status, claimedBy, result, and createdAt. IMPORTANT: Do NOT poll this in a loop — you will be nudged automatically when a new task is posted.',
+  'List all tasks on the shared Pinboard — the task / to-do board (NOT the visual Workboard drawing canvas; for sketches/notes pages use list_board_pages / view_board_page). Shows id, title, description, priority, status, claimedBy, result, and createdAt. IMPORTANT: Do NOT poll this in a loop — you will be nudged automatically when a new task is posted.',
   {},
   async () => {
     try {
@@ -746,7 +746,7 @@ server.tool(
 
 server.tool(
   'list_board_pages',
-  'List the pages of the project Workboard (a visual canvas the user draws/notes/pins photos on), with element and stroke counts per page. Use before view_board_page to see what exists.',
+  'List the pages of the WORKBOARD — the user\'s visual whiteboard / drawing canvas (freehand sketches, sticky notes, text, placed photos). This is NOT the Pinboard: the Pinboard is the task/to-do list (use read_tasks for that). Returns element + stroke counts per page; use before view_board_page.',
   {},
   async () => {
     try { return toolResult(await hubFetch('/board/pages')) }
@@ -756,7 +756,7 @@ server.tool(
 
 server.tool(
   'view_board_page',
-  'Get the rendered image of a Workboard page so you can SEE it — the photos, sticky notes, text, and the user\'s freehand drawing (arrows, circles, sketches). Returns a PNG file path; open it with your image/vision read. Page numbers are 1-based, exactly as the user refers to them ("page 3").',
+  'Get the rendered image of a WORKBOARD page so you can SEE it — the user\'s freehand drawing (sketches, arrows, circles), photos, sticky notes, and text. The Workboard is a visual drawing canvas, NOT the Pinboard (the Pinboard is the task list — use read_tasks). Returns a PNG file path; open it with your image/vision read. Page numbers are 1-based, exactly as the user refers to them ("page 3").',
   { page: z.number().int().describe('1-based page number, e.g. the 3 in "look at page 3".') },
   async ({ page }) => {
     try {
