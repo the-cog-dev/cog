@@ -199,4 +199,38 @@ describe('buildCliLaunchCommands', () => {
       'my-agent --flag'
     ])
   })
+
+  it('launches Pi with just `pi` (no model/auto flags) when adapter is already ensured', () => {
+    expect(buildCliLaunchCommands(
+      makeConfig({ cli: 'pi', model: 'whatever', autoMode: true }),
+      'C:\\temp\\cog-pi-agent-1\\mcp.json',
+      'C:\\temp\\mcp-server.js',
+      7777,
+      'secret',
+      false
+    )).toEqual(['pi'])
+  })
+
+  it('prepends the adapter install on first Pi spawn, separated for the shell', () => {
+    // PowerShell / posix use `;` to run pi regardless of install result
+    expect(buildCliLaunchCommands(
+      makeConfig({ cli: 'pi', shell: 'powershell' }),
+      'C:\\temp\\cog-pi-agent-1\\mcp.json',
+      'C:\\temp\\mcp-server.js',
+      7777,
+      'secret',
+      true
+    )).toEqual(['pi install npm:pi-mcp-adapter ; pi'])
+  })
+
+  it('uses `&` to chain install+launch on cmd.exe', () => {
+    expect(buildCliLaunchCommands(
+      makeConfig({ cli: 'pi', shell: 'cmd' }),
+      'C:\\temp\\cog-pi-agent-1\\mcp.json',
+      'C:\\temp\\mcp-server.js',
+      7777,
+      'secret',
+      true
+    )).toEqual(['pi install npm:pi-mcp-adapter & pi'])
+  })
 })

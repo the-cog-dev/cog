@@ -97,7 +97,8 @@ export function buildCliLaunchCommands(
   mcpConfigPath: string,
   mcpServerPath: string,
   hubPort: number,
-  hubSecret: string
+  hubSecret: string,
+  ensurePiAdapter = false
 ): string[] | null {
   const cliBase = config.cli
 
@@ -203,6 +204,21 @@ export function buildCliLaunchCommands(
     let cmd = 'grok'
     if (safeModel) cmd += ` --model ${safeModel}`
     return [cmd]
+  }
+
+  if (cliBase === 'pi') {
+    // Pi has no permission prompts (autoMode is a no-op) and reads its model from
+    // its own provider config (no --model flag). Identity reaches the hub via the
+    // pi-mcp-adapter reading $PI_CODING_AGENT_DIR/mcp.json, set by the spawn site.
+    if (ensurePiAdapter) {
+      // Combine install + launch on one PTY line so `pi` only runs after the
+      // install command returns (avoids the fixed inter-command delay racing a
+      // slow npm install). `;`/`&` run `pi` regardless of install success, so a
+      // failed install degrades to a solo Pi rather than no agent at all.
+      const sep = config.shell === 'cmd' ? ' & ' : ' ; '
+      return [`pi install npm:pi-mcp-adapter${sep}pi`]
+    }
+    return ['pi']
   }
 
   return [cliBase]
