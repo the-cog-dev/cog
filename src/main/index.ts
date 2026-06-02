@@ -13,7 +13,7 @@ import { createHubServer, type HubServer } from './hub/server'
 import type { ScheduleBridge, BoardBridge } from './hub/routes'
 import { spawnAgentPty, writeToPty, resizePty, killPty, type ManagedPty } from './shell/pty-manager'
 import { buildCliLaunchCommands as buildCliLaunchCommandsForConfig } from './cli-launch'
-import { writeAgentMcpConfig, cleanupConfig } from './mcp/config-writer'
+import { writeAgentMcpConfig, writePiAgentConfig, cleanupConfig, cleanupPiAgentDir, piAgentDir } from './mcp/config-writer'
 import { savePreset, loadPreset, listPresets, deletePreset, setPresetsDir } from './presets/preset-manager'
 import { ProjectManager } from './project/project-manager'
 import { SkillManager } from './skills/skill-manager'
@@ -854,9 +854,9 @@ function createWindow(): BrowserWindow {
 // Returns one or more commands to type into the shell. Array = chain them sequentially.
 function buildCliLaunchCommands(
   config: AgentConfig, mcpConfigPath: string, mcpServerPath: string,
-  hubPort: number, hubSecret: string
+  hubPort: number, hubSecret: string, ensurePiAdapter = false
 ): string[] | null {
-  return buildCliLaunchCommandsForConfig(config, mcpConfigPath, mcpServerPath, hubPort, hubSecret)
+  return buildCliLaunchCommandsForConfig(config, mcpConfigPath, mcpServerPath, hubPort, hubSecret, ensurePiAdapter)
 }
 
 // Build the initial prompt injected when the CLI first becomes ready.
@@ -942,7 +942,26 @@ function buildMcpEnv(config: AgentConfig): Record<string, string> {
     env.COG_TAB_ID = config.tabId
     env.AGENTORCH_TAB_ID = config.tabId
   }
+  if (config.cli === 'pi') env.PI_CODING_AGENT_DIR = piAgentDir(config.id)
   return env
+}
+
+// pi-mcp-adapter only needs installing once per app session; guard the prepend.
+let piAdapterEnsured = false
+
+// Pick the right MCP config writer for the CLI. Pi reads its config from a
+// per-agent dir via the pi-mcp-adapter; every other CLI uses the flag-based
+// tmp file. Returns the path to write into the agent's launch/env.
+function prepareAgentMcpConfig(config: AgentConfig, mcpServerPath: string): string {
+  const opts = {
+    agentId: config.id,
+    agentName: config.name,
+    hubPort: hub.port,
+    hubSecret: hub.secret,
+    mcpServerPath
+  }
+  if (config.cli === 'pi') return writePiAgentConfig(opts).configPath
+  return writeAgentMcpConfig(opts)
 }
 
 // Spawn the PTY for an agent and wire up all side effects: data/exit/status
@@ -971,7 +990,11 @@ function spawnPtyAndWire(
       hub.registry.updateStatus(config.name, 'disconnected')
       mainWindow.webContents.send(IPC.PTY_EXIT, config.id, exitCode)
       mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
-      if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
+      if (config.cli === 'pi') {
+        cleanupPiAgentDir(piAgentDir(config.id))
+      } else if (managed.mcpConfigPath) {
+        cleanupConfig(managed.mcpConfigPath)
+      }
 
       if (!manualKills.has(config.id) && config.cli !== 'terminal') {
         console.log(`Agent "${config.name}" exited unexpectedly (code ${exitCode}), reconnecting in ${RECONNECT_DELAY}ms...`)
@@ -1010,7 +1033,9 @@ function spawnPtyAndWire(
   agents.set(config.id, managed)
   mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
 
-  const cmds = buildCliLaunchCommands(config, mcpConfigPath, mcpServerPath, hub.port, hub.secret)
+  const ensurePiAdapter = config.cli === 'pi' && !piAdapterEnsured
+  const cmds = buildCliLaunchCommands(config, mcpConfigPath, mcpServerPath, hub.port, hub.secret, ensurePiAdapter)
+  if (ensurePiAdapter) piAdapterEnsured = true
   if (cmds) {
     let delay = 1000
     for (const cmd of cmds) {
@@ -1040,13 +1065,7 @@ function reconnectAgent(config: AgentConfig): void {
   hasReceivedInitialPrompt.delete(config.id)
 
   const mcpServerPath = getMcpServerPath()
-  const mcpConfigPath = writeAgentMcpConfig({
-    agentId: config.id,
-    agentName: config.name,
-    hubPort: hub.port,
-    hubSecret: hub.secret,
-    mcpServerPath
-  })
+  const mcpConfigPath = prepareAgentMcpConfig(config, mcpServerPath)
 
   const mcpEnv = buildMcpEnv(config)
   hub.registry.register(config)
@@ -1112,13 +1131,7 @@ function handleSpawnAgent(config: AgentConfig): { id: string; mcpConfigPath: str
   }
 
   const mcpServerPath = getMcpServerPath()
-  const mcpConfigPath = writeAgentMcpConfig({
-    agentId: config.id,
-    agentName: config.name,
-    hubPort: hub.port,
-    hubSecret: hub.secret,
-    mcpServerPath
-  })
+  const mcpConfigPath = prepareAgentMcpConfig(config, mcpServerPath)
 
   const mcpEnv = buildMcpEnv(config)
 
