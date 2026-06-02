@@ -18,6 +18,7 @@ export const CLI_PRESETS = [
   { label: 'OpenClaude (Any Model)', value: 'openclaude' },
   { label: 'GitHub Copilot CLI', value: 'copilot' },
   { label: 'Grok CLI (Experimental)', value: 'grok' },
+  { label: 'Pi (pi.dev)', value: 'pi' },
   { label: 'Plain Terminal', value: 'terminal' },
   { label: 'Custom', value: '' }
 ]
@@ -68,6 +69,11 @@ export const CLI_MODELS: Record<string, { label: string; value: string }[]> = {
     { label: 'Grok 3', value: 'grok-3' },
     { label: 'Grok 3 Mini', value: 'grok-3-mini' },
     { label: 'Grok 2', value: 'grok-2' },
+  ],
+  pi: [
+    // Pi is model-agnostic; you pick the model/provider during Pi's own first-run
+    // setup. The Cog passes no --model flag. See cli-launch.ts pi branch.
+    { label: 'Configured in Pi (set on first run)', value: '' },
   ],
   openclaude: [
     // OpenAI
@@ -251,6 +257,13 @@ export function AgentConfigForm({ value, onChange, errors }: AgentConfigFormProp
           Experimental integration: community-maintained Grok CLI support may change underneath us.
         </div>
       )}
+      {value.cli === 'pi' && (
+        <div style={{ color: '#7da87d', fontSize: '11px' }}>
+          Pi runs tools without permission prompts and uses the model/provider you
+          set up inside Pi. The Cog auto-installs pi-mcp-adapter on first launch so
+          Pi can reach the hub tools. Requires the `pi` CLI on your PATH.
+        </div>
+      )}
 
       {value.cli === 'openclaude' && (
         <label style={labelStyle}>
@@ -384,7 +397,8 @@ export function AgentConfigForm({ value, onChange, errors }: AgentConfigFormProp
            value.cli === 'codex' ? '(--yolo)' :
            value.cli === 'kimi' ? '(--yolo)' :
            value.cli === 'gemini' ? '(--yolo)' :
-           value.cli === 'copilot' ? '(--allow-all)' : '(auto-run)'}
+           value.cli === 'copilot' ? '(--allow-all)' :
+           value.cli === 'pi' ? '(Pi has no prompts — always auto)' : '(auto-run)'}
         </span>
       </label>
 
