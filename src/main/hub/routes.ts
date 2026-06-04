@@ -41,6 +41,9 @@ export interface ScheduleBridge {
 export interface BoardBridge {
   listPages: () => { page: number; elementCount: number; strokeCount: number }[]
   renderPath: (pageNumber: number) => string | null // null=out-of-range, ''=no render yet, else abs path
+  // Optional: headless re-render of a page (wired by index.ts). Lets the
+  // render route produce a fresh PNG instead of 409ing when none exists.
+  requestRender?: (pageNumber: number) => Promise<{ ok: boolean; error?: string }>
 }
 
 export function createRoutes(
@@ -474,14 +477,32 @@ export function createRoutes(
     res.json(b ? b.listPages() : [])
   })
 
-  router.get('/board/pages/:n/render', (req: Request, res: Response) => {
+  router.get('/board/pages/:n/render', async (req: Request, res: Response) => {
     const b = getBoardBridge?.()
     if (!b) { res.status(503).json({ error: 'Board unavailable' }); return }
     const n = parseInt(req.params.n, 10)
     if (!Number.isInteger(n) || n <= 0) { res.status(400).json({ error: 'invalid page number' }); return }
-    const p = b.renderPath(n)
+    let p = b.renderPath(n)
     if (p === null) { res.status(404).json({ error: `No page ${n}` }); return }
-    if (p === '') { res.status(409).json({ error: `Page ${n} has no render yet — open it in the Workboard first` }); return }
+    if (p === '' && b.requestRender) {
+      // No PNG on disk (page never opened / render previously failed) —
+      // trigger a fresh headless render and wait for it instead of 409ing.
+      let result: { ok: boolean; error?: string }
+      try {
+        result = await b.requestRender(n)
+      } catch (err: any) {
+        result = { ok: false, error: err?.message || String(err) }
+      }
+      p = b.renderPath(n) ?? ''
+      if (p === '') {
+        const reason = result.error ? `: ${result.error}` : ''
+        res.status(409).json({ error: `Page ${n} could not be rendered${reason}. Open it in the Workboard to refresh it manually.` })
+        return
+      }
+    } else if (p === '') {
+      res.status(409).json({ error: `Page ${n} has no render yet — open it in the Workboard first` })
+      return
+    }
     res.json({ path: p, page: n })
   })
 

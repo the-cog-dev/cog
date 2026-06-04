@@ -121,3 +121,73 @@ describe('GET /board/pages/:n/render', () => {
     expect(res.body.error).toBe('Board unavailable')
   })
 })
+
+describe('GET /board/pages/:n/render — on-demand render (requestRender)', () => {
+  it('triggers a fresh render and returns 200 when the render then exists', async () => {
+    // First renderPath call: no PNG yet (''); after requestRender: real path.
+    let rendered = false
+    const bridge = makeBridge({
+      renderPath: vi.fn((n: number) => (n === 1 ? (rendered ? '/abs/page-aaa.png' : '') : null)),
+      requestRender: vi.fn(async (_n: number) => { rendered = true; return { ok: true } })
+    })
+    const app = makeApp(bridge)
+
+    const res = await request(app).get('/board/pages/1/render')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ path: '/abs/page-aaa.png', page: 1 })
+    expect(bridge.requestRender).toHaveBeenCalledWith(1)
+  })
+
+  it('returns 409 with the renderer error when the fresh render fails', async () => {
+    const bridge = makeBridge({
+      renderPath: vi.fn((n: number) => (n === 1 ? '' : null)),
+      requestRender: vi.fn(async (_n: number) => ({ ok: false, error: 'image decode failed' }))
+    })
+    const app = makeApp(bridge)
+
+    const res = await request(app).get('/board/pages/1/render')
+
+    expect(res.status).toBe(409)
+    expect(res.body.error).toMatch(/could not be rendered: image decode failed/)
+    expect(res.body.error).toMatch(/Open it in the Workboard/)
+  })
+
+  it('returns 409 with an actionable message when requestRender throws', async () => {
+    const bridge = makeBridge({
+      renderPath: vi.fn((n: number) => (n === 1 ? '' : null)),
+      requestRender: vi.fn(async (_n: number) => { throw new Error('renderer crashed') })
+    })
+    const app = makeApp(bridge)
+
+    const res = await request(app).get('/board/pages/1/render')
+
+    expect(res.status).toBe(409)
+    expect(res.body.error).toMatch(/could not be rendered: renderer crashed/)
+  })
+
+  it('keeps the legacy 409 when the bridge has no requestRender', async () => {
+    const bridge = makeBridge({
+      renderPath: vi.fn((n: number) => (n === 1 ? '' : null))
+    })
+    const app = makeApp(bridge)
+
+    const res = await request(app).get('/board/pages/1/render')
+
+    expect(res.status).toBe(409)
+    expect(res.body.error).toMatch(/no render yet/)
+  })
+
+  it('does not call requestRender when the render already exists', async () => {
+    const bridge = makeBridge({
+      renderPath: vi.fn((n: number) => (n === 1 ? '/abs/page-aaa.png' : null)),
+      requestRender: vi.fn(async (_n: number) => ({ ok: true }))
+    })
+    const app = makeApp(bridge)
+
+    const res = await request(app).get('/board/pages/1/render')
+
+    expect(res.status).toBe(200)
+    expect(bridge.requestRender).not.toHaveBeenCalled()
+  })
+})

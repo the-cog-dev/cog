@@ -26,7 +26,7 @@ import { canAgentCancelSchedule } from './scheduler/scheduler-helpers'
 import type { Server as HttpServer } from 'http'
 import * as https from 'https'
 import * as httpProto from 'http'
-import { createHash } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { spawn as spawnChildProcess } from 'child_process'
 import { v4 as uuidv4 } from 'uuid'
 import { TokenManager } from './remote/token-manager'
@@ -1651,6 +1651,30 @@ async function openProject(projectPath: string): Promise<void> {
       const rp = renderPathForPage(root, boardStore.listPages(), n)
       if (rp === null) return null
       return fs.existsSync(rp) ? rp : ''
+    },
+    // Ask the renderer's board-render-service to (re)render page n headlessly.
+    // Resolves once the renderer reports back (or after a 15s timeout) so the
+    // hub route can serve a fresh PNG instead of 409ing on never-opened pages.
+    requestRender: (n) => {
+      const page = (boardStore?.listPages() ?? []).find(p => p.orderIndex === n)
+      const win = mainWindow
+      if (!page) return Promise.resolve({ ok: false, error: `No page ${n}` })
+      if (!win || win.isDestroyed()) return Promise.resolve({ ok: false, error: 'Main window unavailable' })
+      const requestId = randomUUID()
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          ipcMain.removeListener(IPC.BOARD_RENDER_RESULT, handler)
+          resolve({ ok: false, error: 'Render timed out after 15s' })
+        }, 15_000)
+        const handler = (_e: Electron.IpcMainEvent, rid: string, ok: boolean, error?: string): void => {
+          if (rid !== requestId) return
+          clearTimeout(timer)
+          ipcMain.removeListener(IPC.BOARD_RENDER_RESULT, handler)
+          resolve({ ok, error })
+        }
+        ipcMain.on(IPC.BOARD_RENDER_RESULT, handler)
+        win.webContents.send(IPC.BOARD_RENDER_REQUEST, { pageId: page.id, requestId })
+      })
     }
   }
 

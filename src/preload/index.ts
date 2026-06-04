@@ -312,4 +312,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   boardReadImage: (file: string) => ipcRenderer.invoke(IPC.BOARD_READ_IMAGE, file),
   getBoardAppearance: () => ipcRenderer.invoke(IPC.BOARD_APPEARANCE_GET),
   setBoardAppearance: (value: { bgColor: string; showGrid: boolean; gridColor: string }) => ipcRenderer.invoke(IPC.BOARD_APPEARANCE_SET, value),
+  // Headless render requests (main -> renderer -> main); see board-render-service.ts
+  onBoardRenderRequest: (cb: (req: { pageId: string; requestId: string }) => void) => {
+    const handler = (_e: unknown, req: { pageId: string; requestId: string }) => cb(req)
+    ipcRenderer.on(IPC.BOARD_RENDER_REQUEST, handler)
+    return () => ipcRenderer.removeListener(IPC.BOARD_RENDER_REQUEST, handler)
+  },
+  boardRenderResult: (requestId: string, ok: boolean, error?: string) =>
+    ipcRenderer.send(IPC.BOARD_RENDER_RESULT, requestId, ok, error),
 })

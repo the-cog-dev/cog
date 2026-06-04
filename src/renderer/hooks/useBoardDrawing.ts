@@ -61,7 +61,9 @@ function drawArrowhead(
   ctx.stroke()
 }
 
-function renderStroke(
+// Exported so the headless page renderer (board-render-service) paints strokes
+// with exactly the same logic as the live drawing overlay.
+export function renderStroke(
   ctx: CanvasRenderingContext2D,
   stroke: BoardStroke,
   zoom: number,

@@ -147,6 +147,8 @@ declare global {
       boardReadImage: (file: string) => Promise<string | null>
       getBoardAppearance: () => Promise<import('../shared/types').BoardAppearance>
       setBoardAppearance: (value: import('../shared/types').BoardAppearance) => Promise<import('../shared/types').BoardAppearance>
+      onBoardRenderRequest: (cb: (req: { pageId: string; requestId: string }) => void) => () => void
+      boardRenderResult: (requestId: string, ok: boolean, error?: string) => void
     }
   }
 }
