@@ -1673,7 +1673,20 @@ async function openProject(projectPath: string): Promise<void> {
           resolve({ ok, error })
         }
         ipcMain.on(IPC.BOARD_RENDER_RESULT, handler)
-        win.webContents.send(IPC.BOARD_RENDER_REQUEST, { pageId: page.id, requestId })
+        // Guarded send: the window can be torn down between the early
+        // isDestroyed() check and this point, and sending to a destroyed
+        // webContents throws. Fail the request cleanly (no leaked listener,
+        // no 15s dangling timer) instead of rejecting.
+        try {
+          if (win.isDestroyed() || win.webContents.isDestroyed()) {
+            throw new Error('Main window destroyed before render request could be sent')
+          }
+          win.webContents.send(IPC.BOARD_RENDER_REQUEST, { pageId: page.id, requestId })
+        } catch (err) {
+          clearTimeout(timer)
+          ipcMain.removeListener(IPC.BOARD_RENDER_RESULT, handler)
+          resolve({ ok: false, error: err instanceof Error ? err.message : String(err) })
+        }
       })
     }
   }
