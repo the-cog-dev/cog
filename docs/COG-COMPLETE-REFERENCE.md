@@ -48,7 +48,8 @@ The Cog (Electron App)
 │   │   ├── MessageRouter — agent-to-agent messaging with peek/ack, tab + group scoping
 │   │   ├── Pinboard — shared task board with role targeting and tab isolation
 │   │   ├── InfoChannel — shared knowledge feed (post/read/update/delete)
-│   │   ├── BuddyRoom — companion speech log from all terminals
+│   │   ├── Inbox — agent → user proposals (e.g. self-schedule requests) to approve/deny
+│   │   ├── ScheduleBridge / BoardBridge — expose the scheduler + Sketchpad pages to agents
 │   │   ├── GroupManager — communication graph (Blender-style node links)
 │   │   ├── AgentMetrics — per-agent activity tracking
 │   │   ├── Routes — HTTP API for all the above + file operations
@@ -57,8 +58,7 @@ The Cog (Electron App)
 │   ├── Shell Management
 │   │   ├── PtyManager — spawns node-pty terminals per agent
 │   │   ├── StatusDetector — detects when agent is at prompt vs working
-│   │   ├── OutputBuffer — rolling line buffer with partial-line handling
-│   │   └── BuddyDetector — scans PTY output for companion speech
+│   │   └── OutputBuffer — rolling line buffer with partial-line handling
 │   │
 │   ├── Scheduler (src/main/scheduler/)
 │   │   ├── PromptScheduler — recurring prompt fires with tick loop, pause/resume/restart
@@ -85,10 +85,12 @@ The Cog (Electron App)
 │   ├── ProjectManager — per-project .cog/ folders, recent projects
 │   ├── PresetManager — global saved team presets
 │   ├── SkillManager — built-in + user skill definitions, prompt composition
-│   └── Database — SQLite schema (messages, tasks, info entries, scheduled_prompts)
+│   ├── Database — SQLite schema (messages, tasks, info, scheduled_prompts, board_pages, project_settings)
+│   ├── SketchpadStore (db/board-store.ts + board/board-files.ts) — pages + image/PNG-render files in .cog/
+│   └── AutonomyStore / InboxStore — per-project autonomy toggle + agent-proposal inbox (project_settings)
 │
 ├── MCP Server (src/mcp-server/) — standalone Node process per agent
-│   └── 25+ MCP tools that proxy to the hub via HTTP
+│   └── 31 MCP tools that proxy to the hub via HTTP (Pi reaches them via pi-mcp-adapter)
 │
 ├── Preload (src/preload/) — IPC bridge, context isolation
 │
@@ -107,7 +109,8 @@ The Cog (Electron App)
 │   ├── GitPanel.tsx — full git UI (status, staging, commit, push/pull, branches, diff, log)
 │   ├── PinboardPanel.tsx — shared task board viewer with clear-completed
 │   ├── InfoChannelPanel.tsx — shared info feed viewer
-│   ├── BuddyRoomPanel.tsx — companion speech log viewer
+│   ├── Workboard.tsx — Sketchpad canvas (notes/text/photos/freehand, multi-page, agent-visible)
+│   ├── TrollboxPanel.tsx / InboxPanel.tsx — team chat + agent-proposal approvals
 │   ├── SchedulesPanel.tsx — scheduled prompts with ScheduleRow + PastScheduleRow
 │   ├── ScheduleDialog.tsx — create/edit scheduled prompt form
 │   ├── UsagePanel.tsx — per-agent activity metrics + provider limit checks
@@ -133,8 +136,8 @@ On launch, The Cog reads `recent-projects.json` from userData. If there's a rece
 ### 2. Spawning an Agent
 The user opens the SpawnDialog and configures:
 - **Name** — e.g., "orchestrator", "worker-1"
-- **CLI** — Claude Code, Codex, Kimi, Gemini, OpenClaude, Copilot, Grok, or plain terminal
-- **Model** — specific model (Opus, Sonnet, GPT-4o, DeepSeek, etc.)
+- **CLI** — Claude Code, Codex, Kimi, Gemini, OpenClaude, Copilot, Grok, Pi (pi.dev), or plain terminal
+- **Model** — specific model (Opus, Sonnet, GPT-5.5, DeepSeek, etc.)
 - **Role** — orchestrator, worker, researcher, reviewer, or custom
 - **Skills** — composable capability modules from the skill browser (optional)
 - **CEO Notes** — free-text instructions (combined with skills)
@@ -150,7 +153,7 @@ When spawned:
 6. The agent registers with the hub and starts working
 
 ### 3. Agent Communication
-Agents communicate through 22 MCP tools that proxy to the hub's HTTP API:
+Agents communicate through 31 MCP tools that proxy to the hub's HTTP API:
 
 **Messaging:**
 - `send_message(to, message)` — direct message to another agent
@@ -166,6 +169,7 @@ Agents communicate through 22 MCP tools that proxy to the hub's HTTP API:
 - `claim_task(task_id)` — claim an open task
 - `complete_task(task_id, result?)` — mark task done
 - `abandon_task(task_id)` — release a stuck task back to open
+- `clear_completed_tasks()` — clear out finished tasks
 
 **Shared Knowledge:**
 - `post_info(note, tags?)` — post to info channel
@@ -178,14 +182,25 @@ Agents communicate through 22 MCP tools that proxy to the hub's HTTP API:
 - `read_ceo_notes()` — re-read your own instructions
 - `update_status(status)` — self-report status (idle/active/working)
 - `get_agent_output(agent, lines?)` — peek at another agent's terminal
+- `get_my_group()` — see your communication group
+- `notify_user(message)` — surface a note to the human (desktop + mobile)
+
+**Scheduling (self-scheduling):**
+- `schedule_prompt(...)` — create a recurring self-prompt (gated → inbox proposal, or autonomous)
+- `list_schedules()` — list your schedules
+- `cancel_schedule(id)` — cancel one
+
+**Sketchpad (agent vision):**
+- `list_sketchpad_pages()` — list pages (element + stroke counts)
+- `view_sketchpad_page(n)` — get a page's rendered PNG to read with vision
+
+**Teams:**
+- `propose_team(...)` — propose a new agent team for the user to approve
 
 **File Operations:**
 - `read_file(path)` — read a project file (1MB limit)
 - `write_file(path, content)` — write/create a file (auto-creates dirs)
 - `list_directory(path?)` — list files and subdirectories
-
-**Companion:**
-- `read_buddy_room(count?)` — read companion speech from all terminals
 
 ### 4. Nudge System
 Agents don't poll for work — they wait. When something needs their attention, the hub injects a nudge directly into their terminal:
@@ -240,17 +255,18 @@ Data persists across sessions. No more DB wipe on startup.
 
 ## Multi-Model Support
 
-The Cog supports 7+ CLI types:
+The Cog supports 8+ CLI types:
 
 | CLI | Provider | Models |
 |-----|----------|--------|
 | Claude Code | Anthropic | Opus, Sonnet, Haiku |
-| Codex CLI | OpenAI | o4-mini, GPT-4.1, o3 |
-| Kimi CLI | Moonshot | Default, K2.5, Thinking Turbo |
+| Codex CLI | OpenAI | GPT-5.5, GPT-5.4, GPT-5, o4-mini |
+| Kimi CLI | Moonshot | Default (switch in-CLI via `/model`) |
 | Gemini CLI | Google | 2.5 Pro, 2.5 Flash, 2.0 Flash |
-| OpenClaude | Any (200+ models) | GPT-4o, DeepSeek, Ollama, Mistral, etc. |
-| GitHub Copilot | Microsoft | Default, GPT-4o, o3-mini |
+| OpenClaude | Any (200+ models) | GPT, DeepSeek, Ollama, Mistral, Qwen, etc. |
+| GitHub Copilot | Microsoft | Default, GPT-5.5, GPT-5.4, GPT-5 |
 | Grok CLI | xAI | Grok 3, Grok 3 Mini |
+| Pi (pi.dev) | Any (GPT-5.5, Claude, DeepSeek, OpenRouter, local…) | configured in Pi; hub via pi-mcp-adapter |
 
 **OpenClaude** is the key: it's a Claude Code fork that replaces the Anthropic API layer with an OpenAI-compatible shim. This means any model gets Claude Code's full tool system (bash, file ops, MCP, agents). Install once, point at any provider via env vars.
 
@@ -312,7 +328,9 @@ The workspace has 8+ toggleable panels (from the TopBar Panels dropdown). Each p
 | **Files** | File explorer tree (left) + Monaco code editor with tabs (right). Browse project files, open/edit/save. |
 | **Pinboard** | Shared task board with role-targeted tasks, tab isolation, and clear-completed. |
 | **Info** | Shared info feed. Research findings, status updates, tagged entries. |
-| **Buddy** | Companion speech log. Collects buddy/companion messages from all agent terminals. |
+| **Sketchpad** | Per-project visual canvas — sticky notes, text, pasted photos, freehand drawing, multi-page. Agents can *see* pages via `list_sketchpad_pages` / `view_sketchpad_page`. |
+| **Trollbox** | Team chat channel (also on mobile, with unread badge). |
+| **Inbox** | Agent proposals (e.g. self-schedule requests) to approve/deny — desktop and mobile. |
 | **Git** | Full git UI — status, staging, commit, push/pull with ahead/behind, branch switcher, diff viewer, log. Manual refresh, capped at 200 files for performance. |
 | **Schedules** | Scheduled prompts with create/pause/resume/stop/restart, past schedules section, 20-entry history ring buffer per schedule. |
 | **Usage** | Per-agent activity metrics (messages sent/received, tasks posted/claimed/completed, info posted) + on-demand provider limit checks. |
@@ -331,18 +349,17 @@ Additional dialogs: Settings (notifications, Remote View), Spawn (agent creation
 |------|-------------|
 | `index.ts` | Entry point. App lifecycle, IPC handlers, openProject/closeProject, spawn/kill agents, nudge system |
 | `hub/server.ts` | Creates Express hub server with auth middleware |
-| `hub/routes.ts` | All HTTP routes (agents, messages, tasks, info, files, buddy room, heartbeat) |
+| `hub/routes.ts` | All HTTP routes (agents, messages, tasks, info, files, schedules, Sketchpad pages, heartbeat) |
 | `hub/agent-registry.ts` | In-memory agent state, upsert on duplicate, heartbeat tracking |
 | `hub/message-router.ts` | Message queues, rate limiting (30/min), peek/ack, broadcast |
 | `hub/pinboard.ts` | Task CRUD (post, claim, complete, abandon), callbacks |
 | `hub/info-channel.ts` | Info entries with tags, FIFO cap at 500, update/delete |
-| `hub/buddy-room.ts` | Companion message store, 200-message ring buffer |
+| `hub/inbox-channel.ts` | Agent → user proposal inbox (approve/deny, e.g. self-schedule requests) |
 | `hub/auth.ts` | Shared secret generation, timing-safe comparison |
 | `shell/pty-manager.ts` | Spawn node-pty, wire data/exit/status callbacks |
 | `shell/status-detector.ts` | ANSI stripping, prompt regex, silence timer → idle/working/active |
 | `shell/output-buffer.ts` | Rolling line buffer with partial-line accumulation |
-| `shell/buddy-detector.ts` | Chunk-based companion speech detection from PTY output |
-| `cli-launch.ts` | CLI-specific launch command builders (claude, codex, kimi, gemini, openclaude, etc.) |
+| `cli-launch.ts` | CLI-specific launch command builders (claude, codex, kimi, gemini, openclaude, copilot, grok, pi) |
 | `project/project-manager.ts` | .cog/ folder creation, recent projects, path resolution |
 | `presets/preset-manager.ts` | Save/load/list/delete presets (global userData) |
 | `skills/skill-manager.ts` | Load built-in + user skills, CRUD, prompt resolution |
@@ -351,6 +368,8 @@ Additional dialogs: Settings (notifications, Remote View), Spawn (agent creation
 | `db/message-store.ts` | Message persistence (insert, query by agent, history) |
 | `db/pinboard-store.ts` | Task persistence (save, update, load) with tab_id |
 | `db/info-store.ts` | Info entry persistence (save, load) |
+| `db/board-store.ts` + `board/board-files.ts` | Sketchpad pages (SQLite) + image/PNG-render files in `.cog/` |
+| `db/autonomy-store.ts` + `db/inbox-store.ts` | Per-project autonomy toggle + agent-proposal inbox |
 | `hub/group-manager.ts` | Communication graph with union-find for connected components |
 | `hub/agent-metrics.ts` | Per-agent activity tracking (messages, tasks, info counts) |
 | `scheduler/prompt-scheduler.ts` | PromptScheduler class — tick loop, fire, pause/resume/restart/edit/delete/cascade |
@@ -370,7 +389,7 @@ Additional dialogs: Settings (notifications, Remote View), Spawn (agent creation
 
 | File | What it does |
 |------|-------------|
-| `index.ts` | Standalone MCP server process. 22 tools. Heartbeat timer. Proxies to hub via HTTP. |
+| `index.ts` | Standalone MCP server process. 31 tools. Heartbeat timer. Proxies to hub via HTTP. |
 
 ### Renderer (`src/renderer/`)
 
@@ -378,7 +397,7 @@ Additional dialogs: Settings (notifications, Remote View), Spawn (agent creation
 |------|-------------|
 | `App.tsx` | Root component. Project state, dialog management, TopBar/Workspace wiring |
 | `components/Workspace.tsx` | Infinite canvas. CSS transforms for zoom/pan. Renders floating windows. |
-| `components/TopBar.tsx` | Project name, agent pills, panel toggles (Files/Pinboard/Info/Buddy/Presets) |
+| `components/TopBar.tsx` | Project name, agent pills, panel toggles (Files/Pinboard/Info/Schedules/Trollbox/Inbox/Sketchpad) |
 | `components/FloatingWindow.tsx` | react-rnd wrapper. Drag, resize, minimize, maximize, close, snap zones. |
 | `components/TerminalWindow.tsx` | xterm.js terminal. PTY I/O via IPC. Focus event filtering. |
 | `components/SpawnDialog.tsx` | Agent creation form. CLI picker, model selector, role, skills, CEO notes. |
@@ -388,7 +407,7 @@ Additional dialogs: Settings (notifications, Remote View), Spawn (agent creation
 | `components/FilePanel.tsx` | Split panel: file tree (left) + Monaco editor with tabs (right). |
 | `components/PinboardPanel.tsx` | Task list with status indicators. |
 | `components/InfoChannelPanel.tsx` | Info feed with tag badges. |
-| `components/BuddyRoomPanel.tsx` | Companion message log with timestamps. |
+| `components/Workboard.tsx` + `BoardPageCanvas.tsx` | Sketchpad canvas — notes/text/photos/freehand, multi-page, rasterized to PNG for agent vision. |
 | `hooks/useWindowManager.ts` | Window state (position, size, z-order, minimize/maximize). |
 | `hooks/useAgents.ts` | Agent lifecycle (spawn, kill, state updates via IPC). |
 | `hooks/useSnapZones.ts` | Window-to-window and edge snapping during drag. |
@@ -397,7 +416,7 @@ Additional dialogs: Settings (notifications, Remote View), Spawn (agent creation
 
 | File | What it does |
 |------|-------------|
-| `types.ts` | All TypeScript interfaces (AgentConfig, AgentState, Message, PinboardTask, InfoEntry, BuddyMessage, Skill, etc.) + IPC channel constants |
+| `types.ts` | All TypeScript interfaces (AgentConfig, AgentState, Message, PinboardTask, InfoEntry, BoardPage, SchedulePayload, Skill, etc.) + IPC channel constants |
 
 ---
 
@@ -411,7 +430,10 @@ All IPC communication uses named channels defined in `src/shared/types.ts`. 80+ 
 **Presets:** `preset:save`, `preset:load`, `preset:list`, `preset:delete`
 **Pinboard:** `pinboard:get-tasks`, `pinboard:clear-completed`, `pinboard:task-update`
 **Info:** `info:get-entries`, `info:entry-added`
-**Buddy:** `buddy:get-messages`, `buddy:message-added`
+**Sketchpad:** `board:list-pages`, `board:add-page`, `board:save-page`, `board:delete-page`, `board:read-image`, `board:appearance-get/set`
+**Inbox:** `inbox:list`, `inbox:mark-read`, `inbox:reply`, `inbox:message-added`
+**Trollbox:** `trollbox:state-push`, `trollbox:remote-send`
+**Autonomy:** `autonomy:get`, `autonomy:set`
 **Project:** `project:get-current`, `project:switch`, `project:list-recent`, `project:open-folder`, `project:changed`
 **Files:** `file:list`, `file:read`, `file:write`
 **Skills:** `skill:list`, `skill:get`, `skill:create`, `skill:update`, `skill:delete`, `skill:search-community`, `skill:install-community`
@@ -455,7 +477,9 @@ All routes require `Authorization: Bearer <secret>` header.
 | GET | `/info` | Read info (supports ?tags= filter) |
 | PATCH | `/info/:id` | Update info entry |
 | DELETE | `/info/:id` | Delete info entry |
-| GET | `/buddy-room` | Get buddy messages |
+| GET | `/schedules` | List agent self-schedules |
+| GET | `/board/pages` | List Sketchpad pages (agent vision) |
+| GET | `/board/pages/:n/render` | Get a page's rendered PNG |
 | GET | `/files/read` | Read a project file |
 | POST | `/files/write` | Write a project file |
 | GET | `/files/list` | List directory contents |
@@ -474,7 +498,7 @@ ProjectManager module, project picker dialog, per-project .cog/ folder, DB no lo
 Added OpenClaude as CLI type, provider picker (OpenAI, DeepSeek, OpenRouter, Together AI, Groq, Ollama), model + provider env vars passed to PTY.
 
 ### Phase 3: Tools + Reliability
-Added delete_info/update_info, update_status, bumped rate limit 10→30/min, fixed OutputBuffer partial lines, reconnect context injection, Buddy Room (detection + storage + UI panel + MCP tool), heartbeat system.
+Added delete_info/update_info, update_status, bumped rate limit 10→30/min, fixed OutputBuffer partial lines, reconnect context injection, heartbeat system. (Buddy Room was added in this phase and later removed.)
 
 ### Phase 4: IDE Features
 File operation MCP tools (read_file, write_file, list_directory) with project-scoped security. File Explorer sidebar + Monaco Editor panel with tabs, dirty indicators, Ctrl+S save.
@@ -486,7 +510,7 @@ Moved saved presets to global storage. Expanded templates from 5→39 with searc
 SkillManager module, 15 built-in skills, SpawnDialog skill picker, SkillBrowser dialog (3 tabs: built-in, my skills, community via skills.sh).
 
 ### Live Test Fixes
-Buddy detector rewrite (chunk-based for ANSI cursor positioning), Kimi model fix (default instead of premium K2.5), Codex TUI fix (filter xterm.js focus sequences), task nudge system, nudge fallback timer (5s for CLIs where StatusDetector can't detect prompt), removed polling language from initial prompt.
+Kimi model fix (default instead of premium K2.5), Codex TUI fix (filter xterm.js focus sequences), task nudge system, nudge fallback timer (5s for CLIs where StatusDetector can't detect prompt), removed polling language from initial prompt.
 
 ### R.A.C. Integration (2026-04-04)
 Rent-A-Claude panel with password gate (private/crew-only), rent/release UI, dedicated chat panel for rented Claude, hub message bridge for renter-to-rented communication. Kept out of public README.
@@ -519,14 +543,31 @@ Recurring prompt system — fire a custom prompt at any agent on an interval for
 Tunnel the workshop to a public URL via lazy-downloaded cloudflared. Separate Express server (NOT the hub) on its own ephemeral port with 8 hardened endpoints — all behind a 32-char URL token with 8h inactivity expire. Single-page vanilla HTML/CSS/JS mobile dashboard served from `src/main/remote/static/`. Rate-limited (60/min per IP), 4KB body cap, 404 on bad token (not 401), no agent spawn/kill from remote (blast radius limit). Write-through `--config` empty file to override the user's existing `~/.cloudflared/config.yml`. Path fallback logic to find static files in dev vs packaged mode. QR code in Settings via qrcode-svg. Marked `(experimental)` in UI.
 
 ### Help Menu (2026-04-08)
-Bug fixer added a Help menu with MCP Tools Reference dialog — users can browse all 25+ MCP tools and their signatures without leaving the app (closes #39).
+Bug fixer added a Help menu with MCP Tools Reference dialog — users can browse all 31 MCP tools and their signatures without leaving the app (closes #39).
+
+### Rebrand to "The Cog" (2026-04-15)
+AgentOrch → **The Cog**. Repo moved to `the-cog-dev/cog`, gear-icon branding, `thecog.dev` domain, auto-migration of existing `.agentorch/` data paths to `.cog/`.
+
+### Workspace Themes + Trollbox (2026-04-17 → 2026-04-24)
+8 built-in per-agent color themes with apply-by-role, persisted with presets + shared teams. Trollbox team-chat panel.
+
+### Mobile PWA + phone Inbox/Trollbox (2026-05)
+Path-A mobile: per-device identity, file ops + schedule creation from the phone, PWA manifest/service worker, WebSocket hub. Mobile **Inbox** (approve agent proposals), **Trollbox**, and an unread badge.
+
+### Agent Self-Scheduling + Per-Project Autonomy (2026-05-29)
+Agents create their own schedules via `schedule_prompt`. Default is **gated** — the request lands in the Inbox to approve; a per-project **autonomous** toggle lets orchestrators self-schedule freely. New MCP tools: `schedule_prompt` / `list_schedules` / `cancel_schedule`, plus `notify_user` and `propose_team`. **Buddy Room removed.**
+
+### Sketchpad (2026-05-30)
+Per-project visual canvas panel — sticky notes, text, pasted photos, freehand drawing (pen/line/arrow/ellipse), multi-page, persisted in `.cog/`. Agents can **see** pages: each renders to a PNG read via `list_sketchpad_pages` / `view_sketchpad_page`. (Internal code name "board"; user-facing "Sketchpad".)
+
+### Pi (pi.dev) CLI (2026-06-02)
+Added Pi as a spawnable CLI — a full hub agent via the auto-installed `pi-mcp-adapter` (per-agent `PI_CODING_AGENT_DIR` isolation, native commit). Pi reaches all 31 hub tools through one proxy tool.
 
 ---
 
 ## What's Next
 
 - **`.exe` distribution + real auto-updater** — replace `git pull` update with electron-updater + GitHub Releases. Tag-triggered releases (`git tag v0.3.0` → GitHub Action → installer → auto-update). See `docs/superpowers/specs/2026-04-08-distribution-and-release-pipeline-notes.md` (local/gitignored).
-- **Rebrand to "TheCog.dev"** — The Cog → Cog. Gear-icon branding. Domain secured.
 - **File Change Notifications** — when an agent writes a file, other agents can subscribe
 - **Agent Modes** — Architect/Coder/Reviewer/Tester with specialized prompts
 - **Dynamic Model Switching** — switch_model MCP tool mid-task
@@ -539,7 +580,7 @@ Bug fixer added a Help menu with MCP Tools Reference dialog — users can browse
 
 ```bash
 git clone https://github.com/the-cog-dev/cog.git
-cd The Cog
+cd cog
 npm install
 npm run dev
 ```

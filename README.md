@@ -4,15 +4,17 @@
 
 ![Spawning a full team of agents in The Cog](assets/readme/AgentsSpawning.gif)
 
-Agents communicate through 25+ MCP tools — messaging, task boards, shared knowledge, file operations — all in one workspace.
+Agents communicate through 31 MCP tools — messaging, task boards, shared knowledge, scheduling, a shared sketchpad they can see, file operations — all in one workspace.
 
 ## What It Does
 
 - **Multi-agent workspace** — floating terminal windows on an infinite canvas. Drag, resize, snap, zoom.
 - **Workspace tabs** — run multiple isolated teams in the same project. Each tab has its own agents, pinboard, and communication.
-- **25+ MCP tools** — agents message each other, post tasks, share research, read/write files, and more.
-- **Multi-model teams** — Claude, Codex, Kimi, Gemini, Copilot, Grok, OpenClaude (200+ models via OpenAI-compatible providers), or plain terminals.
+- **31 MCP tools** — agents message each other, post tasks, share research, schedule their own prompts, view the shared Sketchpad, read/write files, and more.
+- **Multi-model teams** — Claude, Codex, Kimi, Gemini, Copilot, Grok, OpenClaude (200+ models via OpenAI-compatible providers), Pi (pi.dev), or plain terminals.
 - **Scheduled prompts** — fire recurring prompts at any agent on a custom interval and duration. Pause/resume, run indefinitely, auto-resume on restart. Perfect for overnight "keep going" nudges.
+- **Agent self-scheduling** — agents create their own schedules via MCP (`schedule_prompt`). Default is *gated* (requests land in your inbox to approve); flip a per-project toggle to *autonomous* and orchestrators self-schedule freely. "CRONs on the go."
+- **Sketchpad** — a per-project visual canvas: sticky notes, text, pasted photos, and freehand drawing (pen/line/arrow/ellipse) across multiple pages. Agents can *see* your pages — each renders to an image they read via `list_sketchpad_pages` / `view_sketchpad_page`. Sketch plans, maps, or layouts your agents act on.
 - **Remote View** *(experimental)* — tunnel your workshop to a public URL via Cloudflare. Check agent status, send messages, manage schedules, and post tasks from your phone. No port forwarding required. Configurable session timeout (1h–168h).
 - **Workshop mode** *(Remote View)* — passcode-gated spatial canvas on your phone that mirrors your desktop workspace layout. Pinch to zoom, drag to pan, tap agents to see output and type commands. Kill agents from your phone. View pinboard and info channel inline.
 - **Per-agent color themes** — right-click any terminal title bar to customize chrome, border, background, and text colors. 8 built-in themes (Sunshine, Ocean, Crimson, Forest, Royal, Dusk, Steel). "Apply theme by role" button in Settings colors your whole team in one click. Themes persist across restarts and travel with presets + shared community teams.
@@ -48,7 +50,7 @@ Requires: Node.js 20+, at least one AI CLI installed (Claude Code, Codex, Kimi, 
 
 Click **+** to spawn an agent:
 - **Name** — how other agents refer to this one
-- **CLI** — Claude Code, Codex, Kimi, Gemini, OpenClaude, Copilot, Grok, or plain terminal
+- **CLI** — Claude Code, Codex, Kimi, Gemini, OpenClaude, Copilot, Grok, Pi (pi.dev), or plain terminal
 - **Model** — specific model per CLI (Opus, Sonnet, GPT-5, GPT-5.4, DeepSeek, Llama, etc.)
 - **Role** — Orchestrator, Worker, Researcher, Reviewer, or Custom
 - **Skills** — attach capability modules from the skill browser
@@ -115,16 +117,18 @@ You are a code reviewer. When nudged with a review task:
 
 ## How Agents Communicate
 
-Agents get 25+ MCP tools:
+Agents get 31 MCP tools:
 
 | Category | Tools |
 |----------|-------|
 | **Messaging** | `send_message`, `get_messages`, `ack_messages`, `broadcast`, `get_message_history` |
 | **Tasks** | `post_task` (with `target_role`), `read_tasks`, `get_task`, `claim_task`, `complete_task`, `abandon_task`, `clear_completed_tasks` |
 | **Info** | `post_info`, `read_info`, `update_info`, `delete_info` |
-| **Agents** | `get_agents`, `read_ceo_notes`, `update_status`, `get_agent_output`, `get_my_group` |
+| **Agents** | `get_agents`, `read_ceo_notes`, `update_status`, `get_agent_output`, `get_my_group`, `notify_user` |
+| **Scheduling** | `schedule_prompt`, `list_schedules`, `cancel_schedule` |
+| **Sketchpad** | `list_sketchpad_pages`, `view_sketchpad_page` |
+| **Teams** | `propose_team` |
 | **Files** | `read_file`, `write_file`, `list_directory` |
-| **Other** | — |
 
 **Auto-nudge:** Agents don't poll — they wait. When a message arrives or a task is posted, the matching agent gets nudged automatically. Tasks with `target_role` only nudge agents with that role. Zero wasted tokens.
 
@@ -169,6 +173,26 @@ Set a custom prompt to fire at any agent on a recurring interval — the killer 
 
 **Primary use case:** set up a 45-minute "keep going" nudge on your orchestrator for 8 hours before leaving for work. Come home to a team that never went idle.
 
+### Agent self-scheduling & autonomy
+
+Agents can schedule *themselves* via the `schedule_prompt` MCP tool — e.g. an orchestrator setting its own "audit progress every 2h" cadence.
+
+- **Gated (default)** — an agent's schedule request becomes a **proposal in your inbox**. Nothing fires until you approve it (from desktop or your phone).
+- **Autonomous (per-project opt-in)** — flip the toggle and agents create + run schedules freely, no approval step. Scoped per project, so you choose where to trust it.
+- Agents can also list and cancel their own schedules (`list_schedules`, `cancel_schedule`).
+
+## Sketchpad
+
+A per-project visual canvas you open from the **Panels** menu (📖 Sketchpad) — think "infinite notebook on your desk":
+
+- **Elements** — sticky notes, text blocks, and pasted photos. Drag, resize, move freely.
+- **Freehand drawing** — pen, line, arrow, and ellipse tools on a layer above the elements, so you can circle things on a photo or sketch a diagram.
+- **Pages** — flip through multiple pages per project; everything persists in `.cog/`.
+- **Agents can see it** — each page renders to a PNG that agents read via `list_sketchpad_pages` / `view_sketchpad_page`. Sketch a map, a UI layout, or a plan and your agents work from what you drew.
+- **Appearance** — set background color, toggle gridlines; `＋`/`−` buttons zoom the page.
+
+*(Paste images in directly; OS file drag-and-drop isn't supported yet.)*
+
 ## Remote View *(experimental)*
 
 Check on your Cog workshop from your phone. Open **Settings → Remote View** and toggle Enable. The Cog downloads `cloudflared` on first run (~25MB, one-time) and spawns a tunnel that gives you a public `https://*.trycloudflare.com/r/<token>/` URL. Scan the QR code with your phone camera and you're in.
@@ -183,6 +207,8 @@ Check on your Cog workshop from your phone. Open **Settings → Remote View** an
 - Send messages to any agent
 - Pause / resume / restart any scheduled prompt
 - Post new tasks to the pinboard
+- **Inbox** — review and **approve/deny agent proposals** (e.g. self-schedule requests) right from your phone
+- **Trollbox** — the team chat channel, live on mobile with an unread badge
 - Session countdown in the header — configurable from 1 hour to 168 hours (7 days)
 
 **Workshop mode — full workspace control:**
@@ -216,12 +242,13 @@ Electron App
 │   ├── Group Manager (communication graph)
 │   ├── Agent Metrics (activity tracking)
 │   └── File Operations (project-scoped)
-├── MCP Server (per-agent, stdio)
+├── MCP Server (per-agent, stdio; Pi bridged via pi-mcp-adapter)
 ├── PTY Manager (node-pty terminals)
 ├── Project Manager (per-project .cog/)
 ├── Skill Manager (built-in + user skills)
+├── Sketchpad Store (per-project pages; renders pages to PNG for agent vision)
 ├── Git Operations (shell git commands)
-├── Prompt Scheduler (recurring prompts, per-project SQLite)
+├── Prompt Scheduler (recurring prompts + agent self-scheduling, gated/autonomous per project)
 ├── Remote Server (optional Cloudflare-tunneled mobile dashboard)
 │   ├── Token Manager (URL token auth + session tracking + workshop passcode)
 │   ├── Cloudflared Manager (lazy download + spawn)
@@ -236,7 +263,7 @@ Electron App
     ├── Monaco Editor + file explorer
     ├── Git panel
     ├── Schedules panel
-    ├── 8 toggleable panels
+    ├── Toggleable panels — pinboard, info, usage, schedules, trollbox, inbox, sketchpad
     ├── 39 preset templates + Community Teams tab
     └── Stale task alert snooze (pinboard)
 ```
@@ -246,12 +273,15 @@ Electron App
 | CLI | Models | Auto-approve |
 |-----|--------|-------------|
 | Claude Code | Opus, Sonnet, Haiku | `--dangerously-skip-permissions` |
-| Codex CLI | o4-mini, o3, GPT-5, GPT-5.4 | `--yolo` |
-| Kimi CLI | Default, K2.5, Thinking Turbo | `--yolo` |
+| Codex CLI | GPT-5.5, GPT-5.4, GPT-5, o4-mini | `--yolo` |
+| Kimi CLI | Default (switch in-CLI via `/model`) | `--yolo` |
 | Gemini CLI | 2.5 Pro, 2.5 Flash, 2.0 Flash | `--yolo` |
 | OpenClaude | 200+ models (GPT, DeepSeek, Ollama, Mistral, Qwen, Gemini) | `--dangerously-skip-permissions` |
-| GitHub Copilot | Default, GPT-5, GPT-5.4 | `--allow-all` |
+| GitHub Copilot | Default, GPT-5.5, GPT-5.4, GPT-5 | `--allow-all` |
 | Grok CLI | Grok 3, Grok 3 Mini | N/A |
+| Pi (pi.dev) | Configured in Pi (any provider) | runs tools without prompts (always auto) |
+
+Pi has no native MCP support, so The Cog auto-installs [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) on first launch and points it at the hub — Pi then reaches all 31 tools through a single proxy tool. Requires the `pi` CLI on your PATH.
 
 ## Keyboard Shortcuts
 
