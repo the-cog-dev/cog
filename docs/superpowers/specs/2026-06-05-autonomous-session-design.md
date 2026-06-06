@@ -8,9 +8,9 @@
 
 ## Goal
 
-Let an orchestrator spawn agents/teams **without waiting for manual approval**, but only while the user has explicitly armed a **time-boxed autonomous session**. The session governs both self-scheduling and team-spawning under a single switch + timer, auto-reverts to approval-required when it expires, and posts an **urgent inbox message on every auto-spawn** so the user always has an audit trail of what happened while away.
+Let an orchestrator **manage its own roster without waiting for manual approval** — spawn agents/teams *and* close/delete idle ones — but only while the user has explicitly armed a **time-boxed autonomous session**. The session governs self-scheduling, team-spawning, and agent-closing under a single switch + timer, auto-reverts to approval-required when it expires, and posts an **urgent inbox message on every auto-spawn and every auto-close** so the user always has an audit trail of what happened while away.
 
-**Motivating use case:** long unattended runs (e.g. the Sims 2 decomp fleet). Today `propose_team` always blocks on approval, so a 30-hour session stalls every time the orchestrator wants more agents. With a session armed, the crew keeps moving and the user reviews the urgent inbox log when they return.
+**Motivating use case:** long unattended runs (e.g. the Sims 2 decomp fleet). Today `propose_team` always blocks on approval, so a 30-hour session stalls every time the orchestrator wants more agents — and there's no way for it to tidy up the pile of retired/idle agents (e.g. ~9 idle Opus terminals) that accumulates over a long session. With a session armed, the crew keeps moving, the orchestrator sweeps dead weight, and the user reviews the urgent inbox log when they return.
 
 ## Background — what already exists
 
@@ -60,13 +60,15 @@ endSession(): ProjectAutonomy                // sessionExpiresAt = null
 |------|--------|
 | `src/shared/types.ts` | `ProjectAutonomy` → `{ sessionExpiresAt: number \| null }`. |
 | `src/main/db/autonomy-store.ts` | Add `isActive()`, `startSession(h)`, `endSession()`; `get()` returns the new shape (with graceful legacy read). |
-| `src/main/index.ts` | (1) Repoint `scheduleBridge.autonomyEnabled` → `autonomyStore.isActive()`. (2) Extract `spawnProposalAgents(proposal)` from the current `approveProposal` team-spawn loop; call it from both `approveProposal` and the new auto path. (3) In `onProposalAdded`: if `isActive()` and `kind === 'team'` → auto-approve (spawn + urgent inbox + notify orchestrator + **skip** modal); else existing behavior. (4) IPC: replace `AUTONOMY_SET` with `AUTONOMY_START`(durationHours) and `AUTONOMY_END`; keep `AUTONOMY_GET`. (5) Arm/disarm a one-shot expiry timer; re-arm on startup from stored `sessionExpiresAt`. (6) On expiry: post inbox note + push `AUTONOMY_CHANGED` to renderer. |
-| `src/main/hub/routes.ts` | In `POST /proposals`: when `getScheduleBridge()?.autonomyEnabled()` is true, **skip** the `high` inbox mirror (main posts the urgent one instead) and adjust the MCP `next` text to "Autonomous session active — spawning now." Proposal record is still created so `onProposalAdded` fires. |
-| `src/shared/types.ts` (the `IPC` constants object) | Add `AUTONOMY_START: 'autonomy:start'`, `AUTONOMY_END: 'autonomy:end'`, `AUTONOMY_CHANGED: 'autonomy:changed'`; remove `AUTONOMY_SET`. |
-| `src/preload/index.ts` + `src/renderer/electron.d.ts` | Expose `startAutonomySession(hours)`, `endAutonomySession()`, keep `getAutonomy()`, add `onAutonomyChanged(cb)`. |
+| `src/main/index.ts` | (1) Repoint `scheduleBridge.autonomyEnabled` → `autonomyStore.isActive()`. (2) Extract `spawnProposalAgents(proposal)` from the current `approveProposal` team-spawn loop; call it from both `approveProposal` and the new auto path. (3) In `onProposalAdded`: if `isActive()` and `kind === 'team'` → auto-approve (spawn + urgent inbox + notify orchestrator + **skip** modal); else existing behavior. (4) IPC: replace `AUTONOMY_SET` with `AUTONOMY_START`(durationHours) and `AUTONOMY_END`; keep `AUTONOMY_GET`. (5) Arm/disarm a one-shot expiry timer; re-arm on startup from stored `sessionExpiresAt`. (6) On expiry: post inbox note + push `AUTONOMY_CHANGED` to renderer. (7) Extract **`teardownAgent(managed)`** from the 4 duplicated kill paths; emit `AGENT_CLOSED_REMOTE(agentId)` inside it. (8) Inject a `closeAgentByName(name)` callback into the hub routes that runs `teardownAgent`. |
+| `src/main/hub/routes.ts` | (a) In `POST /proposals`: when `getScheduleBridge()?.autonomyEnabled()` is true, **skip** the `high` inbox mirror (main posts the urgent one instead) and adjust the MCP `next` text to "Autonomous session active — spawning now." Proposal record is still created so `onProposalAdded` fires. (b) Add **`POST /agents/close`**: orchestrator-role gate + session-active gate + self-protection; calls the injected `closeAgentByName`; posts one urgent inbox summary; returns `{ closed, blocked, notFound }`. |
+| `src/mcp-server/index.ts` | Add **`close_agents(names, reason?)`** in the orchestrator-only block → `POST /agents/close`. Description spells out: session-only, cannot close self, batch sweep, pair with `get_agents`. |
+| `src/shared/types.ts` (the `IPC` constants object) | Add `AUTONOMY_START: 'autonomy:start'`, `AUTONOMY_END: 'autonomy:end'`, `AUTONOMY_CHANGED: 'autonomy:changed'`, `AGENT_CLOSED_REMOTE: 'agent:closed-remote'`; remove `AUTONOMY_SET`. |
+| `src/preload/index.ts` + `src/renderer/electron.d.ts` | Expose `startAutonomySession(hours)`, `endAutonomySession()`, keep `getAutonomy()`, add `onAutonomyChanged(cb)` and `onAgentClosedRemote(cb)`. |
 | `src/renderer/components/AutonomySettings.tsx` | Rework single toggle → session control: switch + duration dropdown + live countdown + red warning + "End now"; subscribe to `AUTONOMY_CHANGED`. |
+| `src/renderer/App.tsx` | Subscribe to `AGENT_CLOSED_REMOTE` → `removeWindow(agentId)` so an orchestrator-closed terminal disappears from the workspace. |
 | `tests/unit/autonomy-store.test.ts` | Extend for `isActive`/`startSession`/`endSession`/boundary/rehydrate. |
-| `tests/unit/*` | Add coverage for the `onProposalAdded` auto-approve branch (active → spawn + urgent inbox + no modal; inactive → pending). |
+| `tests/unit/*` | (a) `onProposalAdded` auto-approve branch (active → spawn + urgent inbox + no modal; inactive → pending). (b) `POST /agents/close` route: orchestrator+session required, self → blocked, unknown → notFound, valid → closed + urgent inbox. |
 
 ---
 
@@ -85,6 +87,35 @@ endSession(): ProjectAutonomy                // sessionExpiresAt = null
 
 ---
 
+## Agent cleanup — close/delete capability (session-gated)
+
+While a session is armed the orchestrator can also **fully close/delete agent terminals** from the workspace (kill the PTY, unregister from the hub, remove the floating window). This is the symmetric counterpart to auto-spawn: spawn the crew you need, retire the dead weight.
+
+**New MCP tool** (`src/mcp-server/index.ts`), in the ORCHESTRATOR-ONLY block:
+
+```
+close_agents(names: string[], reason?: string)
+```
+
+- ORCHESTRATOR ONLY, and only effective while an **autonomous session is active**. Outside a session it returns a clear error telling the orchestrator to ask the user instead (no proposal path — closing is a session-only power in v1).
+- **Self-protection:** the calling agent cannot close itself (any except itself — co-orchestrators *are* closable). A self target is reported as `blocked`, not an error.
+- Batch by design so a single call can sweep several idle agents. Targets are agent names or ids; the orchestrator typically pairs this with `get_agents` to find idle/retired ones.
+- → `POST /agents/close` on the hub.
+
+**Hub route** (`src/main/hub/routes.ts`) — `POST /agents/close`, body `{ requestedBy, targets: string[], reason? }`:
+1. `requestedBy` must be registered and `isOrchestratorRole` (mirror of the `propose_team` gate) → else 403.
+2. Session must be active (`getScheduleBridge()?.autonomyEnabled()` → now `isActive()`) → else 403 `autonomous session required`.
+3. For each target: resolve via registry; `== requestedBy` → `blocked`; unresolved → `notFound`; else call the injected close callback.
+4. Post one **urgent** inbox message summarizing the sweep: `🗑️ Auto-closed N agent(s): <names>` (+ any blocked/notFound), tag `autoclose`.
+5. Respond `{ closed: string[], blocked: string[], notFound: string[] }`.
+
+**Main wiring** (`src/main/index.ts`):
+- Extract the duplicated teardown sequence (currently copy-pasted across `KILL_AGENT`, `killAgentByName`, the close-tab loop, and `killAllAgents`) into one **`teardownAgent(managed)`** helper: `manualKills.add` → `killPty` → `registry.remove` → `messages.clearAgent` → nudge/timer cleanup → `cleanupConfig` (or Pi dir cleanup) → map deletes → `agents.delete` → **send `AGENT_CLOSED_REMOTE(agentId)`** → `send AGENT_STATE_UPDATE(getVisibleAgents())`. All existing kill paths switch to it (DRY).
+- **`AGENT_CLOSED_REMOTE`** is a new main→renderer push mirroring `AGENT_SPAWNED_REMOTE`; the renderer listens and calls `removeWindow(agentId)` so the panel actually disappears (today only the agent list refreshes via `AGENT_STATE_UPDATE`, which doesn't prune windows). Idempotent — `removeWindow` on an already-gone id is a no-op.
+- Inject a `closeAgentByName(name) → { ok: boolean }` callback into the hub routes (alongside `scheduleBridge`) that resolves the managed agent and runs `teardownAgent`.
+
+**Renderer** (`src/renderer`): add an `AGENT_CLOSED_REMOTE` listener → `removeWindow(agentId)`; expose nothing new in preload (close is orchestrator-driven via MCP, not a renderer action).
+
 ## UI — `AutonomySettings.tsx`
 
 ```
@@ -92,9 +123,9 @@ endSession(): ProjectAutonomy                // sessionExpiresAt = null
 │ ⚠ Autonomous session                  ◉ ON   │
 │   Duration  [ 6h ▾ ]   ·   4h 12m left       │
 │                                              │
-│   While active, agents can self-schedule     │
-│   prompts AND spawn agents/teams with no     │
-│   approval. Every spawn → 📥 urgent inbox.    │
+│   While active, agents self-schedule,        │
+│   spawn teams, AND close idle agents — no     │
+│   approval. Each spawn/close → 📥 urgent.     │
 │                                    [ End now ]│
 └──────────────────────────────────────────────┘
 ```
@@ -113,17 +144,21 @@ endSession(): ProjectAutonomy                // sessionExpiresAt = null
 - **Manual override wins:** "End now" and expiry both funnel through `endSession()`.
 - **Feature is off by default and fail-safe:** session off/expired → the entire current approval flow is untouched. No behavioral change when unarmed.
 - **Duration clamp:** `startSession` enforces min 0.25h / max 72h so an absurd value can't create a practically-infinite window.
-- **No hard agent cap** (per decision): the time-box is the blast-radius control, and every spawn is logged urgent so the user can intervene (End now) on return.
+- **No hard agent cap** (per decision): the time-box is the blast-radius control, and every spawn/close is logged urgent so the user can intervene (End now) on return.
+- **Close is session-only and self-safe:** `close_agents` is rejected entirely when no session is active, and the calling agent can never close itself (a self target is reported `blocked`, not executed).
 
 ## Out of scope (v1)
 
-- Mobile start/extend of the session (desktop-only control for v1; mobile still **sees** urgent auto-spawn alerts via the existing remote inbox).
+- Mobile start/extend of the session (desktop-only control for v1; mobile still **sees** urgent auto-spawn/auto-close alerts via the existing remote inbox).
 - A per-session concurrent-agent cap.
-- Urgent alerts for schedule auto-creation (spawns only).
+- Urgent alerts for schedule auto-creation (spawns/closes only).
+- A propose-to-close flow when the session is off — closing is session-only in v1; with no session armed the orchestrator must ask the user.
 
 ## Testing
 
 - **`AutonomyStore`:** `isActive()` true inside window / false at and after `sessionExpiresAt`; `startSession` sets a future timestamp and clamps; `endSession` clears; legacy `{ scheduling:true }` reads as off; rehydrate-from-store keeps an in-window session active.
 - **Auto-approve branch:** with a stubbed active store + fake proposal, `onProposalAdded` spawns each agent, resolves the proposal `approved`, posts exactly one `urgent` inbox message, and does **not** emit `PROPOSAL_ADDED`; with an inactive store it falls through to the pending path.
-- **Route:** `POST /proposals` skips the `high` inbox mirror when the bridge reports active, still creates the proposal.
+- **Proposals route:** `POST /proposals` skips the `high` inbox mirror when the bridge reports active, still creates the proposal.
+- **Close route:** `POST /agents/close` → 403 when requester isn't an orchestrator; 403 when no session is active; a self target comes back in `blocked` (PTY untouched); an unknown name comes back in `notFound`; valid targets come back in `closed`, invoke `closeAgentByName`, and post exactly one `urgent` inbox summary.
+- **`teardownAgent`:** one call fully removes the agent (registry, maps, PTY) and emits `AGENT_CLOSED_REMOTE`; the existing kill paths still behave after the refactor.
 - Follow the existing `tests/unit/autonomy-store.test.ts` and hub-route test patterns.
