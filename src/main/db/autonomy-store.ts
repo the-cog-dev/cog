@@ -37,7 +37,7 @@ export class AutonomyStore {
   }
 
   startSession(durationHours: number): ProjectAutonomy {
-    const hours = Math.min(MAX_HOURS, Math.max(MIN_HOURS, Number(durationHours) || 0))
+    const hours = Math.min(MAX_HOURS, Math.max(MIN_HOURS, Number(durationHours) || MIN_HOURS))
     const value: ProjectAutonomy = { sessionExpiresAt: this.clock() + Math.round(hours * 3_600_000) }
     this.setStmt.run(KEY, JSON.stringify(value))
     return value

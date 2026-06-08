@@ -26,6 +26,7 @@ export function AutonomySettings({ projectName }: Props) {
 
   useEffect(() => {
     if (!projectName) return
+    setLoaded(false)
     window.electronAPI.getAutonomy().then(a => { setExpiresAt(a.sessionExpiresAt); setLoaded(true) })
     const off = window.electronAPI.onAutonomyChanged(a => setExpiresAt(a.sessionExpiresAt))
     return () => off()
