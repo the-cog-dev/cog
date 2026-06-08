@@ -379,19 +379,7 @@ async function enableRemoteView(): Promise<void> {
     killAgent: (agentId: string) => {
       const managed = agents.get(agentId)
       if (!managed) throw new Error('Agent not found')
-      manualKills.add(agentId)
-      killPty(managed)
-      hub.registry.remove(managed.config.name)
-      hub.messages.clearAgent(managed.config.name)
-      pendingNudges.delete(managed.config.name)
-      lastNudgeDelivery.delete(managed.config.name)
-      const fallbackTimer = nudgeFallbackTimers.get(managed.config.name)
-      if (fallbackTimer) { clearTimeout(fallbackTimer); nudgeFallbackTimers.delete(managed.config.name) }
-      if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
-      initialPrompts.delete(agentId)
-      hasReceivedInitialPrompt.delete(agentId)
-      agents.delete(agentId)
-      mainWindow?.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
+      teardownAgent(managed)
     },
     spawnAgentFromWorkshop: async (config) => {
       try {
