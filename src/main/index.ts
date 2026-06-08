@@ -149,6 +149,34 @@ function getVisibleAgents() {
   return hub.registry.list().filter(a => a.name !== 'user')
 }
 
+let autonomyExpiryTimer: ReturnType<typeof setTimeout> | null = null
+
+// Re-arm the one-shot autonomy expiry timer from the stored session and push
+// current state to the renderer. Safe to call repeatedly (start/end/load).
+function armAutonomyExpiry(): void {
+  if (autonomyExpiryTimer) { clearTimeout(autonomyExpiryTimer); autonomyExpiryTimer = null }
+  const exp = autonomyStore?.get().sessionExpiresAt ?? null
+  mainWindow?.webContents.send(IPC.AUTONOMY_CHANGED, { sessionExpiresAt: exp })
+  if (exp === null) return
+  const delay = exp - Date.now()
+  if (delay <= 0) { onAutonomyExpired(); return }
+  autonomyExpiryTimer = setTimeout(onAutonomyExpired, delay)
+}
+
+function onAutonomyExpired(): void {
+  autonomyExpiryTimer = null
+  if (!autonomyStore) return
+  autonomyStore.endSession()
+  mainWindow?.webContents.send(IPC.AUTONOMY_CHANGED, { sessionExpiresAt: null })
+  try {
+    const orch = getVisibleAgents().find(a => (a.role || '').toLowerCase() === 'orchestrator')
+    hub?.inboxChannel.postMessage(
+      orch?.id ?? 'system', orch?.name ?? 'system',
+      'Autonomous session ended — approvals required again.', 'normal', ['autonomy'], orch?.tabId
+    )
+  } catch { /* inbox may be unavailable */ }
+}
+
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'settings.json')
 }
@@ -1424,6 +1452,7 @@ async function openProject(projectPath: string): Promise<void> {
   currentProposalsStore = proposalsStore
   currentSchedulesStore = new SchedulesStore(db)
   autonomyStore = new AutonomyStore(db)
+  armAutonomyExpiry()
   boardStore = new BoardStore(db)
   boardAppearanceStore = new BoardAppearanceStore(db)
 
@@ -2097,11 +2126,15 @@ function setupIPC(): void {
   ipcMain.handle(IPC.AUTONOMY_GET, () => autonomyStore?.get() ?? { sessionExpiresAt: null })
   ipcMain.handle(IPC.AUTONOMY_START, (_e, durationHours: number) => {
     if (!autonomyStore) return { sessionExpiresAt: null }
-    return autonomyStore.startSession(durationHours)
+    const v = autonomyStore.startSession(durationHours)
+    armAutonomyExpiry()
+    return v
   })
   ipcMain.handle(IPC.AUTONOMY_END, () => {
     if (!autonomyStore) return { sessionExpiresAt: null }
-    return autonomyStore.endSession()
+    const v = autonomyStore.endSession()
+    armAutonomyExpiry()
+    return v
   })
 
   // ── Inbox IPC ──────────────────────────────────────────────────────────────
