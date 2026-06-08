@@ -244,6 +244,7 @@ export const IPC = {
   // proposal approve from mobile) — tells the renderer to open a window
   // for it so the agent lands on the canvas instead of being invisible.
   AGENT_SPAWNED_REMOTE: 'agent:spawned-remote',
+  // Main → renderer: an agent was torn down; prune its floating window (idempotent).
   AGENT_CLOSED_REMOTE: 'agent:closed-remote',
   // Workspace themes
   WORKSPACE_THEME_GET_ACTIVE: 'workspace-theme:get-active',

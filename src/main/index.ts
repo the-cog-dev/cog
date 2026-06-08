@@ -2695,11 +2695,12 @@ function setupIPC(): void {
 
   ipcMain.handle(IPC.TAB_CLOSE, async (_event, tabId: string) => {
     if (workspaceTabs.size <= 1) return { error: 'Cannot close last tab' }
-    for (const [, managed] of agents) {
+    for (const managed of [...agents.values()]) {
       if (managed.config.tabId === tabId) teardownAgent(managed)
     }
     workspaceTabs.delete(tabId)
     if (promptScheduler) promptScheduler.deleteByTabId(tabId)
+    // Final refresh covers tab-deletion + scheduler state (per-agent removal already pushed by teardownAgent)
     mainWindow?.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
     return { status: 'ok' }
   })
