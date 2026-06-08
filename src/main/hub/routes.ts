@@ -402,8 +402,8 @@ export function createRoutes(
   })
 
   // --- Schedule routes ---
-  // Agents POST here (via MCP) to schedule a recurring prompt. If project
-  // the autonomous session is active we create the schedule immediately; otherwise
+  // Agents POST here (via MCP) to schedule a recurring prompt. If the
+  // autonomous session is active we create the schedule immediately; otherwise
   // we route it through the existing proposal/approval system as a
   // kind:'schedule' proposal that the human must approve.
 

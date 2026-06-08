@@ -1579,17 +1579,18 @@ async function openProject(projectPath: string): Promise<void> {
     // Autonomous session: auto-approve team proposals instead of prompting.
     if (proposal.kind === 'team' && autonomyStore?.isActive()) {
       const { spawned, total, names } = spawnProposalAgents(proposal)
-      hub.proposalsChannel.resolve(proposal.id, 'approved')
       try {
+        hub.proposalsChannel.resolve(proposal.id, 'approved')
         const orch = hub.registry.get(proposal.proposedBy)
         const summary = `🤖 Auto-spawned "${proposal.summary}" — ${spawned}/${total} agent(s): ${names.join(', ')}`
+        // inbox = durable audit for the user (desktop + mobile); messages.send = live nudge to the orchestrator
         hub.inboxChannel.postMessage(
-          orch?.id ?? proposal.proposedBy, proposal.proposedBy, summary, 'urgent',
+          orch?.id ?? 'system', proposal.proposedBy, summary, 'urgent',
           [`autospawn:${proposal.id}`], proposal.tabId
         )
         hub.messages.send('user', proposal.proposedBy,
           `Autonomous session active — your team auto-spawned (${spawned}/${total}). Proceed.`)
-      } catch { /* orchestrator may be unreachable */ }
+      } catch { /* notify failures are non-fatal — agents are already running */ }
       return
     }
     mainWindow?.webContents.send(IPC.PROPOSAL_ADDED, proposal)
