@@ -78,4 +78,26 @@ describe('POST /agents/close', () => {
     const res = await request(app).post('/agents/close').send({ requestedBy: 'MainGuy', targets: ['W1'] })
     expect(res.status).toBe(503)
   })
+
+  it('blocks self by id too (not just name)', async () => {
+    const close = vi.fn(() => ({ ok: true }))
+    const app = makeApp({ requester: ORCH, session: true, agentBridge: { close } })
+    const res = await request(app).post('/agents/close')
+      .send({ requestedBy: 'MainGuy', targets: ['o1', 'Worker'] })
+    expect(res.status).toBe(200)
+    expect(res.body.blocked).toContain('o1')
+    expect(res.body.closed).toEqual(['Worker'])
+    expect(close).not.toHaveBeenCalledWith('o1')
+  })
+
+  it('includes the reason in the urgent inbox summary', async () => {
+    const close = vi.fn(() => ({ ok: true }))
+    const inbox = { postMessage: vi.fn() }
+    const app = makeApp({ requester: ORCH, session: true, agentBridge: { close }, inbox })
+    const res = await request(app).post('/agents/close')
+      .send({ requestedBy: 'MainGuy', targets: ['Worker'], reason: 'idle for hours' })
+    expect(res.status).toBe(200)
+    expect(inbox.postMessage).toHaveBeenCalledTimes(1)
+    expect(inbox.postMessage.mock.calls[0][2]).toContain('idle for hours')
+  })
 })

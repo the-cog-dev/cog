@@ -433,16 +433,20 @@ export function createRoutes(
     const closed: string[] = []
     const blocked: string[] = []
     const notFound: string[] = []
+    const selfName = requestedBy.trim().toLowerCase()
+    const selfId = requester.id.toLowerCase()
     for (const t of targets) {
       if (typeof t !== 'string' || !t.trim()) continue
-      if (t.trim().toLowerCase() === requestedBy.trim().toLowerCase()) { blocked.push(t); continue }
+      const tLow = t.trim().toLowerCase()
+      if (tLow === selfName || tLow === selfId) { blocked.push(t); continue }
       const r = bridge.close(t)
       if (r.ok) closed.push(t); else notFound.push(t)
     }
 
+    const safeReason = typeof reason === 'string' ? reason.slice(0, 500) : undefined
     if (inboxChannel && closed.length > 0) {
       try {
-        const text = `🗑️ Auto-closed ${closed.length} agent(s): ${closed.join(', ')}${reason ? ` — ${reason}` : ''}`
+        const text = `🗑️ Auto-closed ${closed.length} agent(s): ${closed.join(', ')}${safeReason ? ` — ${safeReason}` : ''}`
         inboxChannel.postMessage(requester.id, requestedBy, text, 'urgent', ['autoclose'], requester.tabId)
       } catch (err: any) {
         console.error('[hub:close] failed to post close summary:', err?.message)
