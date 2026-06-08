@@ -43,6 +43,15 @@ export interface BoardBridge {
   renderPath: (pageNumber: number) => string | null // null=out-of-range, ''=no render yet, else abs path
 }
 
+/**
+ * Injected by index.ts so the hub can tear down a live agent (which lives in
+ * the main process). Used by the session-gated close_agents route.
+ */
+export interface AgentBridge {
+  /** Tear down a live agent by name or id. ok=false when no such agent. */
+  close: (nameOrId: string) => { ok: boolean }
+}
+
 export function createRoutes(
   registry: AgentRegistry,
   messages: MessageRouter,
@@ -55,7 +64,8 @@ export function createRoutes(
   inboxChannel?: InboxChannel,
   proposalsChannel?: ProposalsChannel,
   getScheduleBridge?: () => ScheduleBridge | undefined,
-  getBoardBridge?: () => BoardBridge | undefined
+  getBoardBridge?: () => BoardBridge | undefined,
+  getAgentBridge?: () => AgentBridge | undefined
 ): Router {
   const router = Router()
 
@@ -399,6 +409,46 @@ export function createRoutes(
     const proposal = proposalsChannel.get(req.params.id)
     if (!proposal) { res.status(404).json({ error: 'Proposal not found' }); return }
     res.json(proposal)
+  })
+
+  // Session-gated, orchestrator-only batch close. Tears agents down via the
+  // injected agent bridge; the calling agent can never close itself.
+  router.post('/agents/close', (req: Request, res: Response) => {
+    const { requestedBy, targets, reason } = req.body ?? {}
+    if (typeof requestedBy !== 'string' || !requestedBy.trim()) { res.status(400).json({ error: 'requestedBy required' }); return }
+    if (!Array.isArray(targets) || targets.length === 0) { res.status(400).json({ error: 'targets must be a non-empty array' }); return }
+    const requester = registry.get(requestedBy)
+    if (!requester) { res.status(404).json({ error: `Agent '${requestedBy}' not registered` }); return }
+    if (!isOrchestratorRole(requester.role)) {
+      res.status(403).json({ error: `close_agents is restricted to agents with role 'orchestrator' (yours: '${requester.role}')` })
+      return
+    }
+    if (!getScheduleBridge?.()?.autonomyEnabled()) {
+      res.status(403).json({ error: 'close_agents requires an active autonomous session. Ask the user to arm one.' })
+      return
+    }
+    const bridge = getAgentBridge?.()
+    if (!bridge) { res.status(503).json({ error: 'Agent control unavailable' }); return }
+
+    const closed: string[] = []
+    const blocked: string[] = []
+    const notFound: string[] = []
+    for (const t of targets) {
+      if (typeof t !== 'string' || !t.trim()) continue
+      if (t.trim().toLowerCase() === requestedBy.trim().toLowerCase()) { blocked.push(t); continue }
+      const r = bridge.close(t)
+      if (r.ok) closed.push(t); else notFound.push(t)
+    }
+
+    if (inboxChannel && closed.length > 0) {
+      try {
+        const text = `🗑️ Auto-closed ${closed.length} agent(s): ${closed.join(', ')}${reason ? ` — ${reason}` : ''}`
+        inboxChannel.postMessage(requester.id, requestedBy, text, 'urgent', ['autoclose'], requester.tabId)
+      } catch (err: any) {
+        console.error('[hub:close] failed to post close summary:', err?.message)
+      }
+    }
+    res.json({ closed, blocked, notFound })
   })
 
   // --- Schedule routes ---

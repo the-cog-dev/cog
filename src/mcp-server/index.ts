@@ -690,6 +690,26 @@ server.tool(
 )
 
 server.tool(
+  'close_agents',
+  'ORCHESTRATOR ONLY, and only while an autonomous session is armed. Fully closes/deletes agent terminals from the workspace (kills the process, removes the window). Use to clean up retired/idle agents — pair with get_agents to find them. You cannot close yourself. Outside an autonomous session this is rejected; ask the user instead.',
+  {
+    names: z.array(z.string()).describe('Agent names (or ids) to close. Batch several to sweep idle agents in one call.'),
+    reason: z.string().optional().describe('Optional short reason, included in the urgent inbox note to the user.')
+  },
+  async ({ names, reason }) => {
+    try {
+      const result = await hubFetch('/agents/close', {
+        method: 'POST',
+        body: JSON.stringify({ requestedBy: AGENT_NAME, targets: names, reason })
+      })
+      return toolResult(result)
+    } catch (err: any) {
+      return toolError(`Failed to close agents: ${err.message}`)
+    }
+  }
+)
+
+server.tool(
   'schedule_prompt',
   'Schedule a recurring prompt to be injected into an agent in this workspace (yourself or another agent). Use for self-directed check-ins or to drive a worker (e.g. "post a sitrep every 40 minutes for 6 hours"). If the project has Scheduling autonomy enabled, the schedule starts immediately; otherwise it is PROPOSED for the user to approve in their inbox. Minimum interval is 5 minutes; duration_hours is required (no infinite schedules).',
   {

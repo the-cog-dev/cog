@@ -10,7 +10,7 @@ import { InboxStore } from './db/inbox-store'
 import { ProposalsStore } from './db/proposals-store'
 import { meetsThreshold } from './hub/inbox-channel'
 import { createHubServer, type HubServer } from './hub/server'
-import type { ScheduleBridge, BoardBridge } from './hub/routes'
+import type { ScheduleBridge, BoardBridge, AgentBridge } from './hub/routes'
 import { spawnAgentPty, writeToPty, resizePty, killPty, type ManagedPty } from './shell/pty-manager'
 import { buildCliLaunchCommands as buildCliLaunchCommandsForConfig } from './cli-launch'
 import { writeAgentMcpConfig, writePiAgentConfig, cleanupConfig, cleanupPiAgentDir, piAgentDir } from './mcp/config-writer'
@@ -69,6 +69,7 @@ let scheduleBridge: ScheduleBridge | null = null
 // Built after boardStore is assigned; injected into the hub via a getter so
 // route handlers can list board pages and resolve render paths.
 let boardBridge: BoardBridge | null = null
+let agentBridge: AgentBridge | null = null
 const agents = new Map<string, ManagedPty>()
 const hasReceivedInitialPrompt = new Set<string>()
 const initialPrompts = new Map<string, string>()
@@ -1484,7 +1485,7 @@ async function openProject(projectPath: string): Promise<void> {
   boardStore = new BoardStore(db)
   boardAppearanceStore = new BoardAppearanceStore(db)
 
-  hub = await createHubServer(0, () => scheduleBridge ?? undefined, () => boardBridge ?? undefined)
+  hub = await createHubServer(0, () => scheduleBridge ?? undefined, () => boardBridge ?? undefined, () => agentBridge ?? undefined)
   hub.setProjectPath(projectPath)
   hub.setMessageStore(messageStore)
 
@@ -1725,6 +1726,18 @@ async function openProject(projectPath: string): Promise<void> {
       const rp = renderPathForPage(root, boardStore.listPages(), n)
       if (rp === null) return null
       return fs.existsSync(rp) ? rp : ''
+    }
+  }
+
+  // Wire the agent bridge so the close_agents route can tear down live agents.
+  agentBridge = {
+    close: (nameOrId) => {
+      const managed = [...agents.values()].find(
+        m => m.config.id === nameOrId || m.config.name.toLowerCase() === nameOrId.toLowerCase()
+      )
+      if (!managed) return { ok: false }
+      teardownAgent(managed)
+      return { ok: true }
     }
   }
 
