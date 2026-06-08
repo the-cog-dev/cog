@@ -365,7 +365,7 @@ export function createRoutes(
       // its own modal via PROPOSAL_ADDED — both paths coexist. The tag
       // `proposal:<id>` is the wire the inbox-read layer uses to enrich the
       // message with proposalSummary / proposalAgents / proposalStatus.
-      if (inboxChannel) {
+      if (inboxChannel && !getScheduleBridge?.()?.autonomyEnabled()) {
         try {
           const agentCount = Array.isArray(agents) ? agents.length : 0
           const inboxText = `Team proposal: ${summary || `${agentCount} agent${agentCount === 1 ? '' : 's'}`}`
@@ -381,7 +381,7 @@ export function createRoutes(
           console.error('[hub:propose] failed to mirror proposal to inbox:', err?.message)
         }
       }
-      res.json(proposal)
+      res.json({ ...proposal, autoSpawning: getScheduleBridge?.()?.autonomyEnabled() === true })
     } catch (err: any) {
       res.status(400).json({ error: err?.message || 'Invalid proposal' })
     }
@@ -403,7 +403,7 @@ export function createRoutes(
 
   // --- Schedule routes ---
   // Agents POST here (via MCP) to schedule a recurring prompt. If project
-  // autonomy `scheduling` is ON we create the schedule immediately; otherwise
+  // the autonomous session is active we create the schedule immediately; otherwise
   // we route it through the existing proposal/approval system as a
   // kind:'schedule' proposal that the human must approve.
 

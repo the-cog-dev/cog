@@ -521,48 +521,13 @@ async function enableRemoteView(): Promise<void> {
         hub.proposalsChannel.resolve(proposalId, 'approved')
         return { success: true }
       }
-      // 3DS approves as-stored — no per-agent edits available on the small
-      // screen. Sort by role priority so the orchestrator lands top-left.
-      const ordered = [...proposal.agents].sort((a, b) => roleRank(a.role) - roleRank(b.role))
-      const tabId = proposal.tabId || 'tab-default'
-      const cwd = projectManager.currentProject?.path || process.cwd()
-
-      let spawned = 0
-      for (const a of ordered) {
-        const config: AgentConfig = {
-          id: uuidv4(),
-          name: uniqueAgentName(a.name),
-          cli: a.cli,
-          cwd,
-          role: a.role,
-          ceoNotes: a.ceoNotes,
-          shell: a.shell || (process.platform === 'win32' ? 'powershell' : 'bash'),
-          admin: false,
-          autoMode: a.autoMode,
-          model: a.model,
-          providerUrl: a.providerUrl,
-          skills: a.skills,
-          tabId,
-          theme: a.theme
-        }
-        try {
-          handleSpawnAgent(config)
-          mainWindow?.webContents.send(IPC.AGENT_SPAWNED_REMOTE, {
-            agentId: config.id,
-            name: config.name,
-            cli: config.cli,
-            tabId: config.tabId
-          })
-          spawned++
-        } catch (err: any) {
-          console.error(`[remote:proposal-approve] spawn failed for ${a.name}:`, err?.message)
-        }
-      }
+      // 3DS approves as-stored — no per-agent edits available on the small screen.
+      const { spawned, total, names } = spawnProposalAgents(proposal)
       hub.proposalsChannel.resolve(proposalId, 'approved')
       try {
-        const summary = spawned === ordered.length
-          ? `User approved your team from 3DS. Spawned: ${ordered.map(a => a.name).join(', ')}.`
-          : `User approved part of your team from 3DS. Spawned ${spawned}/${ordered.length}.`
+        const summary = spawned === total
+          ? `User approved your team from 3DS. Spawned: ${names.join(', ')}.`
+          : `User approved part of your team from 3DS. Spawned ${spawned}/${total}.`
         hub.messages.send('user', proposal.proposedBy, summary)
       } catch { /* orchestrator may not be reachable */ }
       return { success: true, spawned }
@@ -1187,6 +1152,45 @@ function handleSpawnAgent(config: AgentConfig): { id: string; mcpConfigPath: str
   return { id: config.id, mcpConfigPath }
 }
 
+// Spawn every agent in a team proposal (shared by manual approve + autonomous
+// auto-approve). Returns how many spawned and their final unique names.
+function spawnProposalAgents(proposal: TeamProposal): { spawned: number; total: number; names: string[] } {
+  const ordered = [...proposal.agents].sort((a, b) => roleRank(a.role) - roleRank(b.role))
+  const tabId = proposal.tabId || 'tab-default'
+  const cwd = projectManager.currentProject?.path || process.cwd()
+  let spawned = 0
+  const names: string[] = []
+  for (const a of ordered) {
+    const config: AgentConfig = {
+      id: uuidv4(),
+      name: uniqueAgentName(a.name),
+      cli: a.cli,
+      cwd,
+      role: a.role,
+      ceoNotes: a.ceoNotes,
+      shell: a.shell || (process.platform === 'win32' ? 'powershell' : 'bash'),
+      admin: false,
+      autoMode: a.autoMode,
+      model: a.model,
+      providerUrl: a.providerUrl,
+      skills: a.skills,
+      tabId,
+      theme: a.theme
+    }
+    try {
+      handleSpawnAgent(config)
+      mainWindow?.webContents.send(IPC.AGENT_SPAWNED_REMOTE, {
+        agentId: config.id, name: config.name, cli: config.cli, tabId: config.tabId
+      })
+      spawned++
+      names.push(config.name)
+    } catch (err: any) {
+      console.error(`[proposal-spawn] spawn failed for ${a.name}:`, err?.message)
+    }
+  }
+  return { spawned, total: ordered.length, names }
+}
+
 // Deliver a nudge to an agent's PTY.
 // If the agent is at prompt (active), deliver immediately.
 // Otherwise, deliver after a short delay — some CLIs (Kimi, Gemini) may not
@@ -1572,6 +1576,22 @@ async function openProject(projectPath: string): Promise<void> {
 
   hub.proposalsChannel.onProposalAdded = (proposal) => {
     proposalsStore.saveProposal(proposal)
+    // Autonomous session: auto-approve team proposals instead of prompting.
+    if (proposal.kind === 'team' && autonomyStore?.isActive()) {
+      const { spawned, total, names } = spawnProposalAgents(proposal)
+      hub.proposalsChannel.resolve(proposal.id, 'approved')
+      try {
+        const orch = hub.registry.get(proposal.proposedBy)
+        const summary = `🤖 Auto-spawned "${proposal.summary}" — ${spawned}/${total} agent(s): ${names.join(', ')}`
+        hub.inboxChannel.postMessage(
+          orch?.id ?? proposal.proposedBy, proposal.proposedBy, summary, 'urgent',
+          [`autospawn:${proposal.id}`], proposal.tabId
+        )
+        hub.messages.send('user', proposal.proposedBy,
+          `Autonomous session active — your team auto-spawned (${spawned}/${total}). Proceed.`)
+      } catch { /* orchestrator may be unreachable */ }
+      return
+    }
     mainWindow?.webContents.send(IPC.PROPOSAL_ADDED, proposal)
     // Show the main window so the user notices the modal
     if (mainWindow && !mainWindow.isFocused()) {

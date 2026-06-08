@@ -679,10 +679,10 @@ server.tool(
           tabId: TAB_ID
         })
       })
-      return toolResult({
-        ...result,
-        next: 'Awaiting user approval in the confirmation modal. Continue other work; you will be notified when they decide.'
-      })
+      const next = result.autoSpawning
+        ? 'Autonomous session active — your team is spawning now. Continue working; you will get a confirmation message.'
+        : 'Awaiting user approval in the confirmation modal. Continue other work; you will be notified when they decide.'
+      return toolResult({ ...result, next })
     } catch (err: any) {
       return toolError(`Failed to submit team proposal: ${err.message}`)
     }
