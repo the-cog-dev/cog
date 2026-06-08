@@ -134,8 +134,10 @@ declare global {
       // Project info
       getProject: () => Promise<{ path: string; name: string; lastOpened: string } | null>
       // Project autonomy
-      getAutonomy: () => Promise<{ scheduling: boolean }>
-      setAutonomy: (value: { scheduling: boolean }) => Promise<{ scheduling: boolean }>
+      getAutonomy: () => Promise<{ sessionExpiresAt: number | null }>
+      startAutonomySession: (hours: number) => Promise<{ sessionExpiresAt: number | null }>
+      endAutonomySession: () => Promise<{ sessionExpiresAt: number | null }>
+      onAutonomyChanged: (callback: (a: { sessionExpiresAt: number | null }) => void) => () => void
       // Workboard
       boardListPages: () => Promise<import('../shared/types').BoardPage[]>
       boardAddPage: () => Promise<import('../shared/types').BoardPage | null>

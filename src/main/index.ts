@@ -38,7 +38,7 @@ import * as themesStore from './themes/themes-store'
 import * as workspaceThemeStore from './themes/workspace-theme-store'
 import { getWorkspaceThemeById, WORKSPACE_THEMES } from '../shared/workspace-themes'
 import { migrateLegacyUserData } from './migration/userdata-migration'
-import type { AgentConfig, AgentTheme, RemoteSetupProgress, CommunityAgent, CommunityCategory, RespawnResult, NotificationThreshold, ProposedAgent, TeamProposal, ProjectAutonomy } from '../shared/types'
+import type { AgentConfig, AgentTheme, RemoteSetupProgress, CommunityAgent, CommunityCategory, RespawnResult, NotificationThreshold, ProposedAgent, TeamProposal } from '../shared/types'
 import { IPC } from '../shared/types'
 import { validateRespawnRequest } from './respawn-validation'
 import { initStreamDeck, disposeStreamDeck, resolveCogsworthDir, getStreamDeckStatus, reconnectStreamDeck } from './streamdeck'
@@ -1607,7 +1607,7 @@ async function openProject(projectPath: string): Promise<void> {
   // The hub holds a getter to this (() => scheduleBridge ?? undefined), so it
   // resolves lazily per request.
   scheduleBridge = {
-    autonomyEnabled: () => autonomyStore?.get().scheduling ?? false,
+    autonomyEnabled: () => autonomyStore?.isActive() ?? false,
     resolveTarget: (key) => {
       for (const m of agents.values()) {
         if (m.config.id === key || m.config.name.toLowerCase() === key.toLowerCase()) {
@@ -2094,10 +2094,14 @@ function setupIPC(): void {
   })
 
   // Autonomy IPC
-  ipcMain.handle(IPC.AUTONOMY_GET, () => autonomyStore?.get() ?? { scheduling: false })
-  ipcMain.handle(IPC.AUTONOMY_SET, (_e, value: ProjectAutonomy) => {
-    autonomyStore?.set({ scheduling: !!value?.scheduling })
-    return autonomyStore?.get() ?? { scheduling: false }
+  ipcMain.handle(IPC.AUTONOMY_GET, () => autonomyStore?.get() ?? { sessionExpiresAt: null })
+  ipcMain.handle(IPC.AUTONOMY_START, (_e, durationHours: number) => {
+    if (!autonomyStore) return { sessionExpiresAt: null }
+    return autonomyStore.startSession(durationHours)
+  })
+  ipcMain.handle(IPC.AUTONOMY_END, () => {
+    if (!autonomyStore) return { sessionExpiresAt: null }
+    return autonomyStore.endSession()
   })
 
   // ── Inbox IPC ──────────────────────────────────────────────────────────────

@@ -162,7 +162,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke(IPC.SETTINGS_SET, key, value),
   // Autonomy
   getAutonomy: () => ipcRenderer.invoke(IPC.AUTONOMY_GET),
-  setAutonomy: (value: { scheduling: boolean }) => ipcRenderer.invoke(IPC.AUTONOMY_SET, value),
+  startAutonomySession: (hours: number) => ipcRenderer.invoke(IPC.AUTONOMY_START, hours),
+  endAutonomySession: () => ipcRenderer.invoke(IPC.AUTONOMY_END),
+  onAutonomyChanged: (callback: (a: { sessionExpiresAt: number | null }) => void) => {
+    const handler = (_e: unknown, a: { sessionExpiresAt: number | null }) => callback(a)
+    ipcRenderer.on(IPC.AUTONOMY_CHANGED, handler)
+    return () => ipcRenderer.removeListener(IPC.AUTONOMY_CHANGED, handler)
+  },
   // Stream Deck status + reconnect
   getStreamDeckStatus: () => ipcRenderer.invoke(IPC.STREAMDECK_STATUS),
   reconnectStreamDeck: () => ipcRenderer.invoke(IPC.STREAMDECK_RECONNECT),

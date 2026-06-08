@@ -1,7 +1,8 @@
 export type AgentStatus = 'idle' | 'active' | 'working' | 'disconnected'
 
 export interface ProjectAutonomy {
-  scheduling: boolean   // V1; spawn/reap added later
+  /** Epoch ms when the current autonomous session expires; null = off. */
+  sessionExpiresAt: number | null
 }
 
 export interface BoardAppearance {
@@ -185,7 +186,9 @@ export const IPC = {
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
   AUTONOMY_GET: 'autonomy:get',
-  AUTONOMY_SET: 'autonomy:set',
+  AUTONOMY_START: 'autonomy:start',
+  AUTONOMY_END: 'autonomy:end',
+  AUTONOMY_CHANGED: 'autonomy:changed',
   AGENT_CLEAR_CONTEXT: 'agent:clear-context',
   USAGE_GET_METRICS: 'usage:get-metrics',
   USAGE_REFRESH_LIMITS: 'usage:refresh-limits',
