@@ -1191,6 +1191,30 @@ function spawnProposalAgents(proposal: TeamProposal): { spawned: number; total: 
   return { spawned, total: ordered.length, names }
 }
 
+// Single source of truth for fully tearing down a live agent: kill the PTY,
+// unregister from the hub, clear nudge state, drop config, and tell the
+// renderer to remove the window. Used by every kill path.
+function teardownAgent(managed: ManagedPty): void {
+  const { id, name } = managed.config
+  manualKills.add(id) // Prevent auto-reconnect
+  killPty(managed)
+  hub.registry.remove(name)
+  hub.messages.clearAgent(name)
+  pendingNudges.delete(name)
+  lastNudgeDelivery.delete(name)
+  const fallbackTimer = nudgeFallbackTimers.get(name)
+  if (fallbackTimer) {
+    clearTimeout(fallbackTimer)
+    nudgeFallbackTimers.delete(name)
+  }
+  if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
+  initialPrompts.delete(id)
+  hasReceivedInitialPrompt.delete(id)
+  agents.delete(id)
+  mainWindow?.webContents.send(IPC.AGENT_CLOSED_REMOTE, { agentId: id })
+  mainWindow?.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
+}
+
 // Deliver a nudge to an agent's PTY.
 // If the agent is at prompt (active), deliver immediately.
 // Otherwise, deliver after a short delay — some CLIs (Kimi, Gemini) may not
@@ -1855,24 +1879,7 @@ function setupIPC(): void {
 
   ipcMain.handle(IPC.KILL_AGENT, (_event, agentId: string) => {
     const managed = agents.get(agentId)
-    if (managed) {
-      manualKills.add(agentId) // Prevent auto-reconnect
-      killPty(managed)
-      hub.registry.remove(managed.config.name)
-      hub.messages.clearAgent(managed.config.name)
-      pendingNudges.delete(managed.config.name)
-      lastNudgeDelivery.delete(managed.config.name)
-      const fallbackTimer = nudgeFallbackTimers.get(managed.config.name)
-      if (fallbackTimer) {
-        clearTimeout(fallbackTimer)
-        nudgeFallbackTimers.delete(managed.config.name)
-      }
-      if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
-      initialPrompts.delete(agentId)
-      hasReceivedInitialPrompt.delete(agentId)
-      agents.delete(agentId)
-      mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
-    }
+    if (managed) teardownAgent(managed)
   })
 
   ipcMain.handle('pty:resize', (_event, agentId: string, cols: number, rows: number) => {
@@ -2688,16 +2695,8 @@ function setupIPC(): void {
 
   ipcMain.handle(IPC.TAB_CLOSE, async (_event, tabId: string) => {
     if (workspaceTabs.size <= 1) return { error: 'Cannot close last tab' }
-    for (const [agentId, managed] of agents) {
-      if (managed.config.tabId === tabId) {
-        manualKills.add(agentId)
-        killPty(managed)
-        hub.registry.remove(managed.config.name)
-        hub.messages.clearAgent(managed.config.name)
-        pendingNudges.delete(managed.config.name)
-        if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
-        agents.delete(agentId)
-      }
+    for (const [, managed] of agents) {
+      if (managed.config.tabId === tabId) teardownAgent(managed)
     }
     workspaceTabs.delete(tabId)
     if (promptScheduler) promptScheduler.deleteByTabId(tabId)
@@ -2909,21 +2908,7 @@ async function main(): Promise<void> {
     actionDeps: {
       killAgentByName: async (name: string) => {
         const managed = Array.from(agents.values()).find(m => m.config.name === name)
-        if (managed) {
-          manualKills.add(managed.config.id)
-          killPty(managed)
-          hub.registry.remove(name)
-          hub.messages.clearAgent(name)
-          pendingNudges.delete(name)
-          lastNudgeDelivery.delete(name)
-          const t = nudgeFallbackTimers.get(name)
-          if (t) { clearTimeout(t); nudgeFallbackTimers.delete(name) }
-          if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
-          initialPrompts.delete(managed.config.id)
-          hasReceivedInitialPrompt.delete(managed.config.id)
-          agents.delete(managed.config.id)
-          mainWindow?.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
-        }
+        if (managed) teardownAgent(managed)
       },
       focusAgent: (name: string) => {
         mainWindow?.show()
@@ -2931,20 +2916,7 @@ async function main(): Promise<void> {
         mainWindow?.webContents.send('streamdeck:focus-agent', name)
       },
       killAllAgents: async () => {
-        const ids = [...agents.keys()]
-        for (const id of ids) {
-          const managed = agents.get(id)
-          if (managed) {
-            manualKills.add(id)
-            killPty(managed)
-            hub.registry.remove(managed.config.name)
-            hub.messages.clearAgent(managed.config.name)
-            pendingNudges.delete(managed.config.name)
-            if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
-          }
-          agents.delete(id)
-        }
-        mainWindow?.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
+        for (const managed of [...agents.values()]) teardownAgent(managed)
       },
       openInbox: () => mainWindow?.webContents.send('streamdeck:open-panel', 'inbox'),
       openTrollbox: () => mainWindow?.webContents.send('streamdeck:open-panel', 'trollbox'),

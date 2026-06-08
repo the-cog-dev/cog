@@ -45,6 +45,7 @@ declare global {
       onPtyExit: (callback: (agentId: string, exitCode: number | undefined) => void) => () => void
       onAgentStateUpdate: (callback: (agents: AgentState[]) => void) => () => void
       onAgentSpawnedRemote: (callback: (info: { agentId: string; name: string; cli: string; tabId?: string }) => void) => () => void
+      onAgentClosedRemote: (callback: (info: { agentId: string }) => void) => () => void
       // Skills
       listSkills: () => Promise<Skill[]>
       getSkill: (id: string) => Promise<Skill>

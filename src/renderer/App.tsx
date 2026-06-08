@@ -292,6 +292,13 @@ export function App(): React.ReactElement {
     return () => off()
   }, [addWindow, getStatusColor, activeTabId])
 
+  // Remove the floating window when an agent is closed outside its own card
+  // (orchestrator close_agents, streamdeck, etc.).
+  useEffect(() => {
+    const off = window.electronAPI.onAgentClosedRemote(({ agentId }) => removeWindow(agentId))
+    return () => off()
+  }, [removeWindow])
+
   // Track inbox unread count for the toolbar badge. Initial fetch + reactive
   // updates from the IPC events.
   useEffect(() => {
