@@ -651,7 +651,7 @@ server.tool(
       cli: z.string().describe('CLI tool: claude, codex, kimi, gemini, openclaude, copilot, grok.'),
       model: z.string().optional().describe(
         'Model name appropriate for the cli. Valid values:\n' +
-        '  claude: "sonnet" | "opus" | "haiku" | "opus[1m]" — NEVER use "sonnet[1m]". sonnet[1m] is billed against the paid Anthropic API (real money per token), NOT the user\'s Claude Max subscription. Plain "sonnet" is the right pick almost always; only use "opus[1m]" if 1M context is genuinely needed.\n' +
+        '  claude: "claude-fable-5" | "sonnet" | "opus" | "haiku" | "opus[1m]" — NEVER use "sonnet[1m]". sonnet[1m] is billed against the paid Anthropic API (real money per token), NOT the user\'s Claude Max subscription. "claude-fable-5" is the new Mythos-class flagship — most capable but ~2x Opus cost, so reserve it for the hardest work; plain "sonnet" is the right pick almost always; only use "opus[1m]" if 1M context is genuinely needed.\n' +
         '  codex: "gpt-5.5" | "gpt-5.4" | "gpt-5" | "o3" | "o3-pro" | "gpt-4.1" | "gpt-4.1-mini" | "" (empty = o4-mini default)\n' +
         '  kimi: ALWAYS leave empty (omit this field). kimi-cli\'s --model flag is broken and resets auth — Cog passes no model flag and lets kimi use its cached choice. The user can switch models from inside kimi via /model.\n' +
         '  gemini: "gemini-2.5-pro" | "gemini-2.5-flash" | "gemini-2.0-flash" | "gemini-2.0-flash-thinking"\n' +

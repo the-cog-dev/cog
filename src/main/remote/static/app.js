@@ -1647,6 +1647,7 @@
   // Values MUST match exactly what each CLI expects — typos silently fail.
   const SPAWN_CLI_MODELS = {
     claude: [
+      { label: 'Fable 5', value: 'claude-fable-5' },
       { label: 'Sonnet', value: 'sonnet' },
       { label: 'Opus', value: 'opus' },
       { label: 'Haiku', value: 'haiku' },

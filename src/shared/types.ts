@@ -45,7 +45,7 @@ export interface AgentConfig {
   admin: boolean
   autoMode: boolean    // --dangerously-skip-permissions (Claude), --yolo (Codex), etc.
   promptRegex?: string
-  model?: string  // e.g. 'sonnet', 'opus', 'haiku', 'o4-mini', 'gpt-4.1'
+  model?: string  // e.g. 'claude-fable-5', 'sonnet', 'opus', 'haiku', 'o4-mini', 'gpt-4.1'
   providerUrl?: string  // OpenAI-compatible base URL (for OpenClaude)
   experimental?: boolean
   skills?: string[]  // skill IDs attached to this agent

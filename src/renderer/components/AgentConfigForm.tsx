@@ -25,6 +25,7 @@ export const CLI_PRESETS = [
 
 export const CLI_MODELS: Record<string, { label: string; value: string }[]> = {
   claude: [
+    { label: 'Fable 5', value: 'claude-fable-5' },
     { label: 'Sonnet', value: 'sonnet' },
     { label: 'Opus', value: 'opus' },
     { label: 'Haiku', value: 'haiku' },
