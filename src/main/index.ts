@@ -33,6 +33,8 @@ import { TokenManager } from './remote/token-manager'
 import { CloudflaredManager } from './remote/cloudflared-manager'
 import { RemoteServer } from './remote/remote-server'
 import { RemoteWsHub } from './remote/ws-hub'
+import { PairingManager } from './telegram/pairing-manager'
+import { TelegramServer } from './telegram/telegram-server'
 import * as communityClient from './community/community-client'
 import * as themesStore from './themes/themes-store'
 import * as workspaceThemeStore from './themes/workspace-theme-store'
@@ -96,6 +98,9 @@ let remoteWsHub: RemoteWsHub | null = null
 let remotePublicUrl: string | null = null
 let remoteLanUrl: string | null = null  // http://<lan-ip>:<port>/r/<token>/
 let remoteStatusTicker: ReturnType<typeof setInterval> | null = null
+// Telegram orchestration state
+let telegramServer: TelegramServer | null = null
+let telegramPairing: PairingManager | null = null
 let workshopPasscodeHash: string | null = null
 let cachedWorkspaceState: any = null
 
@@ -605,6 +610,57 @@ async function disableRemoteView(): Promise<void> {
     remoteStatusTicker = null
   }
   emitRemoteStatus()
+}
+
+// ── Telegram orchestration helpers ───────────────────────────────────────────
+
+function emitTelegramStatus(): void {
+  if (!mainWindow) return
+  const s = loadSettings()
+  mainWindow.webContents.send(IPC.TELEGRAM_STATUS_UPDATE, {
+    enabled: telegramServer?.isRunning() ?? false,
+    hasToken: typeof s.telegramBotToken === 'string' && !!s.telegramBotToken,
+    pairedCount: telegramPairing?.size
+      ?? (Array.isArray(s.telegramAllowlist) ? s.telegramAllowlist.length : 0),
+    activePairingCode: telegramPairing?.getActiveCode() ?? null
+  })
+}
+
+async function enableTelegram(): Promise<void> {
+  if (telegramServer) return
+  const s = loadSettings()
+  const token = typeof s.telegramBotToken === 'string' ? s.telegramBotToken.trim() : ''
+  if (!token) return  // no token yet — UI prompts for one
+
+  telegramPairing = new PairingManager({
+    initialAllowlist: Array.isArray(s.telegramAllowlist) ? s.telegramAllowlist : [],
+    onAllowlistChange: (ids) => saveSetting('telegramAllowlist', ids)
+  })
+  telegramServer = new TelegramServer({
+    pairing: telegramPairing,
+    onLog: (m) => console.log('[telegram]', m),
+    onStatusChange: () => emitTelegramStatus()
+  })
+
+  try {
+    await telegramServer.start(token)
+    saveSetting('telegramEnabled', true)
+  } catch (err) {
+    // Bad token / network — tear down and rethrow so the UI can report it.
+    telegramServer = null
+    telegramPairing = null
+    emitTelegramStatus()
+    throw err
+  }
+  emitTelegramStatus()
+}
+
+async function disableTelegram(): Promise<void> {
+  saveSetting('telegramEnabled', false)
+  if (telegramServer) await telegramServer.stop()
+  telegramServer = null
+  telegramPairing = null
+  emitTelegramStatus()
 }
 
 /**
@@ -2785,6 +2841,24 @@ function setupIPC(): void {
     return { ok: true }
   })
 
+  // Telegram orchestration
+  ipcMain.handle(IPC.TELEGRAM_ENABLE, async () => { await enableTelegram() })
+  ipcMain.handle(IPC.TELEGRAM_DISABLE, async () => { await disableTelegram() })
+  ipcMain.handle(IPC.TELEGRAM_SET_TOKEN, async (_e, token: string) => {
+    saveSetting('telegramBotToken', token)
+    // Restart if running so the new token takes effect.
+    if (telegramServer) { await disableTelegram(); await enableTelegram() }
+    emitTelegramStatus()
+  })
+  ipcMain.handle(IPC.TELEGRAM_GET_PAIRING_CODE, async () => {
+    return telegramPairing?.generateCode() ?? null
+  })
+  ipcMain.handle(IPC.TELEGRAM_UNPAIR, async (_e, userId: number) => {
+    telegramPairing?.revoke(userId)
+    emitTelegramStatus()
+  })
+  ipcMain.handle(IPC.TELEGRAM_GET_STATUS, async () => { emitTelegramStatus() })
+
   // Helper: rotate URLs after a token change so both tunnel and LAN URLs reflect the new token
   function rotateUrlsAfterTokenChange(): void {
     if (!remoteTokenManager) return
@@ -2874,6 +2948,12 @@ async function main(): Promise<void> {
     mainWindow?.webContents.send(IPC.UPDATE_AVAILABLE, info)
   }
   updateChecker.start()
+
+  // Telegram orchestration — auto-restore the bot if it was enabled last run.
+  // Mirrors the bot's own lifecycle: a missing/blank token is a no-op.
+  if (loadSettings().telegramEnabled) {
+    enableTelegram().catch((e) => console.error('[telegram] auto-start failed:', e))
+  }
 
   // Auto-open last project, or let renderer show project picker
   const lastProject = projectManager.getLastProject()

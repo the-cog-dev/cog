@@ -219,6 +219,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(IPC.REMOTE_SETUP_PROGRESS, handler)
     return () => ipcRenderer.removeListener(IPC.REMOTE_SETUP_PROGRESS, handler)
   },
+  // Telegram orchestration
+  enableTelegram: () => ipcRenderer.invoke(IPC.TELEGRAM_ENABLE),
+  disableTelegram: () => ipcRenderer.invoke(IPC.TELEGRAM_DISABLE),
+  setTelegramToken: (token: string) => ipcRenderer.invoke(IPC.TELEGRAM_SET_TOKEN, token),
+  getTelegramPairingCode: () => ipcRenderer.invoke(IPC.TELEGRAM_GET_PAIRING_CODE),
+  unpairTelegram: (userId: number) => ipcRenderer.invoke(IPC.TELEGRAM_UNPAIR, userId),
+  getTelegramStatus: () => ipcRenderer.invoke(IPC.TELEGRAM_GET_STATUS),
+  onTelegramStatusUpdate: (callback: (status: unknown) => void) => {
+    const handler = (_event: unknown, status: unknown) => callback(status)
+    ipcRenderer.on(IPC.TELEGRAM_STATUS_UPDATE, handler)
+    return () => ipcRenderer.removeListener(IPC.TELEGRAM_STATUS_UPDATE, handler)
+  },
   // Workshop passcode
   setWorkshopPasscode: (pin: string) => ipcRenderer.invoke(IPC.WORKSHOP_SET_PASSCODE, pin),
   getWorkshopPasscodeSet: () => ipcRenderer.invoke(IPC.WORKSHOP_GET_PASSCODE_SET),

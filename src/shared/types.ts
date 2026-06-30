@@ -228,6 +228,14 @@ export const IPC = {
   REMOTE_SETUP_PROGRESS: 'remote:setup-progress',
   REMOTE_LAN_ENABLE: 'remote:lan-enable',
   REMOTE_LAN_DISABLE: 'remote:lan-disable',
+  // Telegram orchestration
+  TELEGRAM_ENABLE: 'telegram:enable',
+  TELEGRAM_DISABLE: 'telegram:disable',
+  TELEGRAM_SET_TOKEN: 'telegram:set-token',
+  TELEGRAM_GET_PAIRING_CODE: 'telegram:get-pairing-code',
+  TELEGRAM_UNPAIR: 'telegram:unpair',
+  TELEGRAM_GET_STATUS: 'telegram:get-status',
+  TELEGRAM_STATUS_UPDATE: 'telegram:status-update',
   // Workshop passcode
   WORKSHOP_SET_PASSCODE: 'workshop:set-passcode',
   WORKSHOP_GET_PASSCODE_SET: 'workshop:get-passcode-set',
@@ -623,3 +631,10 @@ export type RemoteSetupProgress =
   | { stage: 'starting'; message?: string }
   | { stage: 'ready'; message?: string }
   | { stage: 'error'; message?: string }
+
+export interface TelegramStatus {
+  enabled: boolean
+  hasToken: boolean
+  pairedCount: number
+  activePairingCode: string | null
+}
