@@ -35,6 +35,7 @@ import { RemoteServer } from './remote/remote-server'
 import { RemoteWsHub } from './remote/ws-hub'
 import { PairingManager } from './telegram/pairing-manager'
 import { TelegramServer } from './telegram/telegram-server'
+import type { OrchestratorBridge } from './telegram/bridge'
 import * as communityClient from './community/community-client'
 import * as themesStore from './themes/themes-store'
 import * as workspaceThemeStore from './themes/workspace-theme-store'
@@ -626,6 +627,40 @@ function emitTelegramStatus(): void {
   })
 }
 
+/**
+ * Hub-backed implementation of the Telegram bot's orchestration bridge. Reads
+ * `hub`/`agents` lazily (a project may not be open yet when the bot starts), so
+ * every method tolerates a missing hub and reports it cleanly to the chat.
+ */
+function telegramBridge(): OrchestratorBridge {
+  return {
+    listTargets: () => {
+      if (!hub) return []
+      return hub.registry.list()
+        .filter(a => a.name !== 'user')
+        .map(a => ({ name: a.name, role: a.role, status: a.status }))
+    },
+    sendTo: (name, text) => {
+      if (!hub) return { ok: false, detail: 'No project is open yet.' }
+      const res = hub.messages.send('user', name, text)
+      return res.status === 'error' ? { ok: false, detail: res.detail } : { ok: true }
+    },
+    getOutput: (name, lines) => {
+      const managed = Array.from(agents.values()).find(m => m.config.name === name)
+      return managed ? managed.outputBuffer.getLines(lines) : []
+    },
+    postTask: (title) => {
+      if (!hub) return { ok: false, detail: 'No project is open yet.' }
+      try {
+        const task = hub.pinboard.postTask(title, '', 'medium', 'telegram-user')
+        return { ok: true, id: task.id }
+      } catch (err) {
+        return { ok: false, detail: (err as Error).message }
+      }
+    }
+  }
+}
+
 async function enableTelegram(): Promise<void> {
   if (telegramServer) return
   const s = loadSettings()
@@ -638,6 +673,7 @@ async function enableTelegram(): Promise<void> {
   })
   telegramServer = new TelegramServer({
     pairing: telegramPairing,
+    bridge: telegramBridge(),
     onLog: (m) => console.log('[telegram]', m),
     onStatusChange: () => emitTelegramStatus()
   })
@@ -1368,6 +1404,9 @@ function setupMessageNudge(): void {
   hub.messages.onMessageQueued = (msg) => {
     // When an agent messages the user, show an OS notification
     if (msg.to === 'user') {
+      // Mirror it to any linked Telegram chats (Phase 1 relay). No-op when the
+      // bot is off or nobody's paired.
+      telegramServer?.relayFromAgent(msg.from, msg.message)
       const settings = loadSettings()
       if (settings.notifications !== false) {
         const preview = msg.message.length > 120 ? msg.message.slice(0, 120) + '…' : msg.message
