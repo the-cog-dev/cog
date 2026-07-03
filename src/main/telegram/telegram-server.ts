@@ -18,6 +18,19 @@ export interface TelegramServerOptions {
   onLog?: (message: string) => void
   /** Fired when connection/pairing state changes so the UI can refresh. */
   onStatusChange?: () => void
+  /** Relay-subscribed chat IDs from the last run, so restarts don't drop the relay. */
+  initialChats?: number[]
+  /** Fired when the subscribed-chat set changes so the caller can persist it. */
+  onChatsChange?: (chatIds: number[]) => void
+}
+
+/**
+ * Cheap token check without starting a poller: init() calls getMe and throws
+ * on a bad token or network failure. Lets callers validate a new token BEFORE
+ * persisting it over a known-good one.
+ */
+export async function validateBotToken(token: string): Promise<void> {
+  await new Bot(token).init()
 }
 
 /**
@@ -42,13 +55,17 @@ export class TelegramServer {
   private running = false
   private readonly pairing: PairingManager
   private readonly bridge?: OrchestratorBridge
-  private readonly router = new ChatRouter()
+  private readonly router: ChatRouter
   private readonly log: (m: string) => void
   private readonly onStatusChange?: () => void
 
   constructor(opts: TelegramServerOptions) {
     this.pairing = opts.pairing
     this.bridge = opts.bridge
+    this.router = new ChatRouter({
+      initialSubscribed: opts.initialChats,
+      onSubscribedChange: opts.onChatsChange
+    })
     this.log = opts.onLog ?? (() => {})
     this.onStatusChange = opts.onStatusChange
   }
@@ -76,7 +93,13 @@ export class TelegramServer {
     })
 
     // Throws on an invalid token / network failure — let the caller handle it.
-    await bot.init()
+    // Clear this.bot on failure so a later start() isn't wedged by the early return.
+    try {
+      await bot.init()
+    } catch (err) {
+      this.bot = null
+      throw err
+    }
     void bot.start({
       onStart: () => {
         this.running = true
@@ -102,7 +125,7 @@ export class TelegramServer {
     // ── Public commands (work before pairing) ──────────────────────────────
     bot.command('start', async (ctx) => {
       if (this.pairing.isAllowed(ctx.from?.id)) {
-        await ctx.reply('✅ You\'re linked to The Cog. Phase 0 is live — orchestration commands land in the next update. Try /help.')
+        await ctx.reply('✅ You\'re linked to The Cog. Try /help to drive the swarm.')
       } else {
         await ctx.reply('👋 To link this chat, open The Cog → Settings → Telegram and send the 6-digit code here as:\n\n/pair 123456')
       }
@@ -131,12 +154,16 @@ export class TelegramServer {
     })
 
     // ── Allowlist gate ─────────────────────────────────────────────────────
-    // Anything past this point requires a trusted user. Non-allowed updates
-    // are dropped silently (no next() call → chain ends). A trusted chat is
-    // also registered here so it receives relayed orchestrator output.
+    // Anything past this point requires a trusted user in a PRIVATE chat.
+    // Non-allowed updates are dropped silently (no next() call → chain ends).
+    // Groups are refused outright: pairing is per-user, but a subscription is
+    // per-chat — relaying agent output into a group would hand it to every
+    // member, paired or not. The trusted DM is registered here so it receives
+    // relayed orchestrator output.
     bot.use(async (ctx, next) => {
       if (!this.pairing.isAllowed(ctx.from?.id)) return
-      if (ctx.chat) this.router.subscribe(ctx.chat.id)
+      if (ctx.chat?.type !== 'private') return
+      this.router.subscribe(ctx.chat.id)
       await next()
     })
 
@@ -238,7 +265,10 @@ export class TelegramServer {
    */
   relayFromAgent(fromName: string, message: string): void {
     if (!this.bot || !this.running) return
-    const chats = this.router.subscribedChats()
+    // Recheck the allowlist at send time: only private chats subscribe, and a
+    // private chat's ID equals its user's ID, so a revoked user is filtered
+    // out here even if their chat somehow lingers in the router.
+    const chats = this.router.subscribedChats().filter((id) => this.pairing.isAllowed(id))
     if (chats.length === 0) return
     const text = this.clip(`💬 ${fromName}:\n${message}`)
     for (const chatId of chats) {
@@ -246,6 +276,17 @@ export class TelegramServer {
         this.log(`relay to ${chatId} failed: ${err instanceof Error ? err.message : String(err)}`)
       })
     }
+  }
+
+  /**
+   * Fully revoke a Telegram user: drop them from the allowlist AND cut their
+   * relay subscription (private chat ID === user ID). Both changes persist via
+   * the managers' change callbacks. Returns true if they were paired.
+   */
+  revokeUser(userId: number): boolean {
+    const had = this.pairing.revoke(userId)
+    this.router.forget(userId)
+    return had
   }
 
   private formatStatus(targets: TelegramTarget[], active: TelegramTarget | null): string {

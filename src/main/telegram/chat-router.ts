@@ -1,5 +1,12 @@
 import type { TelegramTarget } from './bridge'
 
+export interface ChatRouterOptions {
+  /** Chats already subscribed to the relay (loaded from settings on boot). */
+  initialSubscribed?: number[]
+  /** Fired whenever the subscription set changes so the caller can persist it. */
+  onSubscribedChange?: (chatIds: number[]) => void
+}
+
 /**
  * Per-chat routing state — the "sub-groups" / multi-dragon addressing layer.
  *
@@ -20,12 +27,20 @@ import type { TelegramTarget } from './bridge'
  *    we fall back to a sensible default (prefer a live orchestrator).
  */
 export class ChatRouter {
-  private subscribed = new Set<number>()
+  private subscribed: Set<number>
   private activeByChat = new Map<number, string>()
+  private readonly onSubscribedChange?: (chatIds: number[]) => void
+
+  constructor(opts: ChatRouterOptions = {}) {
+    this.subscribed = new Set(opts.initialSubscribed ?? [])
+    this.onSubscribedChange = opts.onSubscribedChange
+  }
 
   /** Mark a chat as a relay destination (idempotent). */
   subscribe(chatId: number): void {
+    if (this.subscribed.has(chatId)) return
     this.subscribed.add(chatId)
+    this.onSubscribedChange?.(this.subscribedChats())
   }
 
   isSubscribed(chatId: number): boolean {
@@ -37,8 +52,9 @@ export class ChatRouter {
   }
 
   forget(chatId: number): void {
-    this.subscribed.delete(chatId)
+    const had = this.subscribed.delete(chatId)
     this.activeByChat.delete(chatId)
+    if (had) this.onSubscribedChange?.(this.subscribedChats())
   }
 
   /** Pin this chat's active target by exact agent name. */

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { ChatRouter } from './chat-router'
 import type { TelegramTarget } from './bridge'
 
@@ -75,5 +75,24 @@ describe('ChatRouter', () => {
   it('returns null effective target when there are no targets', () => {
     const r = new ChatRouter()
     expect(r.effectiveTarget(1, [])).toBeNull()
+  })
+
+  it('seeds subscriptions from initialSubscribed (restart survival)', () => {
+    const r = new ChatRouter({ initialSubscribed: [7, 8] })
+    expect(r.isSubscribed(7)).toBe(true)
+    expect(r.subscribedChats().sort()).toEqual([7, 8])
+  })
+
+  it('reports subscription changes so the caller can persist them', () => {
+    const onChange = vi.fn()
+    const r = new ChatRouter({ onSubscribedChange: onChange })
+    r.subscribe(1)
+    expect(onChange).toHaveBeenLastCalledWith([1])
+    r.subscribe(1)                       // idempotent — no re-fire
+    expect(onChange).toHaveBeenCalledTimes(1)
+    r.forget(1)
+    expect(onChange).toHaveBeenLastCalledWith([])
+    r.forget(1)                          // already gone — no re-fire
+    expect(onChange).toHaveBeenCalledTimes(2)
   })
 })

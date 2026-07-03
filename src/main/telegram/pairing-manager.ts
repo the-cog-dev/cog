@@ -1,6 +1,7 @@
 import { randomInt, timingSafeEqual } from 'crypto'
 
 const DEFAULT_CODE_TTL_MS = 10 * 60 * 1000   // pairing codes expire after 10 min
+const DEFAULT_MAX_ATTEMPTS = 5               // failed guesses before the code burns
 
 export interface PairingManagerOptions {
   /** Telegram user IDs already trusted (loaded from settings on boot). */
@@ -11,6 +12,8 @@ export interface PairingManagerOptions {
   clock?: () => number
   /** How long a freshly generated pairing code stays valid. */
   codeTtlMs?: number
+  /** Failed pair attempts allowed before the pending code is invalidated. */
+  maxAttempts?: number
 }
 
 /**
@@ -26,15 +29,18 @@ export class PairingManager {
   private allowlist: Set<number>
   private pendingCode: string | null = null
   private codeExpiresAt: number | null = null
+  private failedAttempts = 0
   private readonly onChange?: (ids: number[]) => void
   private readonly clock: () => number
   private readonly codeTtlMs: number
+  private readonly maxAttempts: number
 
   constructor(opts: PairingManagerOptions = {}) {
     this.allowlist = new Set(opts.initialAllowlist ?? [])
     this.onChange = opts.onAllowlistChange
     this.clock = opts.clock ?? Date.now
     this.codeTtlMs = opts.codeTtlMs ?? DEFAULT_CODE_TTL_MS
+    this.maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS
   }
 
   /** Generate a fresh 6-digit pairing code, replacing any previous one. */
@@ -42,6 +48,7 @@ export class PairingManager {
     const n = randomInt(0, 1_000_000)
     this.pendingCode = n.toString().padStart(6, '0')
     this.codeExpiresAt = this.clock() + this.codeTtlMs
+    this.failedAttempts = 0
     return this.pendingCode
   }
 
@@ -67,8 +74,16 @@ export class PairingManager {
     // Constant-time compare so the bot can't be used as a timing oracle.
     const a = Buffer.from(code)
     const b = Buffer.from(active)
-    if (a.length !== b.length) return false
-    if (!timingSafeEqual(a, b)) return false
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      // Anti-brute-force: a 6-digit code can't survive open-ended guessing,
+      // so burn it after maxAttempts misses. The owner just generates a new one.
+      this.failedAttempts++
+      if (this.failedAttempts >= this.maxAttempts) {
+        this.pendingCode = null
+        this.codeExpiresAt = null
+      }
+      return false
+    }
     // Consume the code so it can't be replayed, then trust the user.
     this.pendingCode = null
     this.codeExpiresAt = null

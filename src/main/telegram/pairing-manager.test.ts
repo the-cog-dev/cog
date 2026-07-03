@@ -50,4 +50,27 @@ describe('PairingManager', () => {
     const pm = new PairingManager({ initialAllowlist: [1] })
     expect(pm.isAllowed(undefined)).toBe(false)
   })
+
+  it('burns the code after too many failed attempts (anti-brute-force)', () => {
+    const pm = new PairingManager({ maxAttempts: 3 })
+    const code = pm.generateCode()
+    const wrong = code === '000000' ? '000001' : '000000'
+    for (let i = 0; i < 3; i++) expect(pm.tryPair(9, wrong)).toBe(false)
+    // Code is now burned — even the real one no longer works.
+    expect(pm.getActiveCode()).toBeNull()
+    expect(pm.tryPair(9, code)).toBe(false)
+    expect(pm.isAllowed(9)).toBe(false)
+  })
+
+  it('resets the failure counter when a fresh code is generated', () => {
+    const pm = new PairingManager({ maxAttempts: 3 })
+    let code = pm.generateCode()
+    const wrong = code === '000000' ? '000001' : '000000'
+    pm.tryPair(9, wrong)
+    pm.tryPair(9, wrong)
+    code = pm.generateCode()  // fresh code → fresh budget
+    pm.tryPair(9, code === '000000' ? '000001' : '000000')
+    pm.tryPair(9, code === '000000' ? '000001' : '000000')
+    expect(pm.tryPair(9, code)).toBe(true)  // 2 failures < 3, still valid
+  })
 })

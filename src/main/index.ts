@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Notification, Menu, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Notification, Menu, shell, safeStorage } from 'electron'
 import path from 'path'
 import * as fs from 'fs'
 import * as gitOps from './git/git-ops'
@@ -34,14 +34,15 @@ import { CloudflaredManager } from './remote/cloudflared-manager'
 import { RemoteServer } from './remote/remote-server'
 import { RemoteWsHub } from './remote/ws-hub'
 import { PairingManager } from './telegram/pairing-manager'
-import { TelegramServer } from './telegram/telegram-server'
+import { TelegramServer, validateBotToken } from './telegram/telegram-server'
+import { stripAnsi } from './telegram/ansi'
 import type { OrchestratorBridge } from './telegram/bridge'
 import * as communityClient from './community/community-client'
 import * as themesStore from './themes/themes-store'
 import * as workspaceThemeStore from './themes/workspace-theme-store'
 import { getWorkspaceThemeById, WORKSPACE_THEMES } from '../shared/workspace-themes'
 import { migrateLegacyUserData } from './migration/userdata-migration'
-import type { AgentConfig, AgentTheme, RemoteSetupProgress, CommunityAgent, CommunityCategory, RespawnResult, NotificationThreshold, ProposedAgent, TeamProposal } from '../shared/types'
+import type { AgentConfig, AgentTheme, RemoteSetupProgress, CommunityAgent, CommunityCategory, RespawnResult, NotificationThreshold, ProposedAgent, TeamProposal, TelegramStatus } from '../shared/types'
 import { IPC } from '../shared/types'
 import { validateRespawnRequest } from './respawn-validation'
 import { initStreamDeck, disposeStreamDeck, resolveCogsworthDir, getStreamDeckStatus, reconnectStreamDeck } from './streamdeck'
@@ -615,16 +616,50 @@ async function disableRemoteView(): Promise<void> {
 
 // ── Telegram orchestration helpers ───────────────────────────────────────────
 
-function emitTelegramStatus(): void {
-  if (!mainWindow) return
+/**
+ * The bot token unlocks sending/reading as the bot, so it's stored encrypted
+ * via Electron safeStorage (DPAPI on Windows) as `telegramBotTokenEnc`. A
+ * legacy plaintext `telegramBotToken` is still read as a fallback and upgraded
+ * on the next save. If the OS keychain is unavailable we fall back to
+ * plaintext rather than losing the feature.
+ */
+function saveTelegramToken(token: string): void {
+  if (token && safeStorage.isEncryptionAvailable()) {
+    saveSetting('telegramBotTokenEnc', safeStorage.encryptString(token).toString('base64'))
+    saveSetting('telegramBotToken', undefined)  // drop any legacy plaintext copy
+  } else {
+    saveSetting('telegramBotToken', token || undefined)
+    saveSetting('telegramBotTokenEnc', undefined)
+  }
+}
+
+function loadTelegramToken(): string {
   const s = loadSettings()
-  mainWindow.webContents.send(IPC.TELEGRAM_STATUS_UPDATE, {
+  const enc = s.telegramBotTokenEnc
+  if (typeof enc === 'string' && enc && safeStorage.isEncryptionAvailable()) {
+    try {
+      return safeStorage.decryptString(Buffer.from(enc, 'base64')).trim()
+    } catch (err) {
+      console.error('[telegram] failed to decrypt stored token:', err)
+    }
+  }
+  return typeof s.telegramBotToken === 'string' ? s.telegramBotToken.trim() : ''
+}
+
+function telegramStatus(): TelegramStatus {
+  const s = loadSettings()
+  return {
     enabled: telegramServer?.isRunning() ?? false,
-    hasToken: typeof s.telegramBotToken === 'string' && !!s.telegramBotToken,
+    hasToken: !!loadTelegramToken(),
     pairedCount: telegramPairing?.size
       ?? (Array.isArray(s.telegramAllowlist) ? s.telegramAllowlist.length : 0),
     activePairingCode: telegramPairing?.getActiveCode() ?? null
-  })
+  }
+}
+
+function emitTelegramStatus(): void {
+  if (!mainWindow) return
+  mainWindow.webContents.send(IPC.TELEGRAM_STATUS_UPDATE, telegramStatus())
 }
 
 /**
@@ -647,7 +682,12 @@ function telegramBridge(): OrchestratorBridge {
     },
     getOutput: (name, lines) => {
       const managed = Array.from(agents.values()).find(m => m.config.name === name)
-      return managed ? managed.outputBuffer.getLines(lines) : []
+      if (!managed) return []
+      // OutputBuffer holds raw PTY bytes — strip ANSI/cursor noise or the
+      // Telegram reply is unreadable escape-code soup.
+      return managed.outputBuffer.getLines(lines)
+        .map(stripAnsi)
+        .filter((line) => line.trim().length > 0)
     },
     postTask: (title) => {
       if (!hub) return { ok: false, detail: 'No project is open yet.' }
@@ -661,12 +701,9 @@ function telegramBridge(): OrchestratorBridge {
   }
 }
 
-async function enableTelegram(): Promise<void> {
-  if (telegramServer) return
+/** Build and start the bot with the given token. Throws on a bad token/network. */
+async function startTelegram(token: string): Promise<void> {
   const s = loadSettings()
-  const token = typeof s.telegramBotToken === 'string' ? s.telegramBotToken.trim() : ''
-  if (!token) return  // no token yet — UI prompts for one
-
   telegramPairing = new PairingManager({
     initialAllowlist: Array.isArray(s.telegramAllowlist) ? s.telegramAllowlist : [],
     onAllowlistChange: (ids) => saveSetting('telegramAllowlist', ids)
@@ -674,17 +711,43 @@ async function enableTelegram(): Promise<void> {
   telegramServer = new TelegramServer({
     pairing: telegramPairing,
     bridge: telegramBridge(),
+    // Persist relay subscriptions so an app restart doesn't silently drop the
+    // agent→phone relay until the user happens to message the bot again.
+    initialChats: Array.isArray(s.telegramChats) ? s.telegramChats : [],
+    onChatsChange: (ids) => saveSetting('telegramChats', ids),
     onLog: (m) => console.log('[telegram]', m),
     onStatusChange: () => emitTelegramStatus()
   })
 
   try {
     await telegramServer.start(token)
-    saveSetting('telegramEnabled', true)
   } catch (err) {
-    // Bad token / network — tear down and rethrow so the UI can report it.
     telegramServer = null
     telegramPairing = null
+    throw err
+  }
+}
+
+/** Runtime-only teardown — does NOT touch the persisted telegramEnabled flag. */
+async function stopTelegram(): Promise<void> {
+  if (telegramServer) await telegramServer.stop()
+  telegramServer = null
+  telegramPairing = null
+}
+
+async function enableTelegram(): Promise<void> {
+  if (telegramServer) return
+  const token = loadTelegramToken()
+  if (!token) return  // no token yet — UI prompts for one
+  // Upgrade a legacy plaintext token to encrypted storage on first use.
+  if (typeof loadSettings().telegramBotToken === 'string' && safeStorage.isEncryptionAvailable()) {
+    saveTelegramToken(token)
+  }
+  try {
+    await startTelegram(token)
+    saveSetting('telegramEnabled', true)
+  } catch (err) {
+    // Bad token / network — surface to the UI, leave settings as they were.
     emitTelegramStatus()
     throw err
   }
@@ -693,9 +756,7 @@ async function enableTelegram(): Promise<void> {
 
 async function disableTelegram(): Promise<void> {
   saveSetting('telegramEnabled', false)
-  if (telegramServer) await telegramServer.stop()
-  telegramServer = null
-  telegramPairing = null
+  await stopTelegram()
   emitTelegramStatus()
 }
 
@@ -1404,11 +1465,12 @@ function setupMessageNudge(): void {
   hub.messages.onMessageQueued = (msg) => {
     // When an agent messages the user, show an OS notification
     if (msg.to === 'user') {
-      // Mirror it to any linked Telegram chats (Phase 1 relay). No-op when the
-      // bot is off or nobody's paired.
-      telegramServer?.relayFromAgent(msg.from, msg.message)
       const settings = loadSettings()
       if (settings.notifications !== false) {
+        // Mirror it to any linked Telegram chats. No-op when the bot is off or
+        // nobody's paired. Inside the notifications gate on purpose: muting
+        // notifications should silence the phone too, not just the desktop.
+        telegramServer?.relayFromAgent(msg.from, msg.message)
         const preview = msg.message.length > 120 ? msg.message.slice(0, 120) + '…' : msg.message
         const notification = new Notification({
           title: `Message from ${msg.from}`,
@@ -2884,19 +2946,43 @@ function setupIPC(): void {
   ipcMain.handle(IPC.TELEGRAM_ENABLE, async () => { await enableTelegram() })
   ipcMain.handle(IPC.TELEGRAM_DISABLE, async () => { await disableTelegram() })
   ipcMain.handle(IPC.TELEGRAM_SET_TOKEN, async (_e, token: string) => {
-    saveSetting('telegramBotToken', token)
-    // Restart if running so the new token takes effect.
-    if (telegramServer) { await disableTelegram(); await enableTelegram() }
+    const next = typeof token === 'string' ? token.trim() : ''
+    if (next) {
+      // Validate BEFORE persisting so a typo'd paste can't destroy a working
+      // token. validateBotToken only calls getMe — no polling conflict with a
+      // currently-running bot.
+      await validateBotToken(next)  // throws → nothing saved, UI shows the error
+      saveTelegramToken(next)
+      // Restart if running so the new token takes effect.
+      if (telegramServer) { await stopTelegram(); await startTelegram(next) }
+    } else {
+      // Clearing the token shuts the bot down.
+      saveTelegramToken('')
+      await disableTelegram()
+    }
     emitTelegramStatus()
   })
   ipcMain.handle(IPC.TELEGRAM_GET_PAIRING_CODE, async () => {
-    return telegramPairing?.generateCode() ?? null
+    const code = telegramPairing?.generateCode() ?? null
+    emitTelegramStatus()
+    return code
   })
   ipcMain.handle(IPC.TELEGRAM_UNPAIR, async (_e, userId: number) => {
-    telegramPairing?.revoke(userId)
+    if (telegramServer) {
+      // Live bot: cut command access AND the relay subscription in one move.
+      telegramServer.revokeUser(userId)
+    } else {
+      // Bot offline: telegramPairing is null, so edit the persisted lists
+      // directly — otherwise the "removed" user comes back on next enable.
+      const s = loadSettings()
+      const allow = Array.isArray(s.telegramAllowlist) ? s.telegramAllowlist : []
+      saveSetting('telegramAllowlist', allow.filter((id: number) => id !== userId))
+      const chats = Array.isArray(s.telegramChats) ? s.telegramChats : []
+      saveSetting('telegramChats', chats.filter((id: number) => id !== userId))
+    }
     emitTelegramStatus()
   })
-  ipcMain.handle(IPC.TELEGRAM_GET_STATUS, async () => { emitTelegramStatus() })
+  ipcMain.handle(IPC.TELEGRAM_GET_STATUS, async () => telegramStatus())
 
   // Helper: rotate URLs after a token change so both tunnel and LAN URLs reflect the new token
   function rotateUrlsAfterTokenChange(): void {
