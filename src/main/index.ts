@@ -648,11 +648,13 @@ function loadTelegramToken(): string {
 
 function telegramStatus(): TelegramStatus {
   const s = loadSettings()
+  const pairedIds = telegramPairing?.list()
+    ?? (Array.isArray(s.telegramAllowlist) ? s.telegramAllowlist : [])
   return {
     enabled: telegramServer?.isRunning() ?? false,
     hasToken: !!loadTelegramToken(),
-    pairedCount: telegramPairing?.size
-      ?? (Array.isArray(s.telegramAllowlist) ? s.telegramAllowlist.length : 0),
+    pairedCount: pairedIds.length,
+    pairedIds,
     activePairingCode: telegramPairing?.getActiveCode() ?? null
   }
 }

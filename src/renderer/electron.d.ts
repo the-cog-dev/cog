@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentState, AgentTheme, HubInfo, PinboardTask, InfoEntry, WorkspacePreset, WorkspaceTheme, Skill, CreateScheduleInput, EditScheduleInput, CommunityTeam, CommunityTeamListItem, CommunityAgent, CommunityCategory, CommunityTheme, CommunityThemeListItem, RespawnResult, InboxMessage, NotificationThreshold, TeamProposal } from '../shared/types'
+import type { AgentConfig, AgentState, AgentTheme, HubInfo, PinboardTask, InfoEntry, WorkspacePreset, WorkspaceTheme, Skill, CreateScheduleInput, EditScheduleInput, CommunityTeam, CommunityTeamListItem, CommunityAgent, CommunityCategory, CommunityTheme, CommunityThemeListItem, RespawnResult, InboxMessage, NotificationThreshold, TeamProposal, TelegramStatus } from '../shared/types'
 
 declare global {
   interface Window {
@@ -73,6 +73,14 @@ declare global {
       regenerateRemoteToken: () => Promise<{ ok: boolean; newUrl?: string | null }>
       onRemoteStatusUpdate: (cb: (status: { enabled: boolean; publicUrl: string | null; lanUrl: string | null; lanEnabled: boolean; connectionCount: number; lastActivity: number | null }) => void) => () => void
       onRemoteSetupProgress: (cb: (progress: { stage: 'downloading' | 'starting' | 'ready' | 'error'; message?: string }) => void) => () => void
+      // Telegram orchestration
+      enableTelegram: () => Promise<void>
+      disableTelegram: () => Promise<void>
+      setTelegramToken: (token: string) => Promise<void>
+      getTelegramPairingCode: () => Promise<string | null>
+      unpairTelegram: (userId: number) => Promise<void>
+      getTelegramStatus: () => Promise<TelegramStatus>
+      onTelegramStatusUpdate: (cb: (status: TelegramStatus) => void) => () => void
       // Stale task alert snooze
       getStaleAlertSnooze: () => Promise<{ muteUntil: number | null }>
       setStaleAlertSnooze: (durationMs: number | null) => Promise<{ muteUntil: number | null }>

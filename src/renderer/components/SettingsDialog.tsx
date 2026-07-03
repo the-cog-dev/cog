@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { AutonomySettings } from './AutonomySettings'
 import QRCode from 'qrcode-svg'
-import type { AgentState, WorkspaceTheme, CommunityThemeListItem, CommunityTheme, AgentTheme } from '../../shared/types'
+import type { AgentState, WorkspaceTheme, CommunityThemeListItem, CommunityTheme, AgentTheme, TelegramStatus } from '../../shared/types'
 import { ROLE_THEME_DEFAULTS, getPresetById, THEME_PRESETS, WORKSPACE_THEMES, getWorkspaceThemeById } from '../themes'
 
 declare const electronAPI: {
@@ -1010,6 +1010,9 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
           )}
         </div>
 
+        {/* Telegram Bot section */}
+        <TelegramSection />
+
         {/* Agent Autonomy section */}
         <AutonomySettings projectName={projectName} />
 
@@ -1021,6 +1024,224 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
           borderRadius: '4px', color: '#aaa', cursor: 'pointer', fontSize: '13px', alignSelf: 'flex-end'
         }}>Done</button>
       </div>
+    </div>
+  )
+}
+
+function TelegramSection(): React.ReactElement {
+  const [status, setStatus] = React.useState<TelegramStatus | null>(null)
+  const [showTokenInput, setShowTokenInput] = React.useState(false)
+  const [tokenInput, setTokenInput] = React.useState('')
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [notice, setNotice] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    void window.electronAPI.getTelegramStatus().then(setStatus)
+    const off = window.electronAPI.onTelegramStatusUpdate(setStatus)
+    return () => off()
+  }, [])
+
+  const flash = (msg: string) => {
+    setNotice(msg)
+    setTimeout(() => setNotice(null), 2500)
+  }
+
+  // IPC rejections arrive as "Error invoking remote method 'x': Error: <real message>"
+  const ipcError = (err: unknown): string =>
+    (err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '')
+
+  const saveToken = async () => {
+    const token = tokenInput.trim()
+    if (!token || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      // Validated against Telegram before it's persisted — a typo can't
+      // clobber a working token.
+      await window.electronAPI.setTelegramToken(token)
+      setTokenInput('')
+      setShowTokenInput(false)
+      flash('Token verified and saved')
+    } catch (err) {
+      setError(`Token rejected: ${ipcError(err)}`)
+    }
+    setBusy(false)
+  }
+
+  const toggleBot = async () => {
+    if (!status?.hasToken || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      if (status.enabled) await window.electronAPI.disableTelegram()
+      else await window.electronAPI.enableTelegram()
+    } catch (err) {
+      setError(ipcError(err))
+    }
+    setBusy(false)
+  }
+
+  const generateCode = async () => {
+    setError(null)
+    await window.electronAPI.getTelegramPairingCode()
+    // The status-update event delivers the new code; no local state needed.
+  }
+
+  const unpair = async (id: number) => {
+    if (!confirm(`Unpair Telegram account ${id}? It will lose access to your agents.`)) return
+    await window.electronAPI.unpairTelegram(id)
+  }
+
+  const rowStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '8px', backgroundColor: '#252525', borderRadius: '4px', gap: '8px'
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid #333', paddingTop: '16px' }}>
+      <div style={{ fontSize: '12px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        Telegram Bot <span style={{ color: '#eab308', textTransform: 'none', fontWeight: 600 }}>(experimental)</span>
+      </div>
+      <div style={{ fontSize: '11px', color: '#666', lineHeight: '1.5' }}>
+        Drive your agents from your phone: /status, /use, /msg, /output, /task — and agent replies
+        land in your chat. Create a bot with @BotFather in Telegram, paste its token, then pair.
+        Works in direct messages only.
+      </div>
+
+      {/* Bot token */}
+      <div style={rowStyle}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: '13px', color: '#e0e0e0' }}>Bot token</div>
+          <div style={{ fontSize: '11px', color: '#666' }}>
+            {status?.hasToken ? 'Saved (stored encrypted)' : 'Paste the token from @BotFather'}
+          </div>
+        </div>
+        {showTokenInput ? (
+          <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+            <input
+              type="password"
+              autoFocus
+              placeholder="123456:ABC-DEF…"
+              value={tokenInput}
+              onChange={e => setTokenInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') saveToken()
+                if (e.key === 'Escape') { setShowTokenInput(false); setTokenInput('') }
+              }}
+              style={{
+                width: '150px', padding: '4px 8px', backgroundColor: '#333', color: '#e0e0e0',
+                border: '1px solid #555', borderRadius: '4px', fontSize: '12px'
+              }}
+            />
+            <button
+              onClick={saveToken}
+              disabled={!tokenInput.trim() || busy}
+              style={{
+                padding: '4px 10px', backgroundColor: '#3b82f6', color: '#fff',
+                border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px',
+                opacity: tokenInput.trim() && !busy ? 1 : 0.5
+              }}
+            >{busy ? '…' : 'Save'}</button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowTokenInput(true)}
+            style={{
+              padding: '4px 10px', backgroundColor: '#333', color: '#e0e0e0',
+              border: '1px solid #555', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', flexShrink: 0
+            }}
+          >{status?.hasToken ? 'Change' : 'Set token'}</button>
+        )}
+      </div>
+
+      {/* Enable toggle */}
+      <label style={{ ...rowStyle, cursor: status?.hasToken ? 'pointer' : 'not-allowed', opacity: status?.hasToken ? 1 : 0.5 }}>
+        <div>
+          <div style={{ fontSize: '13px', color: '#e0e0e0' }}>Enable Telegram bot</div>
+          <div style={{ fontSize: '11px', color: '#666' }}>
+            {status?.enabled ? 'Running — long-polling Telegram (no tunnel needed)' : 'Bot is off'}
+          </div>
+        </div>
+        <div
+          onClick={toggleBot}
+          style={{
+            width: 40, height: 22, borderRadius: 11,
+            backgroundColor: status?.enabled ? '#4caf50' : '#444',
+            position: 'relative', cursor: status?.hasToken ? 'pointer' : 'not-allowed',
+            transition: 'background-color 0.2s', flexShrink: 0, marginLeft: 12
+          }}
+        >
+          <div style={{
+            width: 18, height: 18, borderRadius: '50%',
+            backgroundColor: '#fff', position: 'absolute', top: 2,
+            left: status?.enabled ? 20 : 2,
+            transition: 'left 0.2s'
+          }} />
+        </div>
+      </label>
+
+      {/* Pairing — only meaningful while the bot is running */}
+      {status?.enabled && (
+        <>
+          <div style={rowStyle}>
+            <div>
+              <div style={{ fontSize: '13px', color: '#e0e0e0' }}>Pair a phone</div>
+              <div style={{ fontSize: '11px', color: '#666' }}>Code is single-use and expires in 10 minutes</div>
+            </div>
+            {status.activePairingCode ? (
+              <div style={{
+                fontSize: '18px', fontFamily: 'monospace', letterSpacing: '3px',
+                color: '#6ee7b7', padding: '2px 10px', backgroundColor: '#1a2e1a',
+                borderRadius: '4px', flexShrink: 0
+              }}>{status.activePairingCode}</div>
+            ) : (
+              <button
+                onClick={generateCode}
+                style={{
+                  padding: '4px 10px', backgroundColor: '#333', color: '#e0e0e0',
+                  border: '1px solid #555', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', flexShrink: 0
+                }}
+              >Generate code</button>
+            )}
+          </div>
+          {status.activePairingCode && (
+            <div style={{ fontSize: '11px', color: '#888', padding: '0 4px' }}>
+              Message your bot in Telegram: <span style={{ fontFamily: 'monospace', color: '#e0e0e0' }}>/pair {status.activePairingCode}</span>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Paired accounts — shown even while the bot is off so unpair always works */}
+      {status && status.pairedIds.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div style={{ fontSize: '11px', color: '#666' }}>Linked Telegram accounts</div>
+          {status.pairedIds.map(id => (
+            <div key={id} style={rowStyle}>
+              <div style={{ fontSize: '12px', color: '#e0e0e0', fontFamily: 'monospace' }}>{id}</div>
+              <button
+                onClick={() => unpair(id)}
+                style={{
+                  padding: '3px 10px', backgroundColor: '#3a2222', color: '#ef8888',
+                  border: '1px solid #5a3333', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', flexShrink: 0
+                }}
+              >Unpair</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <div style={{ fontSize: '11px', color: '#ef4444', padding: '4px 8px', backgroundColor: '#2e1a1a', borderRadius: '4px' }}>
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div style={{ fontSize: '11px', color: '#6ee7b7', padding: '4px 8px', backgroundColor: '#1a2e1a', borderRadius: '4px' }}>
+          {notice}
+        </div>
+      )}
     </div>
   )
 }

@@ -636,5 +636,7 @@ export interface TelegramStatus {
   enabled: boolean
   hasToken: boolean
   pairedCount: number
+  /** Paired Telegram user IDs — what the Settings unpair list renders. */
+  pairedIds: number[]
   activePairingCode: string | null
 }
