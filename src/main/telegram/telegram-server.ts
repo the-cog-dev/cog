@@ -1,6 +1,6 @@
 import { Bot, InlineKeyboard, type Context } from 'grammy'
 import type { PairingManager } from './pairing-manager'
-import type { OrchestratorBridge, TelegramTarget, IncomingFile, ProposalView } from './bridge'
+import type { OrchestratorBridge, TelegramTarget, IncomingFile, IncomingVoice, ProposalView } from './bridge'
 import { ChatRouter } from './chat-router'
 import {
   proposalCallback, parseProposalCallback,
@@ -197,7 +197,8 @@ export class TelegramServer {
         '/help — this list\n\n' +
         'Plain text goes to this chat\'s active head (see /status).\n' +
         'Send a file or photo (with an optional caption) and it goes there too — ' +
-        'text files are read inline, images are saved for the agent to open.'
+        'text files are read inline, images are saved for the agent to open.\n' +
+        'Send a voice note and it\'s transcribed and routed to the active head.'
       )
     })
 
@@ -300,6 +301,32 @@ export class TelegramServer {
         : `❌ ${res.detail ?? 'Couldn\'t hand that file to the agent.'}`)
     })
 
+    // ── Voice notes → transcribe → the chat's active head ──────────────────
+    bot.on('message:voice', async (ctx) => {
+      const bridge = this.bridge
+      if (!bridge) { await ctx.reply('Orchestration isn\'t wired up yet.'); return }
+      const target = this.router.effectiveTarget(ctx.chat!.id, bridge.listTargets())
+      if (!target) { await ctx.reply('No agents are running. Start one in The Cog, then try again.'); return }
+
+      let bytes: Uint8Array
+      try {
+        bytes = await this.downloadCurrentFile(ctx)
+      } catch (err) {
+        this.log(`voice download failed: ${err instanceof Error ? err.message : String(err)}`)
+        await ctx.reply('❌ Couldn\'t download that voice note.')
+        return
+      }
+
+      // Transcription can take a moment — show the "typing…" indicator.
+      await ctx.replyWithChatAction('typing').catch(() => {})
+      const voice: IncomingVoice = { bytes, mimeType: ctx.message.voice.mime_type, caption: ctx.message.caption }
+      const res = await bridge.sendVoice(target.name, voice)
+      if (!res.ok) { await ctx.reply(`❌ ${res.detail ?? 'Couldn\'t process that voice note.'}`); return }
+      await ctx.reply(res.transcript
+        ? `🎙️ "${res.transcript}"\n→ sent to ${target.name}.`
+        : `🎙️ Voice saved for ${target.name}${res.detail ? ` — ${res.detail}` : ''}.`)
+    })
+
     // ── Proposal buttons (Approve / Reject / Details) ──────────────────────
     bot.on('callback_query:data', async (ctx) => {
       const parsed = parseProposalCallback(ctx.callbackQuery.data)
@@ -327,23 +354,26 @@ export class TelegramServer {
     })
   }
 
+  /** Download the file referenced by the current update via the Telegram file API. */
+  private async downloadCurrentFile(ctx: Context): Promise<Uint8Array> {
+    const fileInfo = await ctx.getFile()  // resolves file_path for the update's file
+    if (!fileInfo.file_path) throw new Error('no file_path (file too large or unavailable)')
+    const res = await fetch(`https://api.telegram.org/file/bot${this.bot!.token}/${fileInfo.file_path}`)
+    if (!res.ok) throw new Error(`download HTTP ${res.status}`)
+    return new Uint8Array(await res.arrayBuffer())
+  }
+
   /**
-   * Pull the document/photo out of an update and download its bytes via the
-   * Telegram file API. Photos have no filename, so we synthesise one.
+   * Pull the document/photo out of an update and download its bytes. Photos have
+   * no filename, so we synthesise one from the file's unique id.
    */
   private async downloadAttachment(ctx: Context): Promise<IncomingFile> {
     const doc = ctx.message?.document
     const photo = ctx.message?.photo?.at(-1)  // last entry = highest resolution
-    const fileInfo = await ctx.getFile()      // resolves file_path for doc or largest photo
-    if (!fileInfo.file_path) throw new Error('no file_path (file too large or unavailable)')
-
-    const token = this.bot!.token
-    const res = await fetch(`https://api.telegram.org/file/bot${token}/${fileInfo.file_path}`)
-    if (!res.ok) throw new Error(`download HTTP ${res.status}`)
-    const bytes = new Uint8Array(await res.arrayBuffer())
-
+    const bytes = await this.downloadCurrentFile(ctx)
+    const uniqueId = ctx.message?.photo?.at(-1)?.file_unique_id ?? doc?.file_unique_id ?? 'file'
     const filename = doc?.file_name
-      ?? (photo ? `telegram-photo-${fileInfo.file_unique_id}.jpg` : `telegram-file-${fileInfo.file_unique_id}`)
+      ?? (photo ? `telegram-photo-${uniqueId}.jpg` : `telegram-file-${uniqueId}`)
     const mimeType = doc?.mime_type ?? (photo ? 'image/jpeg' : undefined)
     return { filename, bytes, mimeType, caption: ctx.message?.caption }
   }

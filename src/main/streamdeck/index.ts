@@ -196,7 +196,7 @@ export async function reconnectStreamDeck(opts: InitOpts): Promise<void> {
   await initStreamDeck(opts)
 }
 
-function buildWhisperClient(settings: { whisperBackend: string; openaiApiKey?: string }): WhisperClient | null {
+export function buildWhisperClient(settings: { whisperBackend: string; openaiApiKey?: string }): WhisperClient | null {
   if (settings.whisperBackend === 'cloud') {
     const key = settings.openaiApiKey || process.env.OPENAI_API_KEY || ''
     return new CloudWhisperClient({ apiKey: key })

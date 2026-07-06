@@ -46,7 +46,7 @@ import { migrateLegacyUserData } from './migration/userdata-migration'
 import type { AgentConfig, AgentTheme, RemoteSetupProgress, CommunityAgent, CommunityCategory, RespawnResult, NotificationThreshold, ProposedAgent, TeamProposal, TelegramStatus } from '../shared/types'
 import { IPC } from '../shared/types'
 import { validateRespawnRequest } from './respawn-validation'
-import { initStreamDeck, disposeStreamDeck, resolveCogsworthDir, getStreamDeckStatus, reconnectStreamDeck } from './streamdeck'
+import { initStreamDeck, disposeStreamDeck, resolveCogsworthDir, getStreamDeckStatus, reconnectStreamDeck, buildWhisperClient } from './streamdeck'
 import { prepareLocalWhisper, isLocalWhisperReady } from './streamdeck/local-whisper-prepare'
 import { BoardStore } from './db/board-store'
 import { BoardAppearanceStore } from './db/board-appearance-store'
@@ -615,6 +615,16 @@ function emitTelegramStatus(): void {
   mainWindow.webContents.send(IPC.TELEGRAM_STATUS_UPDATE, telegramStatus())
 }
 
+// Save a Telegram-supplied file into the project's inbox folder (agent cwd =
+// project root, so it can open the returned relative path). Returns { relPath }.
+function saveTelegramInboxFile(projectPath: string, filename: string, bytes: Uint8Array): { relPath: string } {
+  const safeName = sanitizeFilename(filename)
+  const inboxDir = path.join(projectPath, '.cog', 'telegram-inbox')
+  fs.mkdirSync(inboxDir, { recursive: true })
+  fs.writeFileSync(path.join(inboxDir, safeName), bytes)
+  return { relPath: ['.cog', 'telegram-inbox', safeName].join('/') }
+}
+
 /**
  * Hub-backed implementation of the Telegram bot's orchestration bridge. Reads
  * `hub`/`agents` lazily (a project may not be open yet when the bot starts), so
@@ -640,10 +650,7 @@ function telegramBridge(): OrchestratorBridge {
       try {
         // Save into the project so the agent (cwd = project root) can open it.
         const safeName = sanitizeFilename(file.filename)
-        const inboxDir = path.join(projectPath, '.cog', 'telegram-inbox')
-        fs.mkdirSync(inboxDir, { recursive: true })
-        fs.writeFileSync(path.join(inboxDir, safeName), file.bytes)
-        const relPath = ['.cog', 'telegram-inbox', safeName].join('/')
+        const { relPath } = saveTelegramInboxFile(projectPath, file.filename, file.bytes)
 
         const isImage = (file.mimeType?.startsWith('image/') ?? false) ||
           /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i.test(safeName)
@@ -679,6 +686,44 @@ function telegramBridge(): OrchestratorBridge {
       try {
         const task = hub.pinboard.postTask(title, '', 'medium', 'telegram-user')
         return { ok: true, id: task.id }
+      } catch (err) {
+        return { ok: false, detail: (err as Error).message }
+      }
+    },
+    sendVoice: async (name, voice) => {
+      if (!hub) return { ok: false, detail: 'No project is open yet.' }
+      const s = loadSettings()
+      const whisper = buildWhisperClient({
+        whisperBackend: typeof s.whisperBackend === 'string' ? s.whisperBackend : '',
+        openaiApiKey: typeof s.openaiApiKey === 'string' ? s.openaiApiKey : undefined
+      })
+      if (whisper) {
+        try {
+          // Copy into a fresh, non-shared ArrayBuffer for the transcriber.
+          const ab = new Uint8Array(voice.bytes).buffer as ArrayBuffer
+          const transcript = (await whisper.transcribe(ab)).trim()
+          if (transcript) {
+            const caption = voice.caption?.trim()
+            const msg = caption ? `🎙️ (voice) ${transcript}\n\n${caption}` : `🎙️ (voice) ${transcript}`
+            const res = hub.messages.send('user', name, msg)
+            if (res.status === 'error') return { ok: false, detail: res.detail }
+            return { ok: true, transcript }
+          }
+          // Empty transcript → fall through to saving the audio.
+        } catch (err) {
+          console.warn('[telegram] voice transcription failed:', (err as Error).message)
+          // Fall through to saving the audio.
+        }
+      }
+      // Fallback: no Whisper backend (or it failed) — save the audio + hand over the path.
+      const projectPath = projectManager?.currentProject?.path
+      if (!projectPath) return { ok: false, detail: 'No project is open yet.' }
+      try {
+        const { relPath } = saveTelegramInboxFile(projectPath, `telegram-voice-${Date.now()}.ogg`, voice.bytes)
+        const why = whisper ? 'couldn\'t transcribe' : 'Whisper not configured (Settings → Voice)'
+        const res = hub.messages.send('user', name, `🎙️ Voice note saved to ${relPath} (${why}).`)
+        if (res.status === 'error') return { ok: false, detail: res.detail }
+        return { ok: true, detail: why }
       } catch (err) {
         return { ok: false, detail: (err as Error).message }
       }

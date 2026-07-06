@@ -23,6 +23,13 @@ export interface IncomingFile {
   caption?: string
 }
 
+/** A voice note forwarded from Telegram, already downloaded to memory. */
+export interface IncomingVoice {
+  bytes: Uint8Array
+  mimeType?: string   // typically audio/ogg (opus)
+  caption?: string
+}
+
 /** A team/schedule proposal, flattened for the bot (decoupled from shared types). */
 export interface ProposalView {
   id: string
@@ -44,6 +51,12 @@ export interface OrchestratorBridge {
    * can open. Returns the saved path (relative to the project) on success.
    */
   sendFile(name: string, file: IncomingFile): { ok: boolean; relPath?: string; detail?: string }
+  /**
+   * Transcribe a voice note (via the app's configured Whisper backend) and route
+   * the text to a named agent. Falls back to saving the audio if transcription
+   * is unavailable. Returns the transcript when one was produced.
+   */
+  sendVoice(name: string, voice: IncomingVoice): Promise<{ ok: boolean; transcript?: string; detail?: string }>
   /** Recent terminal output lines for a named agent (newest last). */
   getOutput(name: string, lines: number): string[]
   /** Post a task to the shared pinboard. */
