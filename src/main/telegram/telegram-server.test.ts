@@ -7,6 +7,9 @@ const fakeBridge: OrchestratorBridge = {
   listTargets: () => [],
   sendTo: () => ({ ok: true }),
   sendFile: () => ({ ok: true }),
+  approveProposal: async () => ({ ok: true }),
+  rejectProposal: async () => ({ ok: true }),
+  getProposal: () => null,
   getOutput: () => [],
   postTask: () => ({ ok: true })
 }

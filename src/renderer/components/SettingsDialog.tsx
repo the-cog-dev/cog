@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { AutonomySettings } from './AutonomySettings'
 import QRCode from 'qrcode-svg'
-import type { AgentState, WorkspaceTheme, CommunityThemeListItem, CommunityTheme, AgentTheme, TelegramStatus } from '../../shared/types'
+import type { AgentState, WorkspaceTheme, CommunityThemeListItem, CommunityTheme, AgentTheme, TelegramStatus, NotificationThreshold } from '../../shared/types'
 import { ROLE_THEME_DEFAULTS, getPresetById, THEME_PRESETS, WORKSPACE_THEMES, getWorkspaceThemeById } from '../themes'
 
 declare const electronAPI: {
@@ -1035,12 +1035,22 @@ function TelegramSection(): React.ReactElement {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [notice, setNotice] = React.useState<string | null>(null)
+  const [threshold, setThreshold] = React.useState<NotificationThreshold>('low')
 
   React.useEffect(() => {
     void window.electronAPI.getTelegramStatus().then(setStatus)
+    void window.electronAPI.getSettings().then(s => {
+      const t = s.telegramNotifyThreshold
+      if (typeof t === 'string') setThreshold(t as NotificationThreshold)
+    })
     const off = window.electronAPI.onTelegramStatusUpdate(setStatus)
     return () => off()
   }, [])
+
+  const changeThreshold = async (t: NotificationThreshold) => {
+    setThreshold(t)
+    await window.electronAPI.setSetting('telegramNotifyThreshold', t)
+  }
 
   const flash = (msg: string) => {
     setNotice(msg)
@@ -1179,6 +1189,30 @@ function TelegramSection(): React.ReactElement {
             transition: 'left 0.2s'
           }} />
         </div>
+      </label>
+
+      {/* Which inbox priorities get pushed to Telegram */}
+      <label style={{ ...rowStyle }}>
+        <div>
+          <div style={{ fontSize: '13px', color: '#e0e0e0' }}>Send to Telegram when</div>
+          <div style={{ fontSize: '11px', color: '#666' }}>
+            Mirror inbox messages at or above this urgency to your phone.
+          </div>
+        </div>
+        <select
+          value={threshold}
+          onChange={e => changeThreshold(e.target.value as NotificationThreshold)}
+          style={{
+            backgroundColor: '#1a1a1a', color: '#e0e0e0', border: '1px solid #3a3a3a',
+            borderRadius: 4, padding: '4px 8px', fontSize: 12, marginLeft: 12, flexShrink: 0
+          }}
+        >
+          <option value="low">Everything</option>
+          <option value="normal">Normal &amp; up</option>
+          <option value="high">High &amp; up</option>
+          <option value="urgent">Urgent only</option>
+          <option value="none">Nothing (off)</option>
+        </select>
       </label>
 
       {/* Pairing — only meaningful while the bot is running */}

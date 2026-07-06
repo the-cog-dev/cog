@@ -108,10 +108,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.PROPOSALS_APPROVE, { proposalId, agents, tabId }),
   proposalsReject: (proposalId: string, feedback?: string) =>
     ipcRenderer.invoke(IPC.PROPOSALS_REJECT, { proposalId, feedback }),
+  proposalsReopen: (id: string) => ipcRenderer.invoke(IPC.PROPOSALS_REOPEN, id),
   onProposalAdded: (callback: (proposal: unknown) => void) => {
     const handler = (_event: unknown, proposal: unknown) => callback(proposal)
     ipcRenderer.on(IPC.PROPOSAL_ADDED, handler)
     return () => ipcRenderer.removeListener(IPC.PROPOSAL_ADDED, handler)
+  },
+  onProposalResolved: (callback: (proposal: unknown) => void) => {
+    const handler = (_event: unknown, proposal: unknown) => callback(proposal)
+    ipcRenderer.on(IPC.PROPOSAL_RESOLVED, handler)
+    return () => ipcRenderer.removeListener(IPC.PROPOSAL_RESOLVED, handler)
   },
   // Groups
   getGroups: () => ipcRenderer.invoke(IPC.GROUP_GET_ALL),

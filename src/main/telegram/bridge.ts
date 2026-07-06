@@ -23,6 +23,16 @@ export interface IncomingFile {
   caption?: string
 }
 
+/** A team/schedule proposal, flattened for the bot (decoupled from shared types). */
+export interface ProposalView {
+  id: string
+  proposedBy: string
+  summary: string
+  kind: 'team' | 'schedule'
+  status: 'pending' | 'approved' | 'rejected' | 'expired'
+  agents: { name: string; role: string; cli: string; model?: string; notes?: string }[]
+}
+
 export interface OrchestratorBridge {
   /** Live addressable agents (the registry minus the 'user' pseudo-agent). */
   listTargets(): TelegramTarget[]
@@ -38,4 +48,10 @@ export interface OrchestratorBridge {
   getOutput(name: string, lines: number): string[]
   /** Post a task to the shared pinboard. */
   postTask(title: string): { ok: boolean; id?: string; detail?: string }
+  /** Approve a pending team/schedule proposal (spawns agents / creates schedule). */
+  approveProposal(id: string): Promise<{ ok: boolean; detail?: string }>
+  /** Reject a pending proposal. */
+  rejectProposal(id: string): Promise<{ ok: boolean; detail?: string }>
+  /** Fetch a proposal's current view, or null if it's gone. */
+  getProposal(id: string): ProposalView | null
 }

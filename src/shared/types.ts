@@ -282,7 +282,9 @@ export const IPC = {
   PROPOSALS_GET: 'proposals:get',
   PROPOSALS_APPROVE: 'proposals:approve',
   PROPOSALS_REJECT: 'proposals:reject',
+  PROPOSALS_REOPEN: 'proposals:reopen',
   PROPOSAL_ADDED: 'proposals:added',
+  PROPOSAL_RESOLVED: 'proposals:resolved',
   // Trollbox bridge — renderer holds the live Supabase client; main needs
   // a snapshot for the 3DS HTTP API. Push direction = renderer → main on
   // state change. Send direction = main → renderer when 3DS posts a chat.

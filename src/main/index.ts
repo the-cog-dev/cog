@@ -36,7 +36,7 @@ import { RemoteWsHub } from './remote/ws-hub'
 import { PairingManager } from './telegram/pairing-manager'
 import { TelegramServer, validateBotToken } from './telegram/telegram-server'
 import { stripAnsi } from './telegram/ansi'
-import type { OrchestratorBridge } from './telegram/bridge'
+import type { OrchestratorBridge, ProposalView } from './telegram/bridge'
 import { sanitizeFilename, isTextFile, buildAttachmentMessage, TEXT_INLINE_LIMIT } from './telegram/attachment'
 import * as communityClient from './community/community-client'
 import * as themesStore from './themes/themes-store'
@@ -488,59 +488,9 @@ async function enableRemoteView(): Promise<void> {
       if (!hub) return false
       return hub.inboxChannel.markRead(id) !== null
     },
-    approveProposal: async (proposalId: string) => {
-      if (!hub) return { success: false, error: 'Hub not ready' }
-      const proposal = hub.proposalsChannel.get(proposalId)
-      if (!proposal) return { success: false, error: 'Proposal not found' }
-      if (proposal.status !== 'pending') {
-        return { success: false, error: `Proposal already ${proposal.status}` }
-      }
-      if (proposal.kind === 'schedule') {
-        if (!proposal.payload) {
-          return { success: false, error: 'Schedule proposal missing payload' }
-        }
-        if (!scheduleBridge) {
-          return { success: false, error: 'Scheduler unavailable' }
-        }
-        try {
-          scheduleBridge.create({
-            agentId: proposal.payload.targetAgentId,
-            tabId: proposal.payload.tabId,
-            name: proposal.payload.name,
-            promptText: proposal.payload.promptText,
-            intervalMinutes: proposal.payload.intervalMinutes,
-            durationHours: proposal.payload.durationHours,
-            createdBy: proposal.proposedBy
-          })
-        } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to create schedule' }
-        }
-        hub.proposalsChannel.resolve(proposalId, 'approved')
-        return { success: true }
-      }
-      // 3DS approves as-stored — no per-agent edits available on the small screen.
-      const { spawned, total, names } = spawnProposalAgents(proposal)
-      hub.proposalsChannel.resolve(proposalId, 'approved')
-      try {
-        const summary = spawned === total
-          ? `User approved your team from 3DS. Spawned: ${names.join(', ')}.`
-          : `User approved part of your team from 3DS. Spawned ${spawned}/${total}.`
-        hub.messages.send('user', proposal.proposedBy, summary)
-      } catch { /* orchestrator may not be reachable */ }
-      return { success: true, spawned }
-    },
-    rejectProposal: (proposalId: string, feedback?: string) => {
-      if (!hub) return { success: false, error: 'Hub not ready' }
-      const resolved = hub.proposalsChannel.resolve(proposalId, 'rejected', feedback)
-      if (!resolved) return { success: false, error: 'Proposal not found' }
-      try {
-        const note = feedback
-          ? `User rejected your team proposal from 3DS. Feedback: ${feedback}`
-          : 'User rejected your team proposal from 3DS.'
-        hub.messages.send('user', resolved.proposedBy, note)
-      } catch { /* orchestrator may not be reachable */ }
-      return { success: true }
-    },
+    // Shared with the Telegram bridge — approve/reject a proposal as-stored.
+    approveProposal: (proposalId: string) => approveProposalById(proposalId),
+    rejectProposal: (proposalId: string, feedback?: string) => rejectProposalById(proposalId, feedback),
     replyToInbox: (agentName: string, message: string) => {
       if (!hub) return { success: false, error: 'Hub not ready' }
       try {
@@ -732,6 +682,18 @@ function telegramBridge(): OrchestratorBridge {
       } catch (err) {
         return { ok: false, detail: (err as Error).message }
       }
+    },
+    approveProposal: async (id) => {
+      const r = await approveProposalById(id)
+      return r.success ? { ok: true } : { ok: false, detail: r.error }
+    },
+    rejectProposal: async (id) => {
+      const r = rejectProposalById(id)
+      return r.success ? { ok: true } : { ok: false, detail: r.error }
+    },
+    getProposal: (id) => {
+      const p = hub?.proposalsChannel.get(id)
+      return p ? toProposalView(p) : null
     }
   }
 }
@@ -1368,6 +1330,73 @@ function spawnProposalAgents(proposal: TeamProposal): { spawned: number; total: 
   return { spawned, total: ordered.length, names }
 }
 
+// Approve a pending proposal as-stored (no per-agent edits — the desktop modal
+// owns that path). Spawns the team or creates the schedule, then resolves it.
+// Shared by the 3DS remote bridge and the Telegram bot.
+async function approveProposalById(proposalId: string): Promise<{ success: boolean; error?: string; spawned?: number }> {
+  if (!hub) return { success: false, error: 'Hub not ready' }
+  const proposal = hub.proposalsChannel.get(proposalId)
+  if (!proposal) return { success: false, error: 'Proposal not found' }
+  if (proposal.status !== 'pending') {
+    return { success: false, error: `Proposal already ${proposal.status}` }
+  }
+  if (proposal.kind === 'schedule') {
+    if (!proposal.payload) return { success: false, error: 'Schedule proposal missing payload' }
+    if (!scheduleBridge) return { success: false, error: 'Scheduler unavailable' }
+    try {
+      scheduleBridge.create({
+        agentId: proposal.payload.targetAgentId,
+        tabId: proposal.payload.tabId,
+        name: proposal.payload.name,
+        promptText: proposal.payload.promptText,
+        intervalMinutes: proposal.payload.intervalMinutes,
+        durationHours: proposal.payload.durationHours,
+        createdBy: proposal.proposedBy
+      })
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to create schedule' }
+    }
+    hub.proposalsChannel.resolve(proposalId, 'approved')
+    return { success: true }
+  }
+  const { spawned, total, names } = spawnProposalAgents(proposal)
+  hub.proposalsChannel.resolve(proposalId, 'approved')
+  try {
+    const summary = spawned === total
+      ? `User approved your team. Spawned: ${names.join(', ')}.`
+      : `User approved part of your team. Spawned ${spawned}/${total}.`
+    hub.messages.send('user', proposal.proposedBy, summary)
+  } catch { /* orchestrator may not be reachable */ }
+  return { success: true, spawned }
+}
+
+function rejectProposalById(proposalId: string, feedback?: string): { success: boolean; error?: string } {
+  if (!hub) return { success: false, error: 'Hub not ready' }
+  const resolved = hub.proposalsChannel.resolve(proposalId, 'rejected', feedback)
+  if (!resolved) return { success: false, error: 'Proposal not found' }
+  try {
+    const note = feedback
+      ? `User rejected your team proposal. Feedback: ${feedback}`
+      : 'User rejected your team proposal.'
+    hub.messages.send('user', resolved.proposedBy, note)
+  } catch { /* orchestrator may not be reachable */ }
+  return { success: true }
+}
+
+// Flatten a TeamProposal into the bot-facing ProposalView (decoupled shape).
+function toProposalView(p: TeamProposal): ProposalView {
+  return {
+    id: p.id,
+    proposedBy: p.proposedBy,
+    summary: p.summary,
+    kind: p.kind,
+    status: p.status,
+    agents: p.agents.map(a => ({
+      name: a.name, role: a.role, cli: a.cli, model: a.model, notes: a.ceoNotes
+    }))
+  }
+}
+
 // Single source of truth for fully tearing down a live agent: kill the PTY,
 // unregister from the hub, clear nudge state, drop config, and tell the
 // renderer to remove the window. Used by every kill path.
@@ -1502,10 +1531,8 @@ function setupMessageNudge(): void {
     if (msg.to === 'user') {
       const settings = loadSettings()
       if (settings.notifications !== false) {
-        // Mirror it to any linked Telegram chats. No-op when the bot is off or
-        // nobody's paired. Inside the notifications gate on purpose: muting
-        // notifications should silence the phone too, not just the desktop.
-        telegramServer?.relayFromAgent(msg.from, msg.message)
+        // Telegram mirroring lives on the inbox channel (onMessageAdded) so it
+        // carries urgency and respects the telegram threshold — see below.
         const preview = msg.message.length > 120 ? msg.message.slice(0, 120) + '…' : msg.message
         const notification = new Notification({
           title: `Message from ${msg.from}`,
@@ -1768,6 +1795,12 @@ async function openProject(projectPath: string): Promise<void> {
         n.show()
       } catch { /* notifications may be disabled at OS level */ }
     }
+    // Mirror the inbox to Telegram with its urgency. Baseline is everything
+    // (threshold 'low'); the user can raise telegramNotifyThreshold in Settings.
+    const tgThreshold = (settings.telegramNotifyThreshold || 'low') as NotificationThreshold
+    if (tgThreshold !== 'none' && meetsThreshold(msg.priority, tgThreshold)) {
+      telegramServer?.relayFromAgent(msg.agentName, msg.message, msg.priority)
+    }
   }
   hub.inboxChannel.onMessageUpdated = (msg) => {
     inboxStore.markRead(msg.id, msg.readAt ?? new Date().toISOString())
@@ -1799,6 +1832,9 @@ async function openProject(projectPath: string): Promise<void> {
       return
     }
     mainWindow?.webContents.send(IPC.PROPOSAL_ADDED, proposal)
+    // Also push it to Telegram with Approve/Reject/Details buttons so it can be
+    // actioned on the go. Resolving anywhere edits every surface via onProposalResolved.
+    void telegramServer?.relayProposal(toProposalView(proposal))
     // Show the main window so the user notices the modal
     if (mainWindow && !mainWindow.isFocused()) {
       mainWindow.show()
@@ -1812,6 +1848,11 @@ async function openProject(projectPath: string): Promise<void> {
       proposal.resolvedAt ?? new Date().toISOString(),
       proposal.feedback
     )
+    // Tell every surface it's settled: the desktop popup auto-closes if it's
+    // showing this one, the inbox drops its Review button, Telegram edits its
+    // message. Fires no matter who resolved it (desktop, 3DS, or Telegram).
+    mainWindow?.webContents.send(IPC.PROPOSAL_RESOLVED, proposal)
+    telegramServer?.relayProposalResolved(toProposalView(proposal))
   }
 
   hub.setOutputAccessor((agentName, lines) => {
@@ -2396,6 +2437,15 @@ function setupIPC(): void {
   ipcMain.handle(IPC.PROPOSALS_LIST_PENDING, () => hub?.proposalsChannel.listPending() ?? [])
   ipcMain.handle(IPC.PROPOSALS_GET, (_event, id: string) => {
     return hub?.proposalsChannel.get(id) ?? null
+  })
+  // Re-surface a still-pending proposal's modal from the inbox (or anywhere).
+  // Reuses the exact PROPOSAL_ADDED path the initial popup uses.
+  ipcMain.handle(IPC.PROPOSALS_REOPEN, (_event, id: string) => {
+    const proposal = hub?.proposalsChannel.get(id)
+    if (!proposal) return { ok: false, status: 'missing' as const }
+    if (proposal.status !== 'pending') return { ok: false, status: proposal.status }
+    mainWindow?.webContents.send(IPC.PROPOSAL_ADDED, proposal)
+    return { ok: true, status: 'pending' as const }
   })
   ipcMain.handle(IPC.PROPOSALS_APPROVE, async (_event, payload: {
     proposalId: string

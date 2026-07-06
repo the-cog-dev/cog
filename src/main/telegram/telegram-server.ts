@@ -1,10 +1,24 @@
-import { Bot, type Context } from 'grammy'
+import { Bot, InlineKeyboard, type Context } from 'grammy'
 import type { PairingManager } from './pairing-manager'
-import type { OrchestratorBridge, TelegramTarget, IncomingFile } from './bridge'
+import type { OrchestratorBridge, TelegramTarget, IncomingFile, ProposalView } from './bridge'
 import { ChatRouter } from './chat-router'
+import {
+  proposalCallback, parseProposalCallback,
+  formatProposalMessage, formatProposalDetails, formatProposalResolved
+} from './proposal-format'
 
 /** Telegram caps a single message at 4096 chars; leave headroom for our prefix. */
 const MAX_RELAY_CHARS = 3900
+
+/** Urgency badge prepended to relayed inbox messages (normal → no badge). */
+function priorityPrefix(priority?: string): string {
+  switch (priority) {
+    case 'urgent': return '🔴 URGENT — '
+    case 'high': return '🟠 High — '
+    case 'low': return '⚪ '
+    default: return ''
+  }
+}
 
 export interface TelegramServerOptions {
   pairing: PairingManager
@@ -58,6 +72,9 @@ export class TelegramServer {
   private readonly router: ChatRouter
   private readonly log: (m: string) => void
   private readonly onStatusChange?: () => void
+  // proposalId → the chat messages carrying its buttons, so we can edit them to
+  // "settled" once it resolves (from Telegram, desktop, or 3DS).
+  private readonly proposalMsgs = new Map<string, Array<{ chatId: number; messageId: number }>>()
 
   constructor(opts: TelegramServerOptions) {
     this.pairing = opts.pairing
@@ -282,6 +299,32 @@ export class TelegramServer {
         ? `📎 Sent ${file.filename} to ${target.name}.`
         : `❌ ${res.detail ?? 'Couldn\'t hand that file to the agent.'}`)
     })
+
+    // ── Proposal buttons (Approve / Reject / Details) ──────────────────────
+    bot.on('callback_query:data', async (ctx) => {
+      const parsed = parseProposalCallback(ctx.callbackQuery.data)
+      if (!parsed) { await ctx.answerCallbackQuery(); return }
+      const bridge = this.bridge
+      if (!bridge) { await ctx.answerCallbackQuery('Orchestration isn\'t wired up.'); return }
+      const { action, id } = parsed
+
+      if (action === 'info') {
+        const p = bridge.getProposal(id)
+        await ctx.answerCallbackQuery()
+        await ctx.reply(p ? formatProposalDetails(p) : 'That proposal is no longer available.')
+        return
+      }
+
+      // approve / reject — resolving fires onProposalResolved in the main
+      // process, which calls relayProposalResolved() to edit the card. So we
+      // just trigger the action and acknowledge the tap here.
+      const result = action === 'approve'
+        ? await bridge.approveProposal(id)
+        : await bridge.rejectProposal(id)
+      await ctx.answerCallbackQuery(result.ok
+        ? (action === 'approve' ? '✅ Approved' : '❌ Rejected')
+        : (result.detail ?? 'Could not update the proposal.'))
+    })
   }
 
   /**
@@ -310,19 +353,61 @@ export class TelegramServer {
    * process's Message Router tap (onMessageQueued, to === 'user'). Tagged with
    * the sender so you can tell the dragon's heads apart.
    */
-  relayFromAgent(fromName: string, message: string): void {
+  relayFromAgent(fromName: string, message: string, priority?: string): void {
     if (!this.bot || !this.running) return
     // Recheck the allowlist at send time: only private chats subscribe, and a
     // private chat's ID equals its user's ID, so a revoked user is filtered
     // out here even if their chat somehow lingers in the router.
-    const chats = this.router.subscribedChats().filter((id) => this.pairing.isAllowed(id))
+    const chats = this.subscribedAllowedChats()
     if (chats.length === 0) return
-    const text = this.clip(`💬 ${fromName}:\n${message}`)
+    const text = this.clip(`${priorityPrefix(priority)}💬 ${fromName}:\n${message}`)
     for (const chatId of chats) {
       this.bot.api.sendMessage(chatId, text).catch((err) => {
         this.log(`relay to ${chatId} failed: ${err instanceof Error ? err.message : String(err)}`)
       })
     }
+  }
+
+  /** Push a pending proposal to every linked chat with Approve/Reject/Details buttons. */
+  async relayProposal(p: ProposalView): Promise<void> {
+    if (!this.bot || !this.running) return
+    const chats = this.subscribedAllowedChats()
+    if (chats.length === 0) return
+    const keyboard = new InlineKeyboard()
+      .text('✅ Approve', proposalCallback('approve', p.id))
+      .text('❌ Reject', proposalCallback('reject', p.id)).row()
+      .text('📋 Details', proposalCallback('info', p.id))
+    const text = this.clip(formatProposalMessage(p))
+    const sent: Array<{ chatId: number; messageId: number }> = []
+    for (const chatId of chats) {
+      try {
+        const msg = await this.bot.api.sendMessage(chatId, text, { reply_markup: keyboard })
+        sent.push({ chatId, messageId: msg.message_id })
+      } catch (err) {
+        this.log(`proposal push to ${chatId} failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+    if (sent.length) this.proposalMsgs.set(p.id, sent)
+  }
+
+  /** Edit a proposal's cards to their settled state and strip the buttons. */
+  relayProposalResolved(p: ProposalView): void {
+    if (!this.bot) return
+    const msgs = this.proposalMsgs.get(p.id)
+    if (!msgs) return
+    this.proposalMsgs.delete(p.id)
+    const text = formatProposalResolved(p)
+    for (const { chatId, messageId } of msgs) {
+      // Drop the keyboard by omitting reply_markup on the edit.
+      this.bot.api.editMessageText(chatId, messageId, text).catch((err) => {
+        this.log(`proposal edit ${chatId}/${messageId} failed: ${err instanceof Error ? err.message : String(err)}`)
+      })
+    }
+  }
+
+  /** Subscribed chats that still map to a trusted user (private chat ID === user ID). */
+  private subscribedAllowedChats(): number[] {
+    return this.router.subscribedChats().filter((id) => this.pairing.isAllowed(id))
   }
 
   /**

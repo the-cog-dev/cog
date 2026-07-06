@@ -40,7 +40,11 @@ declare global {
         totalRequested?: number
       }>
       proposalsReject: (proposalId: string, feedback?: string) => Promise<{ success: boolean; error?: string }>
+      proposalsReopen: (id: string) => Promise<{ ok: boolean; status: 'pending' | 'approved' | 'rejected' | 'expired' | 'missing' }>
+      getSettings: () => Promise<Record<string, unknown>>
+      setSetting: (key: string, value: unknown) => Promise<{ status: string }>
       onProposalAdded: (callback: (proposal: TeamProposal) => void) => () => void
+      onProposalResolved: (callback: (proposal: TeamProposal) => void) => () => void
       onPtyOutput: (callback: (agentId: string, data: string) => void) => () => void
       onPtyExit: (callback: (agentId: string, exitCode: number | undefined) => void) => () => void
       onAgentStateUpdate: (callback: (agents: AgentState[]) => void) => () => void
