@@ -157,6 +157,10 @@ export class TelegramServer {
       const userId = ctx.from?.id
       if (typeof userId !== 'number') return
       if (this.pairing.tryPair(userId, code)) {
+        // Subscribe the chat now (not just in the gate on the next message) so a
+        // relay or proposal that lands right after pairing isn't dropped, and
+        // the subscription is persisted immediately. Private chats only.
+        if (ctx.chat?.type === 'private') this.router.subscribe(ctx.chat.id)
         this.onStatusChange?.()
         await ctx.reply('✅ Linked! This chat can now talk to your orchestrator. Try /help.')
         this.log(`user ${userId} paired`)
@@ -371,7 +375,7 @@ export class TelegramServer {
     const doc = ctx.message?.document
     const photo = ctx.message?.photo?.at(-1)  // last entry = highest resolution
     const bytes = await this.downloadCurrentFile(ctx)
-    const uniqueId = ctx.message?.photo?.at(-1)?.file_unique_id ?? doc?.file_unique_id ?? 'file'
+    const uniqueId = photo?.file_unique_id ?? doc?.file_unique_id ?? 'file'
     const filename = doc?.file_name
       ?? (photo ? `telegram-photo-${uniqueId}.jpg` : `telegram-file-${uniqueId}`)
     const mimeType = doc?.mime_type ?? (photo ? 'image/jpeg' : undefined)
@@ -417,7 +421,14 @@ export class TelegramServer {
         this.log(`proposal push to ${chatId} failed: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
-    if (sent.length) this.proposalMsgs.set(p.id, sent)
+    if (!sent.length) return
+    this.proposalMsgs.set(p.id, sent)
+    // Race guard: the proposal may have been resolved (desktop/3DS/expiry) while
+    // this push was in flight — relayProposalResolved would have found no map
+    // entry yet and bailed. Re-check the authoritative status and settle the
+    // freshly-sent cards now so they never keep live buttons on a done proposal.
+    const current = this.bridge?.getProposal(p.id)
+    if (current && current.status !== 'pending') this.relayProposalResolved(current)
   }
 
   /** Edit a proposal's cards to their settled state and strip the buttons. */

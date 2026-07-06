@@ -10,6 +10,10 @@
 // full file is on disk regardless, so the agent can read past this.
 export const TEXT_INLINE_LIMIT = 8_000
 
+// Captions are also inlined, so bound them too: 8000 + 1000 + wrapper stays
+// under the hub's 10240-char message ceiling (Telegram Premium allows 2048).
+const CAPTION_LIMIT = 1_000
+
 // Extensions we treat as inline-able text. Everything else (images, pdfs,
 // archives, binaries) is saved to disk and handed to the agent as a path.
 const TEXT_EXTENSIONS = new Set([
@@ -28,6 +32,14 @@ export function extensionOf(filename: string): string {
   // No dot, or leading-dot-only (e.g. ".gitignore") → treat whole name as ext.
   if (dot <= 0) return base.replace(/^\./, '').toLowerCase()
   return base.slice(dot + 1).toLowerCase()
+}
+
+const IMAGE_EXTENSIONS = /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i
+
+/** Is this an image (so we hand the agent a path to open rather than inlining)? */
+export function isImageFile(filename: string, mimeType?: string): boolean {
+  if (mimeType?.startsWith('image/')) return true
+  return IMAGE_EXTENSIONS.test(filename)
 }
 
 /** Is this something we can meaningfully inline as UTF-8 text? */
@@ -75,7 +87,7 @@ export function buildAttachmentMessage(input: AttachmentMessageInput): string {
     ? `📎 Telegram sent an image: ${filename}`
     : `📎 Telegram sent a file: ${filename}`
   const lines = [head, `Saved to: ${relPath}`]
-  if (caption && caption.trim()) lines.push(`Caption: ${caption.trim()}`)
+  if (caption && caption.trim()) lines.push(`Caption: ${caption.trim().slice(0, CAPTION_LIMIT)}`)
 
   if (textContent != null) {
     lines.push('', `--- ${filename} ---`, textContent, '--- end ---')

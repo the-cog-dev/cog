@@ -37,7 +37,7 @@ import { PairingManager } from './telegram/pairing-manager'
 import { TelegramServer, validateBotToken } from './telegram/telegram-server'
 import { stripAnsi } from './telegram/ansi'
 import type { OrchestratorBridge, ProposalView } from './telegram/bridge'
-import { sanitizeFilename, isTextFile, buildAttachmentMessage, TEXT_INLINE_LIMIT } from './telegram/attachment'
+import { sanitizeFilename, isTextFile, isImageFile, buildAttachmentMessage, TEXT_INLINE_LIMIT } from './telegram/attachment'
 import * as communityClient from './community/community-client'
 import * as themesStore from './themes/themes-store'
 import * as workspaceThemeStore from './themes/workspace-theme-store'
@@ -616,13 +616,18 @@ function emitTelegramStatus(): void {
 }
 
 // Save a Telegram-supplied file into the project's inbox folder (agent cwd =
-// project root, so it can open the returned relative path). Returns { relPath }.
-function saveTelegramInboxFile(projectPath: string, filename: string, bytes: Uint8Array): { relPath: string } {
-  const safeName = sanitizeFilename(filename)
+// project root, so it can open the returned relative path). Disambiguates on
+// name collision so two same-named uploads don't clobber each other.
+function saveTelegramInboxFile(projectPath: string, filename: string, bytes: Uint8Array): { relPath: string; safeName: string } {
   const inboxDir = path.join(projectPath, '.cog', 'telegram-inbox')
   fs.mkdirSync(inboxDir, { recursive: true })
+  let safeName = sanitizeFilename(filename)
+  if (fs.existsSync(path.join(inboxDir, safeName))) {
+    const ext = path.extname(safeName)
+    safeName = `${safeName.slice(0, safeName.length - ext.length)}-${Date.now()}${ext}`
+  }
   fs.writeFileSync(path.join(inboxDir, safeName), bytes)
-  return { relPath: ['.cog', 'telegram-inbox', safeName].join('/') }
+  return { relPath: ['.cog', 'telegram-inbox', safeName].join('/'), safeName }
 }
 
 /**
@@ -649,11 +654,8 @@ function telegramBridge(): OrchestratorBridge {
       if (!projectPath) return { ok: false, detail: 'No project is open yet.' }
       try {
         // Save into the project so the agent (cwd = project root) can open it.
-        const safeName = sanitizeFilename(file.filename)
-        const { relPath } = saveTelegramInboxFile(projectPath, file.filename, file.bytes)
-
-        const isImage = (file.mimeType?.startsWith('image/') ?? false) ||
-          /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i.test(safeName)
+        const { relPath, safeName } = saveTelegramInboxFile(projectPath, file.filename, file.bytes)
+        const isImage = isImageFile(safeName, file.mimeType)
 
         // Inline small text files; everything else is referenced by path.
         let textContent: string | null = null
@@ -1417,7 +1419,18 @@ async function approveProposalById(proposalId: string): Promise<{ success: boole
 
 function rejectProposalById(proposalId: string, feedback?: string): { success: boolean; error?: string } {
   if (!hub) return { success: false, error: 'Hub not ready' }
-  const resolved = hub.proposalsChannel.resolve(proposalId, 'rejected', feedback)
+  const proposal = hub.proposalsChannel.get(proposalId)
+  if (!proposal) return { success: false, error: 'Proposal not found' }
+  // resolve() THROWS (not returns null) for an already-settled proposal, so a
+  // second tapper racing an approve would otherwise reject the callback promise
+  // before answerCallbackQuery runs. Guard + catch keeps it graceful.
+  if (proposal.status !== 'pending') return { success: false, error: `Proposal already ${proposal.status}` }
+  let resolved
+  try {
+    resolved = hub.proposalsChannel.resolve(proposalId, 'rejected', feedback)
+  } catch (err) {
+    return { success: false, error: (err as Error).message }
+  }
   if (!resolved) return { success: false, error: 'Proposal not found' }
   try {
     const note = feedback
@@ -1576,8 +1589,13 @@ function setupMessageNudge(): void {
     if (msg.to === 'user') {
       const settings = loadSettings()
       if (settings.notifications !== false) {
-        // Telegram mirroring lives on the inbox channel (onMessageAdded) so it
-        // carries urgency and respects the telegram threshold — see below.
+        // Relay conversational agent→user replies to Telegram so the chat loop
+        // works both ways. This is a different channel from the inbox (below):
+        // send_message→user lands here; notify_user lands in inboxChannel. They
+        // don't overlap, so this is not a double-send. Conversational replies
+        // always relay (you're actively chatting); the inbox stream is the one
+        // gated by the telegram priority threshold.
+        telegramServer?.relayFromAgent(msg.from, msg.message)
         const preview = msg.message.length > 120 ? msg.message.slice(0, 120) + '…' : msg.message
         const notification = new Notification({
           title: `Message from ${msg.from}`,

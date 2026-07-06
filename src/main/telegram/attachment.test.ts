@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extensionOf, isTextFile, sanitizeFilename, buildAttachmentMessage } from './attachment'
+import { extensionOf, isTextFile, isImageFile, sanitizeFilename, buildAttachmentMessage } from './attachment'
 
 describe('extensionOf', () => {
   it('pulls the extension, lowercased', () => {
@@ -25,6 +25,18 @@ describe('isTextFile', () => {
   it('trusts mime type over extension when decisive', () => {
     expect(isTextFile('weird.bin', 'text/plain')).toBe(true)
     expect(isTextFile('notes.md', 'image/png')).toBe(false)  // image mime wins
+  })
+})
+
+describe('isImageFile', () => {
+  it('detects images by mime or extension', () => {
+    expect(isImageFile('shot.png')).toBe(true)
+    expect(isImageFile('pic.JPG')).toBe(true)
+    expect(isImageFile('blob', 'image/webp')).toBe(true)
+  })
+  it('is false for non-images (incl. svg, which we treat as text)', () => {
+    expect(isImageFile('notes.md')).toBe(false)
+    expect(isImageFile('diagram.svg')).toBe(false)
   })
 })
 
