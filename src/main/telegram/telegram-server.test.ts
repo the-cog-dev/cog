@@ -6,6 +6,7 @@ import type { OrchestratorBridge } from './bridge'
 const fakeBridge: OrchestratorBridge = {
   listTargets: () => [],
   sendTo: () => ({ ok: true }),
+  sendFile: () => ({ ok: true }),
   getOutput: () => [],
   postTask: () => ({ ok: true })
 }

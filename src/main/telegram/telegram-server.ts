@@ -1,6 +1,6 @@
-import { Bot } from 'grammy'
+import { Bot, type Context } from 'grammy'
 import type { PairingManager } from './pairing-manager'
-import type { OrchestratorBridge, TelegramTarget } from './bridge'
+import type { OrchestratorBridge, TelegramTarget, IncomingFile } from './bridge'
 import { ChatRouter } from './chat-router'
 
 /** Telegram caps a single message at 4096 chars; leave headroom for our prefix. */
@@ -178,7 +178,9 @@ export class TelegramServer {
         '/task <title> — post a task to the pinboard\n' +
         '/whoami — show your Telegram ID\n' +
         '/help — this list\n\n' +
-        'Plain text goes to this chat\'s active head (see /status).'
+        'Plain text goes to this chat\'s active head (see /status).\n' +
+        'Send a file or photo (with an optional caption) and it goes there too — ' +
+        'text files are read inline, images are saved for the agent to open.'
       )
     })
 
@@ -256,6 +258,51 @@ export class TelegramServer {
       const res = bridge.sendTo(target.name, ctx.message.text)
       if (!res.ok) await ctx.reply(`❌ ${res.detail ?? `Couldn't reach ${target.name}.`}`)
     })
+
+    // ── Attachments (documents + photos) → the chat's active head ───────────
+    // Download the bytes here (we have the bot token), then let the bridge save
+    // them into the project and route them to the agent.
+    bot.on(['message:document', 'message:photo'], async (ctx) => {
+      const bridge = this.bridge
+      if (!bridge) { await ctx.reply('Orchestration isn\'t wired up yet.'); return }
+      const target = this.router.effectiveTarget(ctx.chat!.id, bridge.listTargets())
+      if (!target) { await ctx.reply('No agents are running. Start one in The Cog, then try again.'); return }
+
+      let file: IncomingFile
+      try {
+        file = await this.downloadAttachment(ctx)
+      } catch (err) {
+        this.log(`attachment download failed: ${err instanceof Error ? err.message : String(err)}`)
+        await ctx.reply('❌ Couldn\'t download that file from Telegram (it may be too large — the bot limit is 20 MB).')
+        return
+      }
+
+      const res = bridge.sendFile(target.name, file)
+      await ctx.reply(res.ok
+        ? `📎 Sent ${file.filename} to ${target.name}.`
+        : `❌ ${res.detail ?? 'Couldn\'t hand that file to the agent.'}`)
+    })
+  }
+
+  /**
+   * Pull the document/photo out of an update and download its bytes via the
+   * Telegram file API. Photos have no filename, so we synthesise one.
+   */
+  private async downloadAttachment(ctx: Context): Promise<IncomingFile> {
+    const doc = ctx.message?.document
+    const photo = ctx.message?.photo?.at(-1)  // last entry = highest resolution
+    const fileInfo = await ctx.getFile()      // resolves file_path for doc or largest photo
+    if (!fileInfo.file_path) throw new Error('no file_path (file too large or unavailable)')
+
+    const token = this.bot!.token
+    const res = await fetch(`https://api.telegram.org/file/bot${token}/${fileInfo.file_path}`)
+    if (!res.ok) throw new Error(`download HTTP ${res.status}`)
+    const bytes = new Uint8Array(await res.arrayBuffer())
+
+    const filename = doc?.file_name
+      ?? (photo ? `telegram-photo-${fileInfo.file_unique_id}.jpg` : `telegram-file-${fileInfo.file_unique_id}`)
+    const mimeType = doc?.mime_type ?? (photo ? 'image/jpeg' : undefined)
+    return { filename, bytes, mimeType, caption: ctx.message?.caption }
   }
 
   /**

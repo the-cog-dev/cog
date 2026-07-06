@@ -37,6 +37,7 @@ import { PairingManager } from './telegram/pairing-manager'
 import { TelegramServer, validateBotToken } from './telegram/telegram-server'
 import { stripAnsi } from './telegram/ansi'
 import type { OrchestratorBridge } from './telegram/bridge'
+import { sanitizeFilename, isTextFile, buildAttachmentMessage, TEXT_INLINE_LIMIT } from './telegram/attachment'
 import * as communityClient from './community/community-client'
 import * as themesStore from './themes/themes-store'
 import * as workspaceThemeStore from './themes/workspace-theme-store'
@@ -681,6 +682,38 @@ function telegramBridge(): OrchestratorBridge {
       if (!hub) return { ok: false, detail: 'No project is open yet.' }
       const res = hub.messages.send('user', name, text)
       return res.status === 'error' ? { ok: false, detail: res.detail } : { ok: true }
+    },
+    sendFile: (name, file) => {
+      if (!hub) return { ok: false, detail: 'No project is open yet.' }
+      const projectPath = projectManager?.currentProject?.path
+      if (!projectPath) return { ok: false, detail: 'No project is open yet.' }
+      try {
+        // Save into the project so the agent (cwd = project root) can open it.
+        const safeName = sanitizeFilename(file.filename)
+        const inboxDir = path.join(projectPath, '.cog', 'telegram-inbox')
+        fs.mkdirSync(inboxDir, { recursive: true })
+        fs.writeFileSync(path.join(inboxDir, safeName), file.bytes)
+        const relPath = ['.cog', 'telegram-inbox', safeName].join('/')
+
+        const isImage = (file.mimeType?.startsWith('image/') ?? false) ||
+          /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i.test(safeName)
+
+        // Inline small text files; everything else is referenced by path.
+        let textContent: string | null = null
+        let truncated = false
+        if (isTextFile(file.filename, file.mimeType)) {
+          const decoded = Buffer.from(file.bytes).toString('utf8')
+          truncated = decoded.length > TEXT_INLINE_LIMIT
+          textContent = truncated ? decoded.slice(0, TEXT_INLINE_LIMIT) : decoded
+        }
+
+        const msg = buildAttachmentMessage({ filename: safeName, relPath, caption: file.caption, isImage, textContent, truncated })
+        const res = hub.messages.send('user', name, msg)
+        if (res.status === 'error') return { ok: false, detail: res.detail }
+        return { ok: true, relPath }
+      } catch (err) {
+        return { ok: false, detail: (err as Error).message }
+      }
     },
     getOutput: (name, lines) => {
       const managed = Array.from(agents.values()).find(m => m.config.name === name)
