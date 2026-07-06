@@ -108,10 +108,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC.PROPOSALS_APPROVE, { proposalId, agents, tabId }),
   proposalsReject: (proposalId: string, feedback?: string) =>
     ipcRenderer.invoke(IPC.PROPOSALS_REJECT, { proposalId, feedback }),
+  proposalsReopen: (id: string) => ipcRenderer.invoke(IPC.PROPOSALS_REOPEN, id),
   onProposalAdded: (callback: (proposal: unknown) => void) => {
     const handler = (_event: unknown, proposal: unknown) => callback(proposal)
     ipcRenderer.on(IPC.PROPOSAL_ADDED, handler)
     return () => ipcRenderer.removeListener(IPC.PROPOSAL_ADDED, handler)
+  },
+  onProposalResolved: (callback: (proposal: unknown) => void) => {
+    const handler = (_event: unknown, proposal: unknown) => callback(proposal)
+    ipcRenderer.on(IPC.PROPOSAL_RESOLVED, handler)
+    return () => ipcRenderer.removeListener(IPC.PROPOSAL_RESOLVED, handler)
   },
   // Groups
   getGroups: () => ipcRenderer.invoke(IPC.GROUP_GET_ALL),
@@ -218,6 +224,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_event: unknown, progress: unknown) => callback(progress)
     ipcRenderer.on(IPC.REMOTE_SETUP_PROGRESS, handler)
     return () => ipcRenderer.removeListener(IPC.REMOTE_SETUP_PROGRESS, handler)
+  },
+  // Telegram orchestration
+  enableTelegram: () => ipcRenderer.invoke(IPC.TELEGRAM_ENABLE),
+  disableTelegram: () => ipcRenderer.invoke(IPC.TELEGRAM_DISABLE),
+  setTelegramToken: (token: string) => ipcRenderer.invoke(IPC.TELEGRAM_SET_TOKEN, token),
+  getTelegramPairingCode: () => ipcRenderer.invoke(IPC.TELEGRAM_GET_PAIRING_CODE),
+  unpairTelegram: (userId: number) => ipcRenderer.invoke(IPC.TELEGRAM_UNPAIR, userId),
+  getTelegramStatus: () => ipcRenderer.invoke(IPC.TELEGRAM_GET_STATUS),
+  onTelegramStatusUpdate: (callback: (status: unknown) => void) => {
+    const handler = (_event: unknown, status: unknown) => callback(status)
+    ipcRenderer.on(IPC.TELEGRAM_STATUS_UPDATE, handler)
+    return () => ipcRenderer.removeListener(IPC.TELEGRAM_STATUS_UPDATE, handler)
   },
   // Workshop passcode
   setWorkshopPasscode: (pin: string) => ipcRenderer.invoke(IPC.WORKSHOP_SET_PASSCODE, pin),

@@ -228,6 +228,14 @@ export const IPC = {
   REMOTE_SETUP_PROGRESS: 'remote:setup-progress',
   REMOTE_LAN_ENABLE: 'remote:lan-enable',
   REMOTE_LAN_DISABLE: 'remote:lan-disable',
+  // Telegram orchestration
+  TELEGRAM_ENABLE: 'telegram:enable',
+  TELEGRAM_DISABLE: 'telegram:disable',
+  TELEGRAM_SET_TOKEN: 'telegram:set-token',
+  TELEGRAM_GET_PAIRING_CODE: 'telegram:get-pairing-code',
+  TELEGRAM_UNPAIR: 'telegram:unpair',
+  TELEGRAM_GET_STATUS: 'telegram:get-status',
+  TELEGRAM_STATUS_UPDATE: 'telegram:status-update',
   // Workshop passcode
   WORKSHOP_SET_PASSCODE: 'workshop:set-passcode',
   WORKSHOP_GET_PASSCODE_SET: 'workshop:get-passcode-set',
@@ -274,7 +282,9 @@ export const IPC = {
   PROPOSALS_GET: 'proposals:get',
   PROPOSALS_APPROVE: 'proposals:approve',
   PROPOSALS_REJECT: 'proposals:reject',
+  PROPOSALS_REOPEN: 'proposals:reopen',
   PROPOSAL_ADDED: 'proposals:added',
+  PROPOSAL_RESOLVED: 'proposals:resolved',
   // Trollbox bridge — renderer holds the live Supabase client; main needs
   // a snapshot for the 3DS HTTP API. Push direction = renderer → main on
   // state change. Send direction = main → renderer when 3DS posts a chat.
@@ -623,3 +633,12 @@ export type RemoteSetupProgress =
   | { stage: 'starting'; message?: string }
   | { stage: 'ready'; message?: string }
   | { stage: 'error'; message?: string }
+
+export interface TelegramStatus {
+  enabled: boolean
+  hasToken: boolean
+  pairedCount: number
+  /** Paired Telegram user IDs — what the Settings unpair list renders. */
+  pairedIds: number[]
+  activePairingCode: string | null
+}

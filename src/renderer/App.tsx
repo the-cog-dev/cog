@@ -274,7 +274,12 @@ export function App(): React.ReactElement {
       // open the next one after dismissing the current.
       setPendingProposal(prev => prev ?? proposal)
     })
-    return () => { mounted = false; off() }
+    // Auto-close the popup if the proposal it's showing gets resolved elsewhere
+    // (approved/rejected from the inbox re-open, 3DS, or Telegram).
+    const offResolved = window.electronAPI.onProposalResolved((resolved) => {
+      setPendingProposal(prev => (prev && prev.id === resolved.id ? null : prev))
+    })
+    return () => { mounted = false; off(); offResolved() }
     // We only want this to run once per project mount; pendingProposal in
     // deps would cause re-subscription churn.
     // eslint-disable-next-line react-hooks/exhaustive-deps

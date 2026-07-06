@@ -59,6 +59,7 @@
     "@xterm/xterm": "^6.0.0",
     "better-sqlite3": "^12.8.0",
     "express": "^5.2.1",
+    "grammy": "^1.44.0",
     "html-to-image": "^1.11.13",
     "nanoid": "^5.1.9",
     "node-pty": "^1.1.0",

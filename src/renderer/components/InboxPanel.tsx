@@ -122,15 +122,44 @@ export function InboxPanel(): React.ReactElement {
   const [threshold, setThreshold] = useState<NotificationThreshold>('high')
   const [replying, setReplying] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
+  // Proposal IDs still pending (seeded on mount) and ones settled since.
+  // The Review button shows only for a still-pending proposal.
+  const [pendingProposals, setPendingProposals] = useState<Set<string>>(new Set())
+  const [resolvedProposals, setResolvedProposals] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     let mounted = true
     window.electronAPI.inboxList().then(msgs => { if (mounted) setMessages(msgs) })
     window.electronAPI.inboxGetNotifyThreshold().then(t => { if (mounted) setThreshold(t) })
+    // Seed pending proposals so historical, already-resolved proposal messages
+    // don't render a stale "Review" button after a restart/remount.
+    window.electronAPI.proposalsListPending().then(list => {
+      if (mounted) setPendingProposals(new Set(list.map(p => p.id)))
+    })
     const offAdd = window.electronAPI.onInboxMessageAdded((msgs) => setMessages(msgs))
     const offUpd = window.electronAPI.onInboxMessageUpdated((msgs) => setMessages(msgs))
-    return () => { mounted = false; offAdd(); offUpd() }
+    // Track proposals that arrive while mounted so their Review button shows too.
+    const offProposal = window.electronAPI.onProposalAdded((p) => {
+      setPendingProposals(prev => new Set(prev).add(p.id))
+    })
+    const offResolved = window.electronAPI.onProposalResolved((p) => {
+      setResolvedProposals(prev => new Set(prev).add(p.id))
+    })
+    return () => { mounted = false; offAdd(); offUpd(); offProposal(); offResolved() }
   }, [])
+
+  // A message wraps a team proposal when it carries a `proposal:<id>` tag.
+  const proposalIdOf = (m: InboxMessage): string | null => {
+    const tag = m.tags.find(t => t.startsWith('proposal:'))
+    return tag ? tag.slice('proposal:'.length) : null
+  }
+  const handleReviewProposal = async (id: string) => {
+    const res = await window.electronAPI.proposalsReopen(id)
+    if (!res.ok) {
+      // Already approved/rejected/expired/gone — mark it settled so the button hides.
+      setResolvedProposals(prev => new Set(prev).add(id))
+    }
+  }
 
   const filtered = useMemo(() => {
     return messages.filter(m => {
@@ -225,6 +254,16 @@ export function InboxPanel(): React.ReactElement {
                 <span style={dateStyle}>{formatDate(m.createdAt)}</span>
               </div>
               <div style={{ color: '#ddd', fontSize: '13px', lineHeight: 1.45 }}>{m.message}</div>
+              {(() => {
+                const proposalId = proposalIdOf(m)
+                if (!proposalId || !pendingProposals.has(proposalId) || resolvedProposals.has(proposalId)) return null
+                return (
+                  <button
+                    onClick={() => handleReviewProposal(proposalId)}
+                    style={{ ...buttonStyle, marginTop: '8px', color: '#8cffa0', borderColor: '#2d663a', backgroundColor: '#16281c' }}
+                  >Open / Review team proposal ▸</button>
+                )
+              })()}
               <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
                 {isUnread && (
                   <button onClick={() => handleMarkRead(m.id)} style={buttonStyle}>Mark read</button>

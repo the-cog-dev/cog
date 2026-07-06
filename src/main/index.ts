@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Notification, Menu, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Notification, Menu, shell, safeStorage } from 'electron'
 import path from 'path'
 import * as fs from 'fs'
 import * as gitOps from './git/git-ops'
@@ -33,15 +33,20 @@ import { TokenManager } from './remote/token-manager'
 import { CloudflaredManager } from './remote/cloudflared-manager'
 import { RemoteServer } from './remote/remote-server'
 import { RemoteWsHub } from './remote/ws-hub'
+import { PairingManager } from './telegram/pairing-manager'
+import { TelegramServer, validateBotToken } from './telegram/telegram-server'
+import { stripAnsi } from './telegram/ansi'
+import type { OrchestratorBridge, ProposalView } from './telegram/bridge'
+import { sanitizeFilename, isTextFile, isImageFile, buildAttachmentMessage, TEXT_INLINE_LIMIT } from './telegram/attachment'
 import * as communityClient from './community/community-client'
 import * as themesStore from './themes/themes-store'
 import * as workspaceThemeStore from './themes/workspace-theme-store'
 import { getWorkspaceThemeById, WORKSPACE_THEMES } from '../shared/workspace-themes'
 import { migrateLegacyUserData } from './migration/userdata-migration'
-import type { AgentConfig, AgentTheme, RemoteSetupProgress, CommunityAgent, CommunityCategory, RespawnResult, NotificationThreshold, ProposedAgent, TeamProposal } from '../shared/types'
+import type { AgentConfig, AgentTheme, RemoteSetupProgress, CommunityAgent, CommunityCategory, RespawnResult, NotificationThreshold, ProposedAgent, TeamProposal, TelegramStatus } from '../shared/types'
 import { IPC } from '../shared/types'
 import { validateRespawnRequest } from './respawn-validation'
-import { initStreamDeck, disposeStreamDeck, resolveCogsworthDir, getStreamDeckStatus, reconnectStreamDeck } from './streamdeck'
+import { initStreamDeck, disposeStreamDeck, resolveCogsworthDir, getStreamDeckStatus, reconnectStreamDeck, buildWhisperClient } from './streamdeck'
 import { prepareLocalWhisper, isLocalWhisperReady } from './streamdeck/local-whisper-prepare'
 import { BoardStore } from './db/board-store'
 import { BoardAppearanceStore } from './db/board-appearance-store'
@@ -96,6 +101,9 @@ let remoteWsHub: RemoteWsHub | null = null
 let remotePublicUrl: string | null = null
 let remoteLanUrl: string | null = null  // http://<lan-ip>:<port>/r/<token>/
 let remoteStatusTicker: ReturnType<typeof setInterval> | null = null
+// Telegram orchestration state
+let telegramServer: TelegramServer | null = null
+let telegramPairing: PairingManager | null = null
 let workshopPasscodeHash: string | null = null
 let cachedWorkspaceState: any = null
 
@@ -480,59 +488,9 @@ async function enableRemoteView(): Promise<void> {
       if (!hub) return false
       return hub.inboxChannel.markRead(id) !== null
     },
-    approveProposal: async (proposalId: string) => {
-      if (!hub) return { success: false, error: 'Hub not ready' }
-      const proposal = hub.proposalsChannel.get(proposalId)
-      if (!proposal) return { success: false, error: 'Proposal not found' }
-      if (proposal.status !== 'pending') {
-        return { success: false, error: `Proposal already ${proposal.status}` }
-      }
-      if (proposal.kind === 'schedule') {
-        if (!proposal.payload) {
-          return { success: false, error: 'Schedule proposal missing payload' }
-        }
-        if (!scheduleBridge) {
-          return { success: false, error: 'Scheduler unavailable' }
-        }
-        try {
-          scheduleBridge.create({
-            agentId: proposal.payload.targetAgentId,
-            tabId: proposal.payload.tabId,
-            name: proposal.payload.name,
-            promptText: proposal.payload.promptText,
-            intervalMinutes: proposal.payload.intervalMinutes,
-            durationHours: proposal.payload.durationHours,
-            createdBy: proposal.proposedBy
-          })
-        } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to create schedule' }
-        }
-        hub.proposalsChannel.resolve(proposalId, 'approved')
-        return { success: true }
-      }
-      // 3DS approves as-stored — no per-agent edits available on the small screen.
-      const { spawned, total, names } = spawnProposalAgents(proposal)
-      hub.proposalsChannel.resolve(proposalId, 'approved')
-      try {
-        const summary = spawned === total
-          ? `User approved your team from 3DS. Spawned: ${names.join(', ')}.`
-          : `User approved part of your team from 3DS. Spawned ${spawned}/${total}.`
-        hub.messages.send('user', proposal.proposedBy, summary)
-      } catch { /* orchestrator may not be reachable */ }
-      return { success: true, spawned }
-    },
-    rejectProposal: (proposalId: string, feedback?: string) => {
-      if (!hub) return { success: false, error: 'Hub not ready' }
-      const resolved = hub.proposalsChannel.resolve(proposalId, 'rejected', feedback)
-      if (!resolved) return { success: false, error: 'Proposal not found' }
-      try {
-        const note = feedback
-          ? `User rejected your team proposal from 3DS. Feedback: ${feedback}`
-          : 'User rejected your team proposal from 3DS.'
-        hub.messages.send('user', resolved.proposedBy, note)
-      } catch { /* orchestrator may not be reachable */ }
-      return { success: true }
-    },
+    // Shared with the Telegram bridge — approve/reject a proposal as-stored.
+    approveProposal: (proposalId: string) => approveProposalById(proposalId),
+    rejectProposal: (proposalId: string, feedback?: string) => rejectProposalById(proposalId, feedback),
     replyToInbox: (agentName: string, message: string) => {
       if (!hub) return { success: false, error: 'Hub not ready' }
       try {
@@ -605,6 +563,245 @@ async function disableRemoteView(): Promise<void> {
     remoteStatusTicker = null
   }
   emitRemoteStatus()
+}
+
+// ── Telegram orchestration helpers ───────────────────────────────────────────
+
+/**
+ * The bot token unlocks sending/reading as the bot, so it's stored encrypted
+ * via Electron safeStorage (DPAPI on Windows) as `telegramBotTokenEnc`. A
+ * legacy plaintext `telegramBotToken` is still read as a fallback and upgraded
+ * on the next save. If the OS keychain is unavailable we fall back to
+ * plaintext rather than losing the feature.
+ */
+function saveTelegramToken(token: string): void {
+  if (token && safeStorage.isEncryptionAvailable()) {
+    saveSetting('telegramBotTokenEnc', safeStorage.encryptString(token).toString('base64'))
+    saveSetting('telegramBotToken', undefined)  // drop any legacy plaintext copy
+  } else {
+    saveSetting('telegramBotToken', token || undefined)
+    saveSetting('telegramBotTokenEnc', undefined)
+  }
+}
+
+function loadTelegramToken(): string {
+  const s = loadSettings()
+  const enc = s.telegramBotTokenEnc
+  if (typeof enc === 'string' && enc && safeStorage.isEncryptionAvailable()) {
+    try {
+      return safeStorage.decryptString(Buffer.from(enc, 'base64')).trim()
+    } catch (err) {
+      console.error('[telegram] failed to decrypt stored token:', err)
+    }
+  }
+  return typeof s.telegramBotToken === 'string' ? s.telegramBotToken.trim() : ''
+}
+
+function telegramStatus(): TelegramStatus {
+  const s = loadSettings()
+  const pairedIds = telegramPairing?.list()
+    ?? (Array.isArray(s.telegramAllowlist) ? s.telegramAllowlist : [])
+  return {
+    enabled: telegramServer?.isRunning() ?? false,
+    hasToken: !!loadTelegramToken(),
+    pairedCount: pairedIds.length,
+    pairedIds,
+    activePairingCode: telegramPairing?.getActiveCode() ?? null
+  }
+}
+
+function emitTelegramStatus(): void {
+  if (!mainWindow) return
+  mainWindow.webContents.send(IPC.TELEGRAM_STATUS_UPDATE, telegramStatus())
+}
+
+// Save a Telegram-supplied file into the project's inbox folder (agent cwd =
+// project root, so it can open the returned relative path). Disambiguates on
+// name collision so two same-named uploads don't clobber each other.
+function saveTelegramInboxFile(projectPath: string, filename: string, bytes: Uint8Array): { relPath: string; safeName: string } {
+  const inboxDir = path.join(projectPath, '.cog', 'telegram-inbox')
+  fs.mkdirSync(inboxDir, { recursive: true })
+  let safeName = sanitizeFilename(filename)
+  if (fs.existsSync(path.join(inboxDir, safeName))) {
+    const ext = path.extname(safeName)
+    safeName = `${safeName.slice(0, safeName.length - ext.length)}-${Date.now()}${ext}`
+  }
+  fs.writeFileSync(path.join(inboxDir, safeName), bytes)
+  return { relPath: ['.cog', 'telegram-inbox', safeName].join('/'), safeName }
+}
+
+/**
+ * Hub-backed implementation of the Telegram bot's orchestration bridge. Reads
+ * `hub`/`agents` lazily (a project may not be open yet when the bot starts), so
+ * every method tolerates a missing hub and reports it cleanly to the chat.
+ */
+function telegramBridge(): OrchestratorBridge {
+  return {
+    listTargets: () => {
+      if (!hub) return []
+      return hub.registry.list()
+        .filter(a => a.name !== 'user')
+        .map(a => ({ name: a.name, role: a.role, status: a.status }))
+    },
+    sendTo: (name, text) => {
+      if (!hub) return { ok: false, detail: 'No project is open yet.' }
+      const res = hub.messages.send('user', name, text)
+      return res.status === 'error' ? { ok: false, detail: res.detail } : { ok: true }
+    },
+    sendFile: (name, file) => {
+      if (!hub) return { ok: false, detail: 'No project is open yet.' }
+      const projectPath = projectManager?.currentProject?.path
+      if (!projectPath) return { ok: false, detail: 'No project is open yet.' }
+      try {
+        // Save into the project so the agent (cwd = project root) can open it.
+        const { relPath, safeName } = saveTelegramInboxFile(projectPath, file.filename, file.bytes)
+        const isImage = isImageFile(safeName, file.mimeType)
+
+        // Inline small text files; everything else is referenced by path.
+        let textContent: string | null = null
+        let truncated = false
+        if (isTextFile(file.filename, file.mimeType)) {
+          const decoded = Buffer.from(file.bytes).toString('utf8')
+          truncated = decoded.length > TEXT_INLINE_LIMIT
+          textContent = truncated ? decoded.slice(0, TEXT_INLINE_LIMIT) : decoded
+        }
+
+        const msg = buildAttachmentMessage({ filename: safeName, relPath, caption: file.caption, isImage, textContent, truncated })
+        const res = hub.messages.send('user', name, msg)
+        if (res.status === 'error') return { ok: false, detail: res.detail }
+        return { ok: true, relPath }
+      } catch (err) {
+        return { ok: false, detail: (err as Error).message }
+      }
+    },
+    getOutput: (name, lines) => {
+      const managed = Array.from(agents.values()).find(m => m.config.name === name)
+      if (!managed) return []
+      // OutputBuffer holds raw PTY bytes — strip ANSI/cursor noise or the
+      // Telegram reply is unreadable escape-code soup.
+      return managed.outputBuffer.getLines(lines)
+        .map(stripAnsi)
+        .filter((line) => line.trim().length > 0)
+    },
+    postTask: (title) => {
+      if (!hub) return { ok: false, detail: 'No project is open yet.' }
+      try {
+        const task = hub.pinboard.postTask(title, '', 'medium', 'telegram-user')
+        return { ok: true, id: task.id }
+      } catch (err) {
+        return { ok: false, detail: (err as Error).message }
+      }
+    },
+    sendVoice: async (name, voice) => {
+      if (!hub) return { ok: false, detail: 'No project is open yet.' }
+      const s = loadSettings()
+      const whisper = buildWhisperClient({
+        whisperBackend: typeof s.whisperBackend === 'string' ? s.whisperBackend : '',
+        openaiApiKey: typeof s.openaiApiKey === 'string' ? s.openaiApiKey : undefined
+      })
+      if (whisper) {
+        try {
+          // Copy into a fresh, non-shared ArrayBuffer for the transcriber.
+          const ab = new Uint8Array(voice.bytes).buffer as ArrayBuffer
+          const transcript = (await whisper.transcribe(ab)).trim()
+          if (transcript) {
+            const caption = voice.caption?.trim()
+            const msg = caption ? `🎙️ (voice) ${transcript}\n\n${caption}` : `🎙️ (voice) ${transcript}`
+            const res = hub.messages.send('user', name, msg)
+            if (res.status === 'error') return { ok: false, detail: res.detail }
+            return { ok: true, transcript }
+          }
+          // Empty transcript → fall through to saving the audio.
+        } catch (err) {
+          console.warn('[telegram] voice transcription failed:', (err as Error).message)
+          // Fall through to saving the audio.
+        }
+      }
+      // Fallback: no Whisper backend (or it failed) — save the audio + hand over the path.
+      const projectPath = projectManager?.currentProject?.path
+      if (!projectPath) return { ok: false, detail: 'No project is open yet.' }
+      try {
+        const { relPath } = saveTelegramInboxFile(projectPath, `telegram-voice-${Date.now()}.ogg`, voice.bytes)
+        const why = whisper ? 'couldn\'t transcribe' : 'Whisper not configured (Settings → Voice)'
+        const res = hub.messages.send('user', name, `🎙️ Voice note saved to ${relPath} (${why}).`)
+        if (res.status === 'error') return { ok: false, detail: res.detail }
+        return { ok: true, detail: why }
+      } catch (err) {
+        return { ok: false, detail: (err as Error).message }
+      }
+    },
+    approveProposal: async (id) => {
+      const r = await approveProposalById(id)
+      return r.success ? { ok: true } : { ok: false, detail: r.error }
+    },
+    rejectProposal: async (id) => {
+      const r = rejectProposalById(id)
+      return r.success ? { ok: true } : { ok: false, detail: r.error }
+    },
+    getProposal: (id) => {
+      const p = hub?.proposalsChannel.get(id)
+      return p ? toProposalView(p) : null
+    }
+  }
+}
+
+/** Build and start the bot with the given token. Throws on a bad token/network. */
+async function startTelegram(token: string): Promise<void> {
+  const s = loadSettings()
+  telegramPairing = new PairingManager({
+    initialAllowlist: Array.isArray(s.telegramAllowlist) ? s.telegramAllowlist : [],
+    onAllowlistChange: (ids) => saveSetting('telegramAllowlist', ids)
+  })
+  telegramServer = new TelegramServer({
+    pairing: telegramPairing,
+    bridge: telegramBridge(),
+    // Persist relay subscriptions so an app restart doesn't silently drop the
+    // agent→phone relay until the user happens to message the bot again.
+    initialChats: Array.isArray(s.telegramChats) ? s.telegramChats : [],
+    onChatsChange: (ids) => saveSetting('telegramChats', ids),
+    onLog: (m) => console.log('[telegram]', m),
+    onStatusChange: () => emitTelegramStatus()
+  })
+
+  try {
+    await telegramServer.start(token)
+  } catch (err) {
+    telegramServer = null
+    telegramPairing = null
+    throw err
+  }
+}
+
+/** Runtime-only teardown — does NOT touch the persisted telegramEnabled flag. */
+async function stopTelegram(): Promise<void> {
+  if (telegramServer) await telegramServer.stop()
+  telegramServer = null
+  telegramPairing = null
+}
+
+async function enableTelegram(): Promise<void> {
+  if (telegramServer) return
+  const token = loadTelegramToken()
+  if (!token) return  // no token yet — UI prompts for one
+  // Upgrade a legacy plaintext token to encrypted storage on first use.
+  if (typeof loadSettings().telegramBotToken === 'string' && safeStorage.isEncryptionAvailable()) {
+    saveTelegramToken(token)
+  }
+  try {
+    await startTelegram(token)
+    saveSetting('telegramEnabled', true)
+  } catch (err) {
+    // Bad token / network — surface to the UI, leave settings as they were.
+    emitTelegramStatus()
+    throw err
+  }
+  emitTelegramStatus()
+}
+
+async function disableTelegram(): Promise<void> {
+  saveSetting('telegramEnabled', false)
+  await stopTelegram()
+  emitTelegramStatus()
 }
 
 /**
@@ -1180,6 +1377,84 @@ function spawnProposalAgents(proposal: TeamProposal): { spawned: number; total: 
   return { spawned, total: ordered.length, names }
 }
 
+// Approve a pending proposal as-stored (no per-agent edits — the desktop modal
+// owns that path). Spawns the team or creates the schedule, then resolves it.
+// Shared by the 3DS remote bridge and the Telegram bot.
+async function approveProposalById(proposalId: string): Promise<{ success: boolean; error?: string; spawned?: number }> {
+  if (!hub) return { success: false, error: 'Hub not ready' }
+  const proposal = hub.proposalsChannel.get(proposalId)
+  if (!proposal) return { success: false, error: 'Proposal not found' }
+  if (proposal.status !== 'pending') {
+    return { success: false, error: `Proposal already ${proposal.status}` }
+  }
+  if (proposal.kind === 'schedule') {
+    if (!proposal.payload) return { success: false, error: 'Schedule proposal missing payload' }
+    if (!scheduleBridge) return { success: false, error: 'Scheduler unavailable' }
+    try {
+      scheduleBridge.create({
+        agentId: proposal.payload.targetAgentId,
+        tabId: proposal.payload.tabId,
+        name: proposal.payload.name,
+        promptText: proposal.payload.promptText,
+        intervalMinutes: proposal.payload.intervalMinutes,
+        durationHours: proposal.payload.durationHours,
+        createdBy: proposal.proposedBy
+      })
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to create schedule' }
+    }
+    hub.proposalsChannel.resolve(proposalId, 'approved')
+    return { success: true }
+  }
+  const { spawned, total, names } = spawnProposalAgents(proposal)
+  hub.proposalsChannel.resolve(proposalId, 'approved')
+  try {
+    const summary = spawned === total
+      ? `User approved your team. Spawned: ${names.join(', ')}.`
+      : `User approved part of your team. Spawned ${spawned}/${total}.`
+    hub.messages.send('user', proposal.proposedBy, summary)
+  } catch { /* orchestrator may not be reachable */ }
+  return { success: true, spawned }
+}
+
+function rejectProposalById(proposalId: string, feedback?: string): { success: boolean; error?: string } {
+  if (!hub) return { success: false, error: 'Hub not ready' }
+  const proposal = hub.proposalsChannel.get(proposalId)
+  if (!proposal) return { success: false, error: 'Proposal not found' }
+  // resolve() THROWS (not returns null) for an already-settled proposal, so a
+  // second tapper racing an approve would otherwise reject the callback promise
+  // before answerCallbackQuery runs. Guard + catch keeps it graceful.
+  if (proposal.status !== 'pending') return { success: false, error: `Proposal already ${proposal.status}` }
+  let resolved
+  try {
+    resolved = hub.proposalsChannel.resolve(proposalId, 'rejected', feedback)
+  } catch (err) {
+    return { success: false, error: (err as Error).message }
+  }
+  if (!resolved) return { success: false, error: 'Proposal not found' }
+  try {
+    const note = feedback
+      ? `User rejected your team proposal. Feedback: ${feedback}`
+      : 'User rejected your team proposal.'
+    hub.messages.send('user', resolved.proposedBy, note)
+  } catch { /* orchestrator may not be reachable */ }
+  return { success: true }
+}
+
+// Flatten a TeamProposal into the bot-facing ProposalView (decoupled shape).
+function toProposalView(p: TeamProposal): ProposalView {
+  return {
+    id: p.id,
+    proposedBy: p.proposedBy,
+    summary: p.summary,
+    kind: p.kind,
+    status: p.status,
+    agents: p.agents.map(a => ({
+      name: a.name, role: a.role, cli: a.cli, model: a.model, notes: a.ceoNotes
+    }))
+  }
+}
+
 // Single source of truth for fully tearing down a live agent: kill the PTY,
 // unregister from the hub, clear nudge state, drop config, and tell the
 // renderer to remove the window. Used by every kill path.
@@ -1314,6 +1589,13 @@ function setupMessageNudge(): void {
     if (msg.to === 'user') {
       const settings = loadSettings()
       if (settings.notifications !== false) {
+        // Relay conversational agent→user replies to Telegram so the chat loop
+        // works both ways. This is a different channel from the inbox (below):
+        // send_message→user lands here; notify_user lands in inboxChannel. They
+        // don't overlap, so this is not a double-send. Conversational replies
+        // always relay (you're actively chatting); the inbox stream is the one
+        // gated by the telegram priority threshold.
+        telegramServer?.relayFromAgent(msg.from, msg.message)
         const preview = msg.message.length > 120 ? msg.message.slice(0, 120) + '…' : msg.message
         const notification = new Notification({
           title: `Message from ${msg.from}`,
@@ -1576,6 +1858,12 @@ async function openProject(projectPath: string): Promise<void> {
         n.show()
       } catch { /* notifications may be disabled at OS level */ }
     }
+    // Mirror the inbox to Telegram with its urgency. Baseline is everything
+    // (threshold 'low'); the user can raise telegramNotifyThreshold in Settings.
+    const tgThreshold = (settings.telegramNotifyThreshold || 'low') as NotificationThreshold
+    if (tgThreshold !== 'none' && meetsThreshold(msg.priority, tgThreshold)) {
+      telegramServer?.relayFromAgent(msg.agentName, msg.message, msg.priority)
+    }
   }
   hub.inboxChannel.onMessageUpdated = (msg) => {
     inboxStore.markRead(msg.id, msg.readAt ?? new Date().toISOString())
@@ -1607,6 +1895,9 @@ async function openProject(projectPath: string): Promise<void> {
       return
     }
     mainWindow?.webContents.send(IPC.PROPOSAL_ADDED, proposal)
+    // Also push it to Telegram with Approve/Reject/Details buttons so it can be
+    // actioned on the go. Resolving anywhere edits every surface via onProposalResolved.
+    void telegramServer?.relayProposal(toProposalView(proposal))
     // Show the main window so the user notices the modal
     if (mainWindow && !mainWindow.isFocused()) {
       mainWindow.show()
@@ -1620,6 +1911,11 @@ async function openProject(projectPath: string): Promise<void> {
       proposal.resolvedAt ?? new Date().toISOString(),
       proposal.feedback
     )
+    // Tell every surface it's settled: the desktop popup auto-closes if it's
+    // showing this one, the inbox drops its Review button, Telegram edits its
+    // message. Fires no matter who resolved it (desktop, 3DS, or Telegram).
+    mainWindow?.webContents.send(IPC.PROPOSAL_RESOLVED, proposal)
+    telegramServer?.relayProposalResolved(toProposalView(proposal))
   }
 
   hub.setOutputAccessor((agentName, lines) => {
@@ -2205,6 +2501,15 @@ function setupIPC(): void {
   ipcMain.handle(IPC.PROPOSALS_GET, (_event, id: string) => {
     return hub?.proposalsChannel.get(id) ?? null
   })
+  // Re-surface a still-pending proposal's modal from the inbox (or anywhere).
+  // Reuses the exact PROPOSAL_ADDED path the initial popup uses.
+  ipcMain.handle(IPC.PROPOSALS_REOPEN, (_event, id: string) => {
+    const proposal = hub?.proposalsChannel.get(id)
+    if (!proposal) return { ok: false, status: 'missing' as const }
+    if (proposal.status !== 'pending') return { ok: false, status: proposal.status }
+    mainWindow?.webContents.send(IPC.PROPOSAL_ADDED, proposal)
+    return { ok: true, status: 'pending' as const }
+  })
   ipcMain.handle(IPC.PROPOSALS_APPROVE, async (_event, payload: {
     proposalId: string
     // Renderer is now the source of truth at approve time — it sends the FULL
@@ -2529,7 +2834,7 @@ function setupIPC(): void {
   // Bug report — posts directly to GitHub Issues via API (no user login needed)
   // Token is obfuscated (not plaintext) to avoid automated scanners. Issues-only permission on a single repo.
   const _bk = 'TheCogBugReporter2026'
-  const _bt = [51,1,17,43,26,5,29,5,6,38,58,65,94,51,51,46,61,115,122,123,6,19,49,83,57,36,36,48,56,46,40,50,5,48,8,56,53,58,65,97,92,103,51,17,50,53,1,87,10,68,80,38,12,31,93,55,25,31,42,123,102,119,115,13,11,34,10,58,52,15,77,3,22,52,17,14,26,64,47,33,103,98,6,123,99,39,29,51,27,44,6,58,14]
+  const _bt = [51,1,17,43,26,5,29,5,6,38,58,65,94,51,51,46,61,115,122,123,6,36,62,32,55,7,54,113,50,45,58,46,7,48,7,26,44,70,80,1,90,87,0,45,2,12,5,41,123,69,85,48,32,55,30,55,58,19,58,11,98,67,95,101,43,39,113,39,51,39,59,44,54,82,17,9,32,53,43,42,127,118,1,96,22,38,93,49,63,13,39,2,43]
   const _deobf = (): string => _bt.map((c, i) => String.fromCharCode(c ^ _bk.charCodeAt(i % _bk.length))).join('')
 
   ipcMain.handle(IPC.BUG_REPORT_SUBMIT, async (_event, report: { title: string; body: string }) => {
@@ -2785,6 +3090,48 @@ function setupIPC(): void {
     return { ok: true }
   })
 
+  // Telegram orchestration
+  ipcMain.handle(IPC.TELEGRAM_ENABLE, async () => { await enableTelegram() })
+  ipcMain.handle(IPC.TELEGRAM_DISABLE, async () => { await disableTelegram() })
+  ipcMain.handle(IPC.TELEGRAM_SET_TOKEN, async (_e, token: string) => {
+    const next = typeof token === 'string' ? token.trim() : ''
+    if (next) {
+      // Validate BEFORE persisting so a typo'd paste can't destroy a working
+      // token. validateBotToken only calls getMe — no polling conflict with a
+      // currently-running bot.
+      await validateBotToken(next)  // throws → nothing saved, UI shows the error
+      saveTelegramToken(next)
+      // Restart if running so the new token takes effect.
+      if (telegramServer) { await stopTelegram(); await startTelegram(next) }
+    } else {
+      // Clearing the token shuts the bot down.
+      saveTelegramToken('')
+      await disableTelegram()
+    }
+    emitTelegramStatus()
+  })
+  ipcMain.handle(IPC.TELEGRAM_GET_PAIRING_CODE, async () => {
+    const code = telegramPairing?.generateCode() ?? null
+    emitTelegramStatus()
+    return code
+  })
+  ipcMain.handle(IPC.TELEGRAM_UNPAIR, async (_e, userId: number) => {
+    if (telegramServer) {
+      // Live bot: cut command access AND the relay subscription in one move.
+      telegramServer.revokeUser(userId)
+    } else {
+      // Bot offline: telegramPairing is null, so edit the persisted lists
+      // directly — otherwise the "removed" user comes back on next enable.
+      const s = loadSettings()
+      const allow = Array.isArray(s.telegramAllowlist) ? s.telegramAllowlist : []
+      saveSetting('telegramAllowlist', allow.filter((id: number) => id !== userId))
+      const chats = Array.isArray(s.telegramChats) ? s.telegramChats : []
+      saveSetting('telegramChats', chats.filter((id: number) => id !== userId))
+    }
+    emitTelegramStatus()
+  })
+  ipcMain.handle(IPC.TELEGRAM_GET_STATUS, async () => telegramStatus())
+
   // Helper: rotate URLs after a token change so both tunnel and LAN URLs reflect the new token
   function rotateUrlsAfterTokenChange(): void {
     if (!remoteTokenManager) return
@@ -2874,6 +3221,12 @@ async function main(): Promise<void> {
     mainWindow?.webContents.send(IPC.UPDATE_AVAILABLE, info)
   }
   updateChecker.start()
+
+  // Telegram orchestration — auto-restore the bot if it was enabled last run.
+  // Mirrors the bot's own lifecycle: a missing/blank token is a no-op.
+  if (loadSettings().telegramEnabled) {
+    enableTelegram().catch((e) => console.error('[telegram] auto-start failed:', e))
+  }
 
   // Auto-open last project, or let renderer show project picker
   const lastProject = projectManager.getLastProject()
