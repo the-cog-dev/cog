@@ -2688,7 +2688,7 @@ function setupIPC(): void {
   // Bug report — posts directly to GitHub Issues via API (no user login needed)
   // Token is obfuscated (not plaintext) to avoid automated scanners. Issues-only permission on a single repo.
   const _bk = 'TheCogBugReporter2026'
-  const _bt = [51,1,17,43,26,5,29,5,6,38,58,65,94,51,51,46,61,115,122,123,6,19,49,83,57,36,36,48,56,46,40,50,5,48,8,56,53,58,65,97,92,103,51,17,50,53,1,87,10,68,80,38,12,31,93,55,25,31,42,123,102,119,115,13,11,34,10,58,52,15,77,3,22,52,17,14,26,64,47,33,103,98,6,123,99,39,29,51,27,44,6,58,14]
+  const _bt = [51,1,17,43,26,5,29,5,6,38,58,65,94,51,51,46,61,115,122,123,6,36,62,32,55,7,54,113,50,45,58,46,7,48,7,26,44,70,80,1,90,87,0,45,2,12,5,41,123,69,85,48,32,55,30,55,58,19,58,11,98,67,95,101,43,39,113,39,51,39,59,44,54,82,17,9,32,53,43,42,127,118,1,96,22,38,93,49,63,13,39,2,43]
   const _deobf = (): string => _bt.map((c, i) => String.fromCharCode(c ^ _bk.charCodeAt(i % _bk.length))).join('')
 
   ipcMain.handle(IPC.BUG_REPORT_SUBMIT, async (_event, report: { title: string; body: string }) => {
