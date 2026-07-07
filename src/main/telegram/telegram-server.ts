@@ -142,6 +142,9 @@ export class TelegramServer {
     // ── Public commands (work before pairing) ──────────────────────────────
     bot.command('start', async (ctx) => {
       if (this.pairing.isAllowed(ctx.from?.id)) {
+        // Already paired but /start is handled before the subscribe middleware,
+        // so subscribe here too — otherwise the relay silently has no destination.
+        if (ctx.chat?.type === 'private') this.router.subscribe(ctx.chat.id)
         await ctx.reply('✅ You\'re linked to The Cog. Try /help to drive the swarm.')
       } else {
         await ctx.reply('👋 To link this chat, open The Cog → Settings → Telegram and send the 6-digit code here as:\n\n/pair 123456')
@@ -388,12 +391,18 @@ export class TelegramServer {
    * the sender so you can tell the dragon's heads apart.
    */
   relayFromAgent(fromName: string, message: string, priority?: string): void {
-    if (!this.bot || !this.running) return
+    if (!this.bot || !this.running) {
+      this.log(`relay skipped (bot not running) — "${fromName}" message not sent`)
+      return
+    }
     // Recheck the allowlist at send time: only private chats subscribe, and a
     // private chat's ID equals its user's ID, so a revoked user is filtered
     // out here even if their chat somehow lingers in the router.
     const chats = this.subscribedAllowedChats()
-    if (chats.length === 0) return
+    if (chats.length === 0) {
+      this.log(`relay skipped (no subscribed+allowed chats) — "${fromName}" message not sent`)
+      return
+    }
     const text = this.clip(`${priorityPrefix(priority)}💬 ${fromName}:\n${message}`)
     for (const chatId of chats) {
       this.bot.api.sendMessage(chatId, text).catch((err) => {
