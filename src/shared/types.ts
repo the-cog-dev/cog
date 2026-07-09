@@ -310,6 +310,8 @@ export const IPC = {
   BOARD_READ_IMAGE: 'board:read-image',
   BOARD_APPEARANCE_GET: 'board:appearance-get',
   BOARD_APPEARANCE_SET: 'board:appearance-set',
+  BOARD_RENDER_REQUEST: 'board:render-request',
+  BOARD_RENDER_RESULT: 'board:render-result',
 } as const
 
 export interface Skill {

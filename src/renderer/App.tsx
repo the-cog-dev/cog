@@ -14,6 +14,7 @@ import { WhatsNewDialog } from './components/WhatsNewDialog'
 import { EditAgentDialog } from './components/EditAgentDialog'
 import type { AgentConfig, AgentGroup, RecentProject, WindowPosition, CanvasState, WorkspaceTab, TeamProposal, InboxMessage } from '../shared/types'
 import { TeamProposalDialog } from './components/TeamProposalDialog'
+import { initBoardRenderService } from './board-render-service'
 
 declare const electronAPI: {
   getProject: () => Promise<RecentProject | null>
@@ -60,6 +61,10 @@ export function App(): React.ReactElement {
     setZoom, setPan, updateWindowPosition, updateWindowSize, zoomToFit
   } = useWindowManager()
   const { agents, spawnAgent, killAgent, getStatusColor } = useAgents()
+
+  // Headless Sketchpad render service: lets the hub render any board page on
+  // demand (e.g. for agent photo review) even when the Workboard is closed.
+  useEffect(() => { initBoardRenderService() }, [])
 
   // Filter windows to only those belonging to the active tab
   const tabWindows = windows.filter(w => w.tabId === activeTabId)
