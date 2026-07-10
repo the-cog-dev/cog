@@ -37,6 +37,16 @@ const PANEL_PREFIXES = [PINBOARD_ID, INFO_ID, FILES_ID, RAC_ID, USAGE_ID, GIT_ID
 const panelIdForTab = (base: string, tabId: string): string => `${base}::${tabId}`
 const isPanelWindow = (id: string): boolean => PANEL_PREFIXES.some(p => id === p || id.startsWith(p + '::'))
 
+// Top-left "root" label: the active workspace's bound folder name (so switching
+// workspaces re-points the root), falling back to the app's project name.
+const workspaceRootLabel = (tabs: WorkspaceTab[], activeTabId: string, fallback: string): string => {
+  const ws = tabs.find(t => t.id === activeTabId)
+  if (ws?.projectPath) {
+    return ws.projectPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || ws.name || fallback
+  }
+  return fallback
+}
+
 export function App(): React.ReactElement {
   const [tabs, setTabs] = useState<WorkspaceTab[]>([{ id: 'tab-default', name: 'Workspace 1' }])
   const [activeTabId, setActiveTabId] = useState('tab-default')
@@ -586,7 +596,7 @@ export function App(): React.ReactElement {
       ) : (
         <>
           <TopBar
-            projectName={project.name}
+            projectName={workspaceRootLabel(tabs, activeTabId, project.name)}
             onSwitchProject={() => setShowProjectPicker(true)}
             agents={tabAgents}
             onSpawnClick={() => setShowSpawnDialog(true)}

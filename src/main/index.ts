@@ -812,6 +812,18 @@ function pickLocalOrchestratorName(): string | null {
   return anyOrch?.name ?? targets[0]?.name ?? null
 }
 
+/**
+ * The folder the UI's *folder-scoped* views (git panel, files panel, top-left
+ * root label) should reflect: the active workspace's bound folder, else the
+ * app's current project. Coordination state (board, links, hub DB) stays global
+ * for now — full per-workspace isolation is the ongoing context work.
+ */
+function activeWorkspaceProjectPath(): string | null {
+  const id = workspaceManager?.getActiveId()
+  const wsPath = id ? workspaceManager?.projectPathFor(id) : null
+  return wsPath ?? projectManager?.currentProject?.path ?? null
+}
+
 /** Runtime-only teardown — does NOT touch the persisted telegramEnabled flag. */
 async function stopTelegram(): Promise<void> {
   if (telegramGateway) await telegramGateway.stop()
@@ -2351,8 +2363,8 @@ function setupIPC(): void {
 
   // File operation IPC handlers
   ipcMain.handle(IPC.FILE_LIST, async (_event, dirPath: string = '.') => {
-    if (!projectManager.currentProject) return { items: [] }
-    const projectPath = projectManager.currentProject.path
+    const projectPath = activeWorkspaceProjectPath()
+    if (!projectPath) return { items: [] }
     const resolved = path.resolve(projectPath, dirPath)
     if (!resolved.toLowerCase().replace(/\\/g, '/').startsWith(projectPath.toLowerCase().replace(/\\/g, '/'))) return { items: [] }
 
@@ -2378,8 +2390,8 @@ function setupIPC(): void {
   })
 
   ipcMain.handle(IPC.FILE_READ, async (_event, filePath: string) => {
-    if (!projectManager.currentProject) return null
-    const projectPath = projectManager.currentProject.path
+    const projectPath = activeWorkspaceProjectPath()
+    if (!projectPath) return null
     const resolved = path.resolve(projectPath, filePath)
     if (!resolved.toLowerCase().replace(/\\/g, '/').startsWith(projectPath.toLowerCase().replace(/\\/g, '/'))) return null
 
@@ -2392,8 +2404,8 @@ function setupIPC(): void {
   })
 
   ipcMain.handle(IPC.FILE_WRITE, async (_event, filePath: string, content: string) => {
-    if (!projectManager.currentProject) return false
-    const projectPath = projectManager.currentProject.path
+    const projectPath = activeWorkspaceProjectPath()
+    if (!projectPath) return false
     const resolved = path.resolve(projectPath, filePath)
     if (!resolved.toLowerCase().replace(/\\/g, '/').startsWith(projectPath.toLowerCase().replace(/\\/g, '/'))) return false
 
@@ -2822,66 +2834,78 @@ function setupIPC(): void {
     return results
   })
 
-  // Git IPC
+  // Git IPC — operates on the ACTIVE workspace's folder (falls back to the
+  // current project when the workspace isn't folder-bound).
   ipcMain.handle(IPC.GIT_STATUS, () => {
-    if (!projectManager?.currentProject) return { isRepo: false, branch: '', ahead: 0, behind: 0, staged: [], unstaged: [] }
-    return gitOps.getStatus(projectManager.currentProject.path)
+    const root = activeWorkspaceProjectPath()
+    if (!root) return { isRepo: false, branch: '', ahead: 0, behind: 0, staged: [], unstaged: [] }
+    return gitOps.getStatus(root)
   })
 
   ipcMain.handle(IPC.GIT_LOG, (_event, count?: number) => {
-    if (!projectManager?.currentProject) return []
-    return gitOps.getLog(projectManager.currentProject.path, count)
+    const root = activeWorkspaceProjectPath()
+    if (!root) return []
+    return gitOps.getLog(root, count)
   })
 
   ipcMain.handle(IPC.GIT_DIFF, (_event, file: string, staged: boolean) => {
-    if (!projectManager?.currentProject) return ''
-    return gitOps.getDiff(projectManager.currentProject.path, file, staged)
+    const root = activeWorkspaceProjectPath()
+    if (!root) return ''
+    return gitOps.getDiff(root, file, staged)
   })
 
   ipcMain.handle(IPC.GIT_STAGE, (_event, file: string) => {
-    if (!projectManager?.currentProject) return { error: 'No project' }
-    try { gitOps.stageFile(projectManager.currentProject.path, file); return { status: 'ok' } }
+    const root = activeWorkspaceProjectPath()
+    if (!root) return { error: 'No project' }
+    try { gitOps.stageFile(root, file); return { status: 'ok' } }
     catch (e: any) { return { error: e.message } }
   })
 
   ipcMain.handle(IPC.GIT_UNSTAGE, (_event, file: string) => {
-    if (!projectManager?.currentProject) return { error: 'No project' }
-    try { gitOps.unstageFile(projectManager.currentProject.path, file); return { status: 'ok' } }
+    const root = activeWorkspaceProjectPath()
+    if (!root) return { error: 'No project' }
+    try { gitOps.unstageFile(root, file); return { status: 'ok' } }
     catch (e: any) { return { error: e.message } }
   })
 
   ipcMain.handle(IPC.GIT_COMMIT, (_event, message: string) => {
-    if (!projectManager?.currentProject) return { error: 'No project' }
-    try { const out = gitOps.commit(projectManager.currentProject.path, message); return { status: 'ok', output: out } }
+    const root = activeWorkspaceProjectPath()
+    if (!root) return { error: 'No project' }
+    try { const out = gitOps.commit(root, message); return { status: 'ok', output: out } }
     catch (e: any) { return { error: e.message } }
   })
 
   ipcMain.handle(IPC.GIT_PUSH, async () => {
-    if (!projectManager?.currentProject) return { error: 'No project' }
-    try { const out = gitOps.push(projectManager.currentProject.path); return { status: 'ok', output: out } }
+    const root = activeWorkspaceProjectPath()
+    if (!root) return { error: 'No project' }
+    try { const out = gitOps.push(root); return { status: 'ok', output: out } }
     catch (e: any) { return { error: e.message } }
   })
 
   ipcMain.handle(IPC.GIT_PULL, async () => {
-    if (!projectManager?.currentProject) return { error: 'No project' }
-    try { const out = gitOps.pull(projectManager.currentProject.path); return { status: 'ok', output: out } }
+    const root = activeWorkspaceProjectPath()
+    if (!root) return { error: 'No project' }
+    try { const out = gitOps.pull(root); return { status: 'ok', output: out } }
     catch (e: any) { return { error: e.message } }
   })
 
   ipcMain.handle(IPC.GIT_BRANCHES, () => {
-    if (!projectManager?.currentProject) return { current: '', branches: [] }
-    return gitOps.getBranches(projectManager.currentProject.path)
+    const root = activeWorkspaceProjectPath()
+    if (!root) return { current: '', branches: [] }
+    return gitOps.getBranches(root)
   })
 
   ipcMain.handle(IPC.GIT_CHECKOUT, (_event, branch: string) => {
-    if (!projectManager?.currentProject) return { error: 'No project' }
-    try { gitOps.checkout(projectManager.currentProject.path, branch); return { status: 'ok' } }
+    const root = activeWorkspaceProjectPath()
+    if (!root) return { error: 'No project' }
+    try { gitOps.checkout(root, branch); return { status: 'ok' } }
     catch (e: any) { return { error: e.message } }
   })
 
   ipcMain.handle(IPC.GIT_NEW_BRANCH, (_event, name: string) => {
-    if (!projectManager?.currentProject) return { error: 'No project' }
-    try { gitOps.createBranch(projectManager.currentProject.path, name); return { status: 'ok' } }
+    const root = activeWorkspaceProjectPath()
+    if (!root) return { error: 'No project' }
+    try { gitOps.createBranch(root, name); return { status: 'ok' } }
     catch (e: any) { return { error: e.message } }
   })
 
