@@ -1276,6 +1276,31 @@ function TelegramSection(): React.ReactElement {
           {notice}
         </div>
       )}
+
+      {/* Multi-instance guidance + optional supergroup setup */}
+      <details style={{ fontSize: '12px', color: '#aaa', backgroundColor: '#1c1c1c', border: '1px solid #2c2c2c', borderRadius: '6px', padding: '8px 10px' }}>
+        <summary style={{ cursor: 'pointer', color: '#e0e0e0', fontWeight: 600 }}>
+          Running multiple Cogs on one bot? (read this)
+        </summary>
+        <div style={{ marginTop: '8px', lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div>
+            You can run several Cog windows (different projects) on the same bot. They coordinate
+            automatically: exactly one polls Telegram so <b>no messages get missed</b>, every relayed
+            message is tagged <span style={{ fontFamily: 'monospace', color: '#e0e0e0' }}>[Project]</span>,
+            and you pick which one you're talking to:
+          </div>
+          <div style={{ paddingLeft: '8px', color: '#ccc' }}>
+            <div><span style={{ fontFamily: 'monospace', color: '#e0e0e0' }}>/status</span> — every Cog + its agents</div>
+            <div><span style={{ fontFamily: 'monospace', color: '#e0e0e0' }}>/cog &lt;project&gt;</span> — switch which Cog your messages go to</div>
+          </div>
+          <div style={{ marginTop: '4px', color: '#888' }}>
+            <b style={{ color: '#aaa' }}>Want threaded separation instead of one DM?</b> Telegram supergroups
+            with Topics give each project its own thread. To set it up: create a group → open its settings →
+            turn on <b>Topics</b> → add your bot and make it an <b>admin</b> with <i>Manage Topics</i>.
+            (DM mode above needs no setup and is the default.)
+          </div>
+        </div>
+      </details>
     </div>
   )
 }

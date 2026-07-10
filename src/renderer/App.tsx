@@ -61,6 +61,16 @@ export function App(): React.ReactElement {
   } = useWindowManager()
   const { agents, spawnAgent, killAgent, getStatusColor } = useAgents()
 
+  // Restore persisted workspaces (folder-bound tabs) on launch.
+  useEffect(() => {
+    void window.electronAPI.getTabs().then((persisted: WorkspaceTab[]) => {
+      if (Array.isArray(persisted) && persisted.length) {
+        setTabs(persisted)
+        setActiveTabId(prev => persisted.some(t => t.id === prev) ? prev : persisted[0].id)
+      }
+    })
+  }, [])
+
   // Filter windows to only those belonging to the active tab
   const tabWindows = windows.filter(w => w.tabId === activeTabId)
 
@@ -146,9 +156,14 @@ export function App(): React.ReactElement {
   }, [applyPreset])
 
   const handleCreateTab = useCallback(async () => {
-    const tab = await window.electronAPI.createTab()
+    // A new workspace binds to a project folder — pick it up front so each
+    // workspace is a real "team on a folder", not an empty tab.
+    const res = await window.electronAPI.pickTabFolder()
+    if (res?.canceled || !res?.workspace) return
+    const tab = res.workspace
     setTabs(prev => [...prev, tab])
     setActiveTabId(tab.id)
+    await window.electronAPI.setActiveTab(tab.id)
   }, [])
 
   const handleCloseTab = useCallback(async (tabId: string) => {
@@ -168,6 +183,7 @@ export function App(): React.ReactElement {
 
   const handleSwitchTab = useCallback((tabId: string) => {
     setActiveTabId(tabId)
+    void window.electronAPI.setActiveTab(tabId)
   }, [])
 
   const tabAgents = agents.filter(a => !a.tabId || a.tabId === activeTabId)

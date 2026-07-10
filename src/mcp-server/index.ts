@@ -642,6 +642,35 @@ server.tool(
 )
 
 server.tool(
+  'ask_user',
+  'ORCHESTRATOR ONLY. Ask the user a multiple-choice question. It appears in the inbox and, on Telegram, as tappable buttons — one per choice. This does NOT block: the tool returns immediately, and the user\'s chosen answer arrives later as a normal message to you (watch get_messages). Use this instead of notify_user whenever the user just needs to pick one of a few options (yes/no, which approach, which target).',
+  {
+    question: z.string().describe('The question for the user. Plain text or markdown.'),
+    choices: z.array(z.string()).min(2).max(8).describe('The answer options (2-8). Each becomes a tappable button; the user can only pick one.'),
+    priority: z.enum(['low', 'normal', 'high', 'urgent']).optional().describe('Importance (default high). Questions always relay to Telegram regardless of threshold.')
+  },
+  async ({ question, choices, priority }) => {
+    try {
+      const result = await hubFetch('/inbox', {
+        method: 'POST',
+        body: JSON.stringify({
+          agentId: AGENT_ID,
+          agentName: AGENT_NAME,
+          message: question,
+          priority: priority || 'high',
+          tags: ['question'],
+          choices,
+          tabId: TAB_ID
+        })
+      })
+      return toolResult({ ...result, next: 'Question posted. Continue other work; the answer will arrive as a message to you (get_messages).' })
+    } catch (err: any) {
+      return toolError(`Failed to ask user: ${err.message}`)
+    }
+  }
+)
+
+server.tool(
   'propose_team',
   'ORCHESTRATOR ONLY. Submit a proposed team of agents for the user to approve before any agent spawns. The user sees a confirmation modal listing every agent and can deselect any before approving. Use this when the user asks to spin up a team, or when you decide more agents are needed for a task. The agents do NOT spawn from this call alone — wait for the user.',
   {

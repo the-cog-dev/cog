@@ -183,11 +183,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Stream Deck status + reconnect
   getStreamDeckStatus: () => ipcRenderer.invoke(IPC.STREAMDECK_STATUS),
   reconnectStreamDeck: () => ipcRenderer.invoke(IPC.STREAMDECK_RECONNECT),
-  // Tabs
+  // Tabs / workspaces
   getTabs: () => ipcRenderer.invoke(IPC.TAB_GET_ALL),
-  createTab: (name?: string) => ipcRenderer.invoke(IPC.TAB_CREATE, name),
+  createTab: (name?: string, projectPath?: string) => ipcRenderer.invoke(IPC.TAB_CREATE, name, projectPath),
   closeTab: (tabId: string) => ipcRenderer.invoke(IPC.TAB_CLOSE, tabId),
   renameTab: (tabId: string, name: string) => ipcRenderer.invoke(IPC.TAB_RENAME, tabId, name),
+  setActiveTab: (tabId: string) => ipcRenderer.invoke(IPC.TAB_SET_ACTIVE, tabId),
+  setTabProject: (tabId: string, projectPath: string) => ipcRenderer.invoke(IPC.TAB_SET_PROJECT, tabId, projectPath),
+  pickTabFolder: (existingTabId?: string) => ipcRenderer.invoke(IPC.TAB_PICK_FOLDER, existingTabId),
   // Scheduled prompts
   listSchedules: () => ipcRenderer.invoke(IPC.SCHEDULES_LIST),
   createSchedule: (input: unknown) => ipcRenderer.invoke(IPC.SCHEDULES_CREATE, input),

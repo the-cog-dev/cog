@@ -6,6 +6,10 @@ import {
   proposalCallback, parseProposalCallback,
   formatProposalMessage, formatProposalDetails, formatProposalResolved
 } from './proposal-format'
+import {
+  answerCallback, parseAnswerCallback, clipChoiceLabel, formatAnswered
+} from './question-format'
+import { projectPrefix } from './relay-format'
 
 /** Telegram caps a single message at 4096 chars; leave headroom for our prefix. */
 const MAX_RELAY_CHARS = 3900
@@ -20,6 +24,22 @@ function priorityPrefix(priority?: string): string {
   }
 }
 
+/**
+ * The multi-instance federation seam (implemented by GatewayCoordinator). When
+ * several Cog instances share one bot, exactly one polls (the gateway) and the
+ * rest are followers. This interface lets the bot route a DM turn to whichever
+ * Cog the chat is addressing without importing the coordinator directly.
+ */
+export interface FederationGateway {
+  routeInbound(chatId: number, text: string): Promise<{ ok: boolean; project?: string; detail?: string }>
+  setActiveByProject(chatId: number, name: string): { project: string; isSelf: boolean } | null
+  activeProject(chatId: number): string | null
+  isFollowerActive(chatId: number): boolean
+  listProjects(): Array<{ project: string; isSelf: boolean }>
+  cogCount(): number
+  aggregateTargets(): Promise<Array<{ project: string; isSelf: boolean; targets: { name: string; role: string; status: string }[] }>>
+}
+
 export interface TelegramServerOptions {
   pairing: PairingManager
   /**
@@ -28,6 +48,11 @@ export interface TelegramServerOptions {
    * (Phase 0) and the bot is pairing-only.
    */
   bridge?: OrchestratorBridge
+  /** This Cog's project name — prefixed onto every relayed message so multiple
+   *  instances sharing one bot are distinguishable in the DM. */
+  project?: string
+  /** Multi-instance federation (single-poller gateway). Omit for a lone bot. */
+  gateway?: FederationGateway
   /** Optional log sink — wire to the main-process logger. */
   onLog?: (message: string) => void
   /** Fired when connection/pairing state changes so the UI can refresh. */
@@ -66,19 +91,32 @@ export async function validateBotToken(token: string): Promise<void> {
  */
 export class TelegramServer {
   private bot: Bot | null = null
-  private running = false
+  private ready = false     // bot initialised → can SEND (both gateway & followers)
+  private polling = false   // long-poll active → can RECEIVE (gateway only)
   private readonly pairing: PairingManager
   private readonly bridge?: OrchestratorBridge
+  private readonly project?: string
+  private readonly gateway?: FederationGateway
   private readonly router: ChatRouter
   private readonly log: (m: string) => void
   private readonly onStatusChange?: () => void
   // proposalId → the chat messages carrying its buttons, so we can edit them to
   // "settled" once it resolves (from Telegram, desktop, or 3DS).
   private readonly proposalMsgs = new Map<string, Array<{ chatId: number; messageId: number }>>()
+  // inbox messageId → a pending question awaiting a tap, so the chosen answer can
+  // be routed back to the asking agent and every button copy edited to "answered".
+  private readonly pendingQuestions = new Map<string, {
+    askerName: string
+    question: string
+    choices: string[]
+    sent: Array<{ chatId: number; messageId: number }>
+  }>()
 
   constructor(opts: TelegramServerOptions) {
     this.pairing = opts.pairing
     this.bridge = opts.bridge
+    this.project = opts.project
+    this.gateway = opts.gateway
     this.router = new ChatRouter({
       initialSubscribed: opts.initialChats,
       onSubscribedChange: opts.onChatsChange
@@ -88,14 +126,16 @@ export class TelegramServer {
   }
 
   isRunning(): boolean {
-    return this.running
+    // "Running" for the UI = the bot is live (can send). Polling is separate and
+    // owned by the gateway; a follower is still a working, connected bot.
+    return this.ready
   }
 
   /**
-   * Start long-polling with the given bot token. Awaits init() so a bad token
-   * surfaces as a thrown error the Settings UI can show, then kicks off polling
-   * in the background (grammY's start() only resolves when the bot stops, so we
-   * deliberately don't await it). Call stop() before starting a new token.
+   * Bring the bot online with the given token: init() (which throws on a bad
+   * token so the Settings UI can show it) and register handlers. This does NOT
+   * start long-polling — call setPolling(true) to do that. Only the elected
+   * gateway polls; followers stay send-only so Telegram doesn't split updates.
    */
   async start(token: string): Promise<void> {
     if (this.bot) return
@@ -117,22 +157,41 @@ export class TelegramServer {
       this.bot = null
       throw err
     }
-    void bot.start({
-      onStart: () => {
-        this.running = true
-        this.onStatusChange?.()
-      }
-    })
-    this.log(`bot @${bot.botInfo.username} started (long-poll)`)
+    this.ready = true
+    this.onStatusChange?.()
+    this.log(`bot @${bot.botInfo.username} online (send-ready)`)
+  }
+
+  /**
+   * Toggle long-polling. The elected gateway calls setPolling(true) to own the
+   * single getUpdates; a demoted/follower instance calls setPolling(false) so it
+   * never competes for updates. Sending is unaffected either way.
+   */
+  setPolling(on: boolean): void {
+    if (!this.bot) return
+    if (on && !this.polling) {
+      this.polling = true
+      void this.bot.start({ onStart: () => this.onStatusChange?.() })
+      this.log('long-poll started (gateway)')
+    } else if (!on && this.polling) {
+      this.polling = false
+      void this.bot.stop().catch(() => {})
+      this.log('long-poll stopped (follower)')
+    }
+  }
+
+  isPolling(): boolean {
+    return this.polling
   }
 
   async stop(): Promise<void> {
     if (!this.bot) return
     try {
-      await this.bot.stop()
+      if (this.polling) await this.bot.stop()
     } finally {
       this.bot = null
-      this.running = false
+      this.ready = false
+      this.polling = false
       this.onStatusChange?.()
       this.log('bot stopped')
     }
@@ -212,10 +271,35 @@ export class TelegramServer {
     bot.command('status', async (ctx) => {
       const bridge = this.bridge
       if (!bridge) { await ctx.reply('Orchestration isn\'t wired up yet.'); return }
+      // Multiple Cogs federated → show every project's agents grouped, with the
+      // chat's active project marked. Solo → the classic single-Cog view.
+      if (this.gateway && this.gateway.cogCount() > 1) {
+        const groups = await this.gateway.aggregateTargets()
+        const activeProj = this.gateway.activeProject(ctx.chat!.id)
+        await ctx.reply(this.formatFederatedStatus(groups, activeProj))
+        return
+      }
       const targets = bridge.listTargets()
       if (targets.length === 0) { await ctx.reply('No agents are running right now.'); return }
       const active = this.router.effectiveTarget(ctx.chat!.id, targets)
       await ctx.reply(this.formatStatus(targets, active))
+    })
+
+    // Switch which Cog instance this chat is talking to (multi-instance only).
+    bot.command('cog', async (ctx) => {
+      if (!this.gateway) { await ctx.reply('Only one Cog is connected — /cog needs multiple instances.'); return }
+      const name = (ctx.match ?? '').trim()
+      const projects = this.gateway.listProjects()
+      if (!name) {
+        const active = this.gateway.activeProject(ctx.chat!.id)
+        const lines = projects.map(p => `${p.project === active ? '👉' : '•'} ${p.project}${p.isSelf ? ' (this window)' : ''}`)
+        await ctx.reply(`Connected Cogs:\n${lines.join('\n')}\n\nSwitch with /cog <project>.`)
+        return
+      }
+      const cog = this.gateway.setActiveByProject(ctx.chat!.id, name)
+      if (!cog) { await ctx.reply(`No Cog matches "${name}". Try /cog to list them.`); return }
+      await ctx.reply(`👉 Now talking to *${cog.project}*. Plain text routes there. Use /status to see its agents.`,
+        { parse_mode: 'Markdown' }).catch(() => ctx.reply(`👉 Now talking to ${cog.project}.`))
     })
 
     bot.command('use', async (ctx) => {
@@ -272,13 +356,24 @@ export class TelegramServer {
       await ctx.reply(res.ok ? `✅ Task posted${res.id ? ` (${res.id})` : ''}.` : `❌ ${res.detail ?? 'Failed.'}`)
     })
 
-    // ── Plain text → the chat's active head ────────────────────────────────
+    // ── Plain text → the chat's active head (or active Cog, if federated) ───
     bot.on('message:text', async (ctx) => {
       if (ctx.message.text.startsWith('/')) return  // unmatched command — ignore
+      const chatId = ctx.chat!.id
+
+      // Multi-instance: if the chat is addressing a *different* Cog, forward the
+      // message to it over loopback. When addressing this Cog (or running solo),
+      // fall through to the local active-head routing below — unchanged.
+      if (this.gateway?.isFollowerActive(chatId)) {
+        const res = await this.gateway.routeInbound(chatId, ctx.message.text)
+        if (!res.ok) await ctx.reply(`❌ Couldn't reach ${res.project ?? 'that project'}${res.detail ? ` — ${res.detail}` : ''}.`)
+        return
+      }
+
       const bridge = this.bridge
       if (!bridge) { await ctx.reply('Orchestration isn\'t wired up yet.'); return }
       const targets = bridge.listTargets()
-      const target = this.router.effectiveTarget(ctx.chat!.id, targets)
+      const target = this.router.effectiveTarget(chatId, targets)
       if (!target) { await ctx.reply('No agents are running. Start one in The Cog, then try again.'); return }
       const res = bridge.sendTo(target.name, ctx.message.text)
       if (!res.ok) await ctx.reply(`❌ ${res.detail ?? `Couldn't reach ${target.name}.`}`)
@@ -334,8 +429,11 @@ export class TelegramServer {
         : `🎙️ Voice saved for ${target.name}${res.detail ? ` — ${res.detail}` : ''}.`)
     })
 
-    // ── Proposal buttons (Approve / Reject / Details) ──────────────────────
+    // ── Inline buttons: answer choices, then proposal actions ──────────────
     bot.on('callback_query:data', async (ctx) => {
+      const answer = parseAnswerCallback(ctx.callbackQuery.data)
+      if (answer) { await this.handleAnswer(ctx, answer); return }
+
       const parsed = parseProposalCallback(ctx.callbackQuery.data)
       if (!parsed) { await ctx.answerCallbackQuery(); return }
       const bridge = this.bridge
@@ -390,9 +488,14 @@ export class TelegramServer {
    * process's Message Router tap (onMessageQueued, to === 'user'). Tagged with
    * the sender so you can tell the dragon's heads apart.
    */
-  relayFromAgent(fromName: string, message: string, priority?: string): void {
-    if (!this.bot || !this.running) {
-      this.log(`relay skipped (bot not running) — "${fromName}" message not sent`)
+  relayFromAgent(
+    fromName: string,
+    message: string,
+    priority?: string,
+    opts?: { id?: string; choices?: string[] }
+  ): void {
+    if (!this.bot || !this.ready) {
+      this.log(`relay skipped (bot not ready) — "${fromName}" message not sent`)
       return
     }
     // Recheck the allowlist at send time: only private chats subscribe, and a
@@ -403,7 +506,16 @@ export class TelegramServer {
       this.log(`relay skipped (no subscribed+allowed chats) — "${fromName}" message not sent`)
       return
     }
-    const text = this.clip(`${priorityPrefix(priority)}💬 ${fromName}:\n${message}`)
+
+    // A question carries answer choices → render tappable buttons and remember
+    // it so the tapped answer routes back to the asker. Fire-and-forget: the
+    // answer arrives later as a normal user→agent message.
+    if (opts?.id && opts.choices && opts.choices.length) {
+      void this.relayQuestion(chats, fromName, message, priority, opts.id, opts.choices)
+      return
+    }
+
+    const text = this.clip(`${projectPrefix(this.project)}${priorityPrefix(priority)}💬 ${fromName}:\n${message}`)
     for (const chatId of chats) {
       this.bot.api.sendMessage(chatId, text).catch((err) => {
         this.log(`relay to ${chatId} failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -411,9 +523,65 @@ export class TelegramServer {
     }
   }
 
+  /**
+   * Send a question with one inline button per choice, and register it so the
+   * tapped answer can be routed back to the asking agent (see handleAnswer).
+   * We await each send to capture message ids for editing to "answered" later.
+   */
+  private async relayQuestion(
+    chats: number[], fromName: string, question: string, priority: string | undefined,
+    messageId: string, choices: string[]
+  ): Promise<void> {
+    if (!this.bot) return
+    const text = this.clip(`${projectPrefix(this.project)}${priorityPrefix(priority)}❓ ${fromName} asks:\n${question}`)
+    const keyboard = new InlineKeyboard()
+    choices.forEach((c, i) => { keyboard.text(clipChoiceLabel(c), answerCallback(messageId, i)).row() })
+
+    const sent: Array<{ chatId: number; messageId: number }> = []
+    for (const chatId of chats) {
+      try {
+        const msg = await this.bot.api.sendMessage(chatId, text, { reply_markup: keyboard })
+        sent.push({ chatId, messageId: msg.message_id })
+      } catch (err) {
+        this.log(`question push to ${chatId} failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+    if (sent.length) {
+      this.pendingQuestions.set(messageId, { askerName: fromName, question, choices, sent })
+    }
+  }
+
+  /** Route a tapped choice back to the asking agent and settle the button cards. */
+  private async handleAnswer(ctx: Context, answer: { messageId: string; choiceIndex: number }): Promise<void> {
+    const q = this.pendingQuestions.get(answer.messageId)
+    if (!q) { await ctx.answerCallbackQuery('This question was already answered or has expired.'); return }
+    const choice = q.choices[answer.choiceIndex]
+    if (choice === undefined) { await ctx.answerCallbackQuery('That choice is no longer available.'); return }
+
+    this.pendingQuestions.delete(answer.messageId)
+
+    // Deliver the answer to the asking agent as a user→agent message so it lands
+    // in that agent's inbox exactly like a typed reply would.
+    const bridge = this.bridge
+    if (bridge) {
+      const snippet = q.question.length > 120 ? q.question.slice(0, 119) + '…' : q.question
+      const res = bridge.sendTo(q.askerName, `[Answer to your question "${snippet}"]: ${choice}`)
+      if (!res.ok) this.log(`answer route to ${q.askerName} failed: ${res.detail ?? 'unknown'}`)
+    }
+
+    // Strip buttons on every copy and show the chosen answer.
+    const answered = formatAnswered(q.question, choice)
+    for (const { chatId, messageId } of q.sent) {
+      this.bot?.api.editMessageText(chatId, messageId, answered).catch((err) => {
+        this.log(`answered edit ${chatId}/${messageId} failed: ${err instanceof Error ? err.message : String(err)}`)
+      })
+    }
+    await ctx.answerCallbackQuery(`✅ ${choice}`)
+  }
+
   /** Push a pending proposal to every linked chat with Approve/Reject/Details buttons. */
   async relayProposal(p: ProposalView): Promise<void> {
-    if (!this.bot || !this.running) return
+    if (!this.bot || !this.ready) return
     const chats = this.subscribedAllowedChats()
     if (chats.length === 0) return
     const keyboard = new InlineKeyboard()
@@ -481,6 +649,22 @@ export class TelegramServer {
       ? `\nPlain text → ${active.name}. Switch with /use <name>.`
       : '\nNo active head — /use <name> to pick one.'
     return `The Cog — agents\n${lines.join('\n')}\n${footer}`
+  }
+
+  /** Aggregated status across every federated Cog, grouped by project. */
+  private formatFederatedStatus(
+    groups: Array<{ project: string; isSelf: boolean; targets: { name: string; role: string; status: string }[] }>,
+    activeProject: string | null
+  ): string {
+    const dot = (s: string) => (s === 'disconnected' ? '⚪' : s === 'active' ? '🟢' : '🟡')
+    const blocks = groups.map((g) => {
+      const head = `${g.project === activeProject ? '👉' : '📁'} ${g.project}`
+      const rows = g.targets.length
+        ? g.targets.map(t => `   ${dot(t.status)} ${t.name} · ${t.role}`).join('\n')
+        : '   (no agents)'
+      return `${head}\n${rows}`
+    })
+    return `The Cog — ${groups.length} instances\n\n${blocks.join('\n\n')}\n\nPlain text → ${activeProject ?? 'active project'}. Switch with /cog <project>.`
   }
 
   /** Trim to Telegram's message ceiling, keeping the tail (newest output). */

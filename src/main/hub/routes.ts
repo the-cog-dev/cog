@@ -299,7 +299,7 @@ export function createRoutes(
   router.post('/inbox', (req: Request, res: Response) => {
     if (!inboxChannel) { res.status(503).json({ error: 'Inbox not available' }); return }
     try {
-      const { agentId, agentName, message, priority, tags, tabId } = req.body
+      const { agentId, agentName, message, priority, tags, tabId, choices } = req.body
       if (!agentId || !agentName || !message || !priority) {
         res.status(400).json({ error: 'agentId, agentName, message, priority are required' })
         return
@@ -316,7 +316,8 @@ export function createRoutes(
         return
       }
       const msg = inboxChannel.postMessage(
-        agentId, agentName, message, priority as InboxPriority, tags || [], tabId
+        agentId, agentName, message, priority as InboxPriority, tags || [], tabId,
+        Array.isArray(choices) ? choices : undefined
       )
       res.json(msg)
     } catch (err: any) {

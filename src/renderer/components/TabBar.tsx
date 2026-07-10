@@ -3,6 +3,7 @@ import React, { useState } from 'react'
 interface Tab {
   id: string
   name: string
+  projectPath?: string
 }
 
 interface TabBarProps {
@@ -36,6 +37,7 @@ export function TabBar({ tabs, activeTabId, onSwitchTab, onCreateTab, onCloseTab
         <div
           key={tab.id}
           onClick={() => onSwitchTab(tab.id)}
+          title={tab.projectPath ? `📁 ${tab.projectPath}` : `${tab.name} — double-click to rename; use + to add a folder-bound workspace`}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -70,7 +72,7 @@ export function TabBar({ tabs, activeTabId, onSwitchTab, onCreateTab, onCloseTab
               onDoubleClick={(e) => { e.stopPropagation(); startRename(tab) }}
               style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}
             >
-              {tab.name}
+              {tab.projectPath ? '📁 ' : ''}{tab.name}
             </span>
           )}
           {tabs.length > 1 && (
@@ -83,6 +85,7 @@ export function TabBar({ tabs, activeTabId, onSwitchTab, onCreateTab, onCloseTab
       ))}
       <button
         onClick={onCreateTab}
+        title="New workspace — pick a project folder for its team"
         style={{
           width: '22px', height: '22px', borderRadius: '4px',
           border: '1px solid #444', backgroundColor: 'transparent',

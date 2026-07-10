@@ -207,6 +207,9 @@ export const IPC = {
   TAB_CREATE: 'tab:create',
   TAB_CLOSE: 'tab:close',
   TAB_RENAME: 'tab:rename',
+  TAB_SET_ACTIVE: 'tab:set-active',
+  TAB_SET_PROJECT: 'tab:set-project',
+  TAB_PICK_FOLDER: 'tab:pick-folder',
   SCHEDULES_LIST: 'schedules:list',
   SCHEDULES_CREATE: 'schedules:create',
   SCHEDULES_PAUSE: 'schedules:pause',
@@ -337,6 +340,13 @@ export interface LinkState {
 export interface WorkspaceTab {
   id: string
   name: string
+  /**
+   * The project folder this workspace's team works in. Each workspace binds to
+   * its own folder (its agents spawn there, its hub context persists to that
+   * folder's .cog/cog.db). Undefined = not yet bound (legacy/default tab uses
+   * the app's current project until the user points it at a folder).
+   */
+  projectPath?: string
 }
 
 export interface AgentMetricsData {
@@ -425,6 +435,13 @@ export interface InboxMessage {
   createdAt: string
   readAt?: string
   tabId?: string
+  /**
+   * Optional answer choices. When present the message is a question: Telegram
+   * renders one inline button per choice and the tapped answer routes back to
+   * the asking agent. Not persisted — buttons are live-only, so a restart mid-
+   * question keeps the text but drops the buttons.
+   */
+  choices?: string[]
 }
 
 // User-configurable threshold for native OS notifications. 'none' disables

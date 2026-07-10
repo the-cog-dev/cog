@@ -26,7 +26,7 @@ import { canAgentCancelSchedule } from './scheduler/scheduler-helpers'
 import type { Server as HttpServer } from 'http'
 import * as https from 'https'
 import * as httpProto from 'http'
-import { createHash } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { spawn as spawnChildProcess } from 'child_process'
 import { v4 as uuidv4 } from 'uuid'
 import { TokenManager } from './remote/token-manager'
@@ -35,6 +35,8 @@ import { RemoteServer } from './remote/remote-server'
 import { RemoteWsHub } from './remote/ws-hub'
 import { PairingManager } from './telegram/pairing-manager'
 import { TelegramServer, validateBotToken } from './telegram/telegram-server'
+import { GatewayCoordinator } from './telegram/gateway-coordinator'
+import { WorkspaceManager } from './workspace/workspace-manager'
 import { stripAnsi } from './telegram/ansi'
 import type { OrchestratorBridge, ProposalView } from './telegram/bridge'
 import { sanitizeFilename, isTextFile, isImageFile, buildAttachmentMessage, TEXT_INLINE_LIMIT } from './telegram/attachment'
@@ -80,9 +82,9 @@ const hasReceivedInitialPrompt = new Set<string>()
 const initialPrompts = new Map<string, string>()
 const manualKills = new Set<string>() // Track intentional kills to skip auto-reconnect
 const pendingNudges = new Map<string, string[]>() // agentName → queued nudge strings
-const workspaceTabs = new Map<string, { id: string; name: string }>()
-workspaceTabs.set('tab-default', { id: 'tab-default', name: 'Workspace 1' })
-let nextTabNum = 2
+// Workspaces (folder-bindable tabs). Persisted; source of truth for the tab bar.
+// Instantiated once userData is available (see app-ready init).
+let workspaceManager: WorkspaceManager | null = null
 const lastNudgeDelivery = new Map<string, number>() // agentName → timestamp of last nudge delivery
 const nudgeFallbackTimers = new Map<string, ReturnType<typeof setTimeout>>() // agentName → fallback timer
 const NUDGE_COOLDOWN_MS = 3000    // Minimum interval between nudge deliveries to the same agent
@@ -104,6 +106,7 @@ let remoteStatusTicker: ReturnType<typeof setInterval> | null = null
 // Telegram orchestration state
 let telegramServer: TelegramServer | null = null
 let telegramPairing: PairingManager | null = null
+let telegramGateway: GatewayCoordinator | null = null
 let workshopPasscodeHash: string | null = null
 let cachedWorkspaceState: any = null
 
@@ -752,9 +755,34 @@ async function startTelegram(token: string): Promise<void> {
     initialAllowlist: Array.isArray(s.telegramAllowlist) ? s.telegramAllowlist : [],
     onAllowlistChange: (ids) => saveSetting('telegramAllowlist', ids)
   })
+  const projectName = projectManager?.currentProject?.name ?? 'Cog'
+
+  // Multi-instance single-poller gateway: when several Cogs share one bot token,
+  // exactly one polls and the rest are send-only followers that get their inbound
+  // messages forwarded over loopback. A lone instance simply becomes the gateway
+  // → behaves exactly like before (plus a harmless [Project] prefix).
+  telegramGateway = new GatewayCoordinator({
+    followerId: randomUUID(),
+    project: projectName,
+    hooks: {
+      // A federated message addressed to THIS Cog → route to its orchestrator.
+      deliverLocal: (_chatId, text) => {
+        const name = pickLocalOrchestratorName()
+        if (!name) return { ok: false, detail: 'no agents running' }
+        return telegramBridge().sendTo(name, text)
+      },
+      listLocalTargets: () => telegramBridge().listTargets()
+    },
+    onLog: (m) => console.log('[telegram-gw]', m),
+    onBecomeGateway: () => telegramServer?.setPolling(true),
+    onBecomeFollower: () => telegramServer?.setPolling(false)
+  })
+
   telegramServer = new TelegramServer({
     pairing: telegramPairing,
     bridge: telegramBridge(),
+    project: projectName,
+    gateway: telegramGateway,
     // Persist relay subscriptions so an app restart doesn't silently drop the
     // agent→phone relay until the user happens to message the bot again.
     initialChats: Array.isArray(s.telegramChats) ? s.telegramChats : [],
@@ -764,16 +792,30 @@ async function startTelegram(token: string): Promise<void> {
   })
 
   try {
-    await telegramServer.start(token)
+    await telegramServer.start(token)  // send-ready (no poll yet)
+    await telegramGateway.start()      // elect → onBecomeGateway/Follower toggles polling
   } catch (err) {
+    await telegramGateway?.stop().catch(() => {})
+    telegramGateway = null
     telegramServer = null
     telegramPairing = null
     throw err
   }
 }
 
+/** Prefer a live local orchestrator for federated inbound routing. */
+function pickLocalOrchestratorName(): string | null {
+  const targets = telegramBridge().listTargets()
+  const liveOrch = targets.find(t => t.role === 'orchestrator' && t.status !== 'disconnected')
+  if (liveOrch) return liveOrch.name
+  const anyOrch = targets.find(t => t.role === 'orchestrator')
+  return anyOrch?.name ?? targets[0]?.name ?? null
+}
+
 /** Runtime-only teardown — does NOT touch the persisted telegramEnabled flag. */
 async function stopTelegram(): Promise<void> {
+  if (telegramGateway) await telegramGateway.stop()
+  telegramGateway = null
   if (telegramServer) await telegramServer.stop()
   telegramServer = null
   telegramPairing = null
@@ -1289,6 +1331,12 @@ function uniqueAgentName(desired: string): string {
 // hub registration, skill prompt composition, PTY lifecycle wiring, CLI
 // launch command sequencing, and workspace window updates.
 function handleSpawnAgent(config: AgentConfig): { id: string; mcpConfigPath: string } {
+  // P2: an agent runs in its workspace's bound folder, so different workspaces
+  // drive different projects. When the workspace isn't folder-bound (e.g. the
+  // default tab), keep the config's cwd (which defaults to the current project).
+  const wsPath = config.tabId ? workspaceManager?.projectPathFor(config.tabId) : null
+  if (wsPath) config.cwd = wsPath
+
   // Apply persisted theme for this agent (if any) — preserves explicit override from preset
   const projectPath = projectManager.currentProject?.path
   if (!config.theme && projectPath) {
@@ -1860,9 +1908,15 @@ async function openProject(projectPath: string): Promise<void> {
     }
     // Mirror the inbox to Telegram with its urgency. Baseline is everything
     // (threshold 'low'); the user can raise telegramNotifyThreshold in Settings.
+    // A question (has choices) always relays — it needs an answer, so the
+    // threshold must never filter it out.
     const tgThreshold = (settings.telegramNotifyThreshold || 'low') as NotificationThreshold
-    if (tgThreshold !== 'none' && meetsThreshold(msg.priority, tgThreshold)) {
-      telegramServer?.relayFromAgent(msg.agentName, msg.message, msg.priority)
+    const isQuestion = Array.isArray(msg.choices) && msg.choices.length > 0
+    if (isQuestion || (tgThreshold !== 'none' && meetsThreshold(msg.priority, tgThreshold))) {
+      telegramServer?.relayFromAgent(msg.agentName, msg.message, msg.priority, {
+        id: msg.id,
+        choices: msg.choices
+      })
     }
   }
   hub.inboxChannel.onMessageUpdated = (msg) => {
@@ -2990,32 +3044,57 @@ function setupIPC(): void {
   })
 
   // Tab IPC
-  ipcMain.handle(IPC.TAB_GET_ALL, () => Array.from(workspaceTabs.values()))
+  ipcMain.handle(IPC.TAB_GET_ALL, () => workspaceManager?.list() ?? [])
 
-  ipcMain.handle(IPC.TAB_CREATE, (_event, name?: string) => {
-    const id = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-    const tab = { id, name: name || `Workspace ${nextTabNum++}` }
-    workspaceTabs.set(id, tab)
-    return tab
+  ipcMain.handle(IPC.TAB_CREATE, (_event, name?: string, projectPath?: string) => {
+    if (!workspaceManager) return { error: 'Workspaces not ready' }
+    return workspaceManager.add(name || '', projectPath)
   })
 
   ipcMain.handle(IPC.TAB_CLOSE, async (_event, tabId: string) => {
-    if (workspaceTabs.size <= 1) return { error: 'Cannot close last tab' }
+    if (!workspaceManager || workspaceManager.list().length <= 1) return { error: 'Cannot close last tab' }
     for (const managed of [...agents.values()]) {
       if (managed.config.tabId === tabId) teardownAgent(managed)
     }
-    workspaceTabs.delete(tabId)
+    const activeId = workspaceManager.remove(tabId)
     if (promptScheduler) promptScheduler.deleteByTabId(tabId)
     // Final refresh covers tab-deletion + scheduler state (per-agent removal already pushed by teardownAgent)
     mainWindow?.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
-    return { status: 'ok' }
+    return { status: 'ok', activeId }
   })
 
   ipcMain.handle(IPC.TAB_RENAME, (_event, tabId: string, name: string) => {
-    const tab = workspaceTabs.get(tabId)
-    if (!tab) return { error: 'Tab not found' }
-    tab.name = name
+    if (!workspaceManager?.rename(tabId, name)) return { error: 'Tab not found' }
     return { status: 'ok' }
+  })
+
+  ipcMain.handle(IPC.TAB_SET_ACTIVE, (_event, tabId: string) => {
+    if (!workspaceManager?.setActive(tabId)) return { error: 'Tab not found' }
+    return { status: 'ok' }
+  })
+
+  ipcMain.handle(IPC.TAB_SET_PROJECT, (_event, tabId: string, projectPath: string) => {
+    if (!workspaceManager?.setProjectPath(tabId, projectPath)) return { error: 'Tab not found' }
+    return { status: 'ok', workspace: workspaceManager.get(tabId) }
+  })
+
+  // Open a folder picker and create a new workspace bound to the chosen folder.
+  // (P1: stores the binding + name; P2 will open that folder's hub context.)
+  ipcMain.handle(IPC.TAB_PICK_FOLDER, async (_event, existingTabId?: string) => {
+    if (!workspaceManager || !mainWindow) return { error: 'Workspaces not ready' }
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: existingTabId ? 'Bind workspace to folder' : 'New workspace — pick a project folder',
+      properties: ['openDirectory']
+    })
+    if (result.canceled || !result.filePaths[0]) return { canceled: true }
+    const folder = result.filePaths[0]
+    const name = path.basename(folder)
+    if (existingTabId) {
+      workspaceManager.setProjectPath(existingTabId, folder)
+      workspaceManager.rename(existingTabId, name)
+      return { workspace: workspaceManager.get(existingTabId) }
+    }
+    return { workspace: workspaceManager.add(name, folder) }
   })
 
   // Scheduled prompts
@@ -3185,6 +3264,7 @@ async function main(): Promise<void> {
   }
 
   projectManager = new ProjectManager(app.getPath('userData'))
+  workspaceManager = new WorkspaceManager(app.getPath('userData'))
 
   // Global presets directory — follows user across projects
   const globalPresetsDir = path.join(app.getPath('userData'), 'presets')

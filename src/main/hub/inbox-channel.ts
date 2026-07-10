@@ -17,7 +17,8 @@ export class InboxChannel {
     message: string,
     priority: InboxPriority,
     tags: string[] = [],
-    tabId?: string
+    tabId?: string,
+    choices?: string[]
   ): InboxMessage {
     if (message.length > MAX_MESSAGE_SIZE) {
       throw new Error(`Message exceeds max size of ${MAX_MESSAGE_SIZE} bytes`)
@@ -25,6 +26,10 @@ export class InboxChannel {
     if (!VALID_PRIORITIES.has(priority)) {
       throw new Error(`Invalid priority '${priority}'. Must be one of: low, normal, high, urgent.`)
     }
+
+    const cleanChoices = Array.isArray(choices)
+      ? choices.map(c => String(c).trim()).filter(Boolean).slice(0, 8)
+      : undefined
 
     const msg: InboxMessage = {
       id: uuid(),
@@ -34,7 +39,8 @@ export class InboxChannel {
       priority,
       tags,
       createdAt: new Date().toISOString(),
-      tabId: tabId ?? undefined
+      tabId: tabId ?? undefined,
+      choices: cleanChoices && cleanChoices.length ? cleanChoices : undefined
     }
 
     this.messages.unshift(msg)

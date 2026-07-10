@@ -151,6 +151,14 @@ declare global {
       startAutonomySession: (hours: number) => Promise<{ sessionExpiresAt: number | null }>
       endAutonomySession: () => Promise<{ sessionExpiresAt: number | null }>
       onAutonomyChanged: (callback: (a: { sessionExpiresAt: number | null }) => void) => () => void
+      // Tabs / workspaces
+      getTabs: () => Promise<import('../shared/types').WorkspaceTab[]>
+      createTab: (name?: string, projectPath?: string) => Promise<import('../shared/types').WorkspaceTab>
+      closeTab: (tabId: string) => Promise<{ status?: string; error?: string; activeId?: string }>
+      renameTab: (tabId: string, name: string) => Promise<{ status?: string; error?: string }>
+      setActiveTab: (tabId: string) => Promise<{ status?: string; error?: string }>
+      setTabProject: (tabId: string, projectPath: string) => Promise<{ status?: string; error?: string; workspace?: import('../shared/types').WorkspaceTab | null }>
+      pickTabFolder: (existingTabId?: string) => Promise<{ canceled?: boolean; error?: string; workspace?: import('../shared/types').WorkspaceTab | null }>
       // Workboard
       boardListPages: () => Promise<import('../shared/types').BoardPage[]>
       boardAddPage: () => Promise<import('../shared/types').BoardPage | null>
