@@ -36,7 +36,7 @@ import { RemoteWsHub } from './remote/ws-hub'
 import { PairingManager } from './telegram/pairing-manager'
 import { TelegramServer, validateBotToken } from './telegram/telegram-server'
 import { GatewayCoordinator } from './telegram/gateway-coordinator'
-import { WorkspaceManager } from './workspace/workspace-manager'
+import { WorkspaceManager, DEFAULT_WORKSPACE_ID } from './workspace/workspace-manager'
 import { stripAnsi } from './telegram/ansi'
 import type { OrchestratorBridge, ProposalView } from './telegram/bridge'
 import { sanitizeFilename, isTextFile, isImageFile, buildAttachmentMessage, TEXT_INLINE_LIMIT } from './telegram/attachment'
@@ -101,7 +101,7 @@ interface WorkspaceCtx {
   agentBridge: AgentBridge
 }
 const contexts = new Map<string, WorkspaceCtx>()
-let activeWorkspaceId = 'tab-default'
+let activeWorkspaceId = DEFAULT_WORKSPACE_ID
 
 /**
  * Point the module-level globals at a workspace context. Every existing IPC
@@ -996,9 +996,8 @@ function saveLinkState(): void {
   fs.writeFileSync(linksPath, JSON.stringify(state, null, 2), 'utf-8')
 }
 
-function loadLinkState(): void {
-  if (!projectManager?.currentProject || !hub) return
-  const linksPath = path.join(projectManager.currentProject.path, '.agentorch', 'links.json')
+function loadLinkState(hub: HubServer, projectPath: string): void {
+  const linksPath = path.join(projectPath, '.agentorch', 'links.json')
   if (fs.existsSync(linksPath)) {
     try {
       const state = JSON.parse(fs.readFileSync(linksPath, 'utf-8'))
@@ -1701,7 +1700,7 @@ function flushPendingNudges(agentName: string): void {
 }
 
 // When a message is queued for an agent, nudge them to call get_messages().
-function setupMessageNudge(): void {
+function setupMessageNudge(hub: HubServer): void {
   hub.messages.onMessageQueued = (msg) => {
     // When an agent messages the user, show an OS notification
     if (msg.to === 'user') {
@@ -1738,7 +1737,7 @@ function setupMessageNudge(): void {
 }
 
 // When a task is posted to the pinboard, nudge worker/researcher agents to check for it.
-function setupTaskNudge(): void {
+function setupTaskNudge(hub: HubServer): void {
   const existingCallback = hub.pinboard.onTaskCreated
   hub.pinboard.onTaskCreated = (task) => {
     existingCallback?.(task)
@@ -1778,7 +1777,7 @@ function setupTaskNudge(): void {
 }
 
 // When info is posted, nudge orchestrator agents so they know to read it.
-function setupInfoNudge(): void {
+function setupInfoNudge(hub: HubServer): void {
   const existingCallback = hub.infoChannel.onEntryAdded
   hub.infoChannel.onEntryAdded = (entry) => {
     existingCallback?.(entry)
@@ -1860,6 +1859,17 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
   let boardBridge: BoardBridge | null = null
   let agentBridge: AgentBridge | null = null
 
+  // UI + remote pushes fire ONLY when this context is the active one — a
+  // background workspace persists to its own DB and relays to Telegram, but must
+  // not clobber the visible workspace's panels. Evaluated at callback-fire time
+  // (activeWorkspaceId is a module global; workspaceId is this ctx's fixed id).
+  const sendToUi = (channel: string, ...payload: unknown[]): void => {
+    if (workspaceId === activeWorkspaceId) mainWindow?.webContents.send(channel, ...payload)
+  }
+  const pushRemote = (keys: Array<'agents' | 'schedules' | 'inbox' | 'pinboard' | 'info'>): void => {
+    if (workspaceId === activeWorkspaceId) remoteWsHub?.pushStateDelta(keys)
+  }
+
   // Initialize SQLite persistence at this workspace's own project folder
   let db: import('better-sqlite3').Database
   try {
@@ -1913,12 +1923,12 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
   hub.messages.onMessageSaved = (msg) => messageStore.saveMessage(msg)
   hub.pinboard.onTaskCreated = (task) => {
     pinboardStore.saveTask(task)
-    mainWindow?.webContents.send(IPC.PINBOARD_TASK_UPDATE, hub.pinboard.readTasks())
+    sendToUi(IPC.PINBOARD_TASK_UPDATE, hub.pinboard.readTasks())
     hub.agentMetrics.increment(task.createdBy || 'unknown', 'tasksPosted')
   }
   hub.pinboard.onTaskUpdated = (task) => {
     pinboardStore.updateTask(task)
-    mainWindow?.webContents.send(IPC.PINBOARD_TASK_UPDATE, hub.pinboard.readTasks())
+    sendToUi(IPC.PINBOARD_TASK_UPDATE, hub.pinboard.readTasks())
 
     if (task.status === 'in_progress' && task.claimedBy) {
       hub.agentMetrics.increment(task.claimedBy, 'tasksClaimed')
@@ -1957,20 +1967,20 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
   }
   hub.pinboard.onTaskDeleted = (taskId) => {
     pinboardStore.deleteTask(taskId)
-    mainWindow?.webContents.send(IPC.PINBOARD_TASK_UPDATE, hub.pinboard.readTasks())
-    remoteWsHub?.pushStateDelta(['pinboard'])
+    sendToUi(IPC.PINBOARD_TASK_UPDATE, hub.pinboard.readTasks())
+    pushRemote(['pinboard'])
   }
   hub.infoChannel.onEntryAdded = (entry) => {
     infoStore.saveEntry(entry)
-    mainWindow?.webContents.send(IPC.INFO_ENTRY_ADDED, hub.infoChannel.readInfo())
+    sendToUi(IPC.INFO_ENTRY_ADDED, hub.infoChannel.readInfo())
     hub.agentMetrics.increment(entry.from, 'infoPosted')
-    remoteWsHub?.pushStateDelta(['info'])
+    pushRemote(['info'])
   }
 
   hub.inboxChannel.onMessageAdded = (msg) => {
     inboxStore.saveMessage(msg)
-    mainWindow?.webContents.send(IPC.INBOX_MESSAGE_ADDED, hub.inboxChannel.readAll())
-    remoteWsHub?.pushStateDelta(['inbox'])
+    sendToUi(IPC.INBOX_MESSAGE_ADDED, hub.inboxChannel.readAll())
+    pushRemote(['inbox'])
     // Native notification if message priority meets the user-set threshold
     // (default 'high'). 'none' disables entirely.
     const settings = loadSettings()
@@ -2001,12 +2011,12 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
   }
   hub.inboxChannel.onMessageUpdated = (msg) => {
     inboxStore.markRead(msg.id, msg.readAt ?? new Date().toISOString())
-    mainWindow?.webContents.send(IPC.INBOX_MESSAGE_UPDATED, hub.inboxChannel.readAll())
-    remoteWsHub?.pushStateDelta(['inbox'])
+    sendToUi(IPC.INBOX_MESSAGE_UPDATED, hub.inboxChannel.readAll())
+    pushRemote(['inbox'])
   }
   hub.inboxChannel.onMessageDeleted = (id) => {
     inboxStore.deleteMessage(id)
-    mainWindow?.webContents.send(IPC.INBOX_MESSAGE_UPDATED, hub.inboxChannel.readAll())
+    sendToUi(IPC.INBOX_MESSAGE_UPDATED, hub.inboxChannel.readAll())
   }
 
   hub.proposalsChannel.onProposalAdded = (proposal) => {
@@ -2028,12 +2038,14 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
       } catch { /* notify failures are non-fatal — agents are already running */ }
       return
     }
-    mainWindow?.webContents.send(IPC.PROPOSAL_ADDED, proposal)
+    sendToUi(IPC.PROPOSAL_ADDED, proposal)
     // Also push it to Telegram with Approve/Reject/Details buttons so it can be
     // actioned on the go. Resolving anywhere edits every surface via onProposalResolved.
+    // Telegram relay is UNGUARDED — a background workspace's proposal is still
+    // actionable on the go (and shows in the desktop modal once you switch to it).
     void telegramServer?.relayProposal(toProposalView(proposal))
-    // Show the main window so the user notices the modal
-    if (mainWindow && !mainWindow.isFocused()) {
+    // Show the main window so the user notices the modal (active workspace only)
+    if (workspaceId === activeWorkspaceId && mainWindow && !mainWindow.isFocused()) {
       mainWindow.show()
       mainWindow.flashFrame(true)
     }
@@ -2048,7 +2060,7 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
     // Tell every surface it's settled: the desktop popup auto-closes if it's
     // showing this one, the inbox drops its Review button, Telegram edits its
     // message. Fires no matter who resolved it (desktop, 3DS, or Telegram).
-    mainWindow?.webContents.send(IPC.PROPOSAL_RESOLVED, proposal)
+    sendToUi(IPC.PROPOSAL_RESOLVED, proposal)
     telegramServer?.relayProposalResolved(toProposalView(proposal))
   }
 
@@ -2057,9 +2069,16 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
     if (!managed) return null
     return managed.outputBuffer.getLines(lines)
   })
-  // NOTE: setupMessageNudge/TaskNudge/InfoNudge/StaleTaskWatchdog + loadLinkState
-  // run in openProject AFTER setActiveContext — they read the module-global `hub`
-  // and WRAP the ctx callbacks set just above, so they can't run in the factory.
+  // Per-context nudge wiring: each hub delivers task/message/info nudges to its
+  // OWN agents, so a background team keeps working while another workspace is
+  // active. These WRAP the persistence callbacks set above (they chain the prior
+  // callback), so they must run HERE, after those — once per context, never
+  // re-wrapped. (setupStaleTaskWatchdog is a single active-only timer, armed in
+  // openProject / on switch, not per-context.)
+  setupMessageNudge(hub)
+  setupTaskNudge(hub)
+  setupInfoNudge(hub)
+  loadLinkState(hub, projectPath)
 
   // Scheduled prompts: instantiate, load, and start ticker
   const promptScheduler = new PromptScheduler({
@@ -2073,12 +2092,12 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
     agentLookup: (agentId) => agents.has(agentId),
     onChange: () => {
       if (!promptScheduler) return
-      mainWindow?.webContents.send(IPC.SCHEDULES_UPDATED, promptScheduler.list())
-      remoteWsHub?.pushStateDelta(['schedules'])
+      sendToUi(IPC.SCHEDULES_UPDATED, promptScheduler.list())
+      pushRemote(['schedules'])
     },
     onResumed: (count) => {
       if (count > 0) {
-        mainWindow?.webContents.send(IPC.SCHEDULER_RESUMED, { count })
+        sendToUi(IPC.SCHEDULER_RESUMED, { count })
         const settings = loadSettings()
         if (settings.notifications !== false) {
           const n = new Notification({
@@ -2180,8 +2199,9 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
 }
 
 async function openProject(projectPath: string): Promise<void> {
-  // Close existing project if open (Stage 2: still exactly one active context)
-  if (hub) await closeProject()
+  // Replace the ACTIVE workspace's context only — other live contexts keep
+  // running (this is the "open a different project into this tab" path).
+  if (contexts.has(activeWorkspaceId)) await closeActiveContext()
 
   projectManager.initProject(projectPath)
 
@@ -2194,14 +2214,9 @@ async function openProject(projectPath: string): Promise<void> {
   // is a local; the global would still be stale). See minefield #1.
   armAutonomyExpiry()
 
-  // Global one-time wiring against the now-active hub. setupTaskNudge/InfoNudge
-  // WRAP the factory's channel callbacks (they chain the persisted base
-  // callback), so they must run AFTER setActiveContext points `hub` at ctx.
-  setupMessageNudge()
-  setupTaskNudge()
-  setupInfoNudge()
+  // Single active-only stale-task watchdog, armed against the now-active hub.
+  // (Nudge wiring is per-context inside the factory.)
   setupStaleTaskWatchdog()
-  loadLinkState()
 
   // Update window title
   if (mainWindow) {
@@ -2210,54 +2225,117 @@ async function openProject(projectPath: string): Promise<void> {
   }
 }
 
-async function closeProject(): Promise<void> {
-  // Kill all agents
-  for (const [id] of agents) {
-    manualKills.add(id)
+/**
+ * Switch the active workspace to `id`, creating its context on first activation
+ * (lazy). Points the module globals + projectManager + UI at it WITHOUT tearing
+ * down any other live context, then refreshes the renderer's panels. If the
+ * workspace has no bound folder and no existing context, this is a no-op (the
+ * previous context stays active).
+ */
+async function activateWorkspace(id: string): Promise<void> {
+  let ctx = contexts.get(id)
+  if (!ctx) {
+    const wsPath = workspaceManager?.projectPathFor(id)
+    if (!wsPath) return // unbound workspace — nothing to open
+    projectManager.initProject(wsPath) // migrate + mkdir .cog + set currentProject (so createDatabase's dir exists)
+    ctx = await createWorkspaceContext(id, wsPath)
+    contexts.set(id, ctx)
+  } else {
+    projectManager.initProject(ctx.projectPath) // re-point currentProject at this workspace's folder (idempotent)
   }
-  for (const [, managed] of agents) {
+  setActiveContext(ctx)
+  armAutonomyExpiry()
+  setupStaleTaskWatchdog() // re-arm the single active-only watchdog against the now-active hub
+  if (mainWindow) {
+    mainWindow.setTitle(`The Cog — ${projectManager.currentProject!.name}`)
+    mainWindow.webContents.send(IPC.PROJECT_CHANGED, projectManager.currentProject)
+  }
+  pushActiveContextState()
+}
+
+/**
+ * Re-emit the active context's full panel state so the renderer refreshes on a
+ * workspace switch — no backend mutation fires the incremental push events, so
+ * the panels would otherwise keep showing the previous workspace's data. Each
+ * event carries the full list (the renderer replaces, not appends).
+ */
+function pushActiveContextState(): void {
+  if (!mainWindow || !hub) return
+  mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
+  mainWindow.webContents.send(IPC.PINBOARD_TASK_UPDATE, hub.pinboard.readTasks())
+  mainWindow.webContents.send(IPC.INFO_ENTRY_ADDED, hub.infoChannel.readInfo())
+  mainWindow.webContents.send(IPC.INBOX_MESSAGE_ADDED, hub.inboxChannel.readAll())
+  mainWindow.webContents.send(IPC.SCHEDULES_UPDATED, promptScheduler?.list() ?? [])
+}
+
+/**
+ * Teardown for ONE workspace context: kill its agents (matched by workspace
+ * tabId), stop its scheduler, close its hub + DB, drop it from the registry.
+ * Leaves every OTHER live context and the active-only globals untouched.
+ */
+async function closeWorkspaceContext(id: string): Promise<void> {
+  const ctx = contexts.get(id)
+  if (!ctx) return
+  for (const [agentId, managed] of [...agents.entries()]) {
+    const effTab = managed.config.tabId || DEFAULT_WORKSPACE_ID
+    if (effTab !== id) continue
+    const { name } = managed.config
+    manualKills.add(agentId)
     killPty(managed)
     if (managed.mcpConfigPath) cleanupConfig(managed.mcpConfigPath)
+    pendingNudges.delete(name)
+    lastNudgeDelivery.delete(name)
+    const t = nudgeFallbackTimers.get(name)
+    if (t) { clearTimeout(t); nudgeFallbackTimers.delete(name) }
+    initialPrompts.delete(agentId)
+    hasReceivedInitialPrompt.delete(agentId)
+    agents.delete(agentId)
   }
-  agents.clear()
-  initialPrompts.clear()
-  hasReceivedInitialPrompt.clear()
-  pendingNudges.clear()
-  lastNudgeDelivery.clear()
-  for (const timer of nudgeFallbackTimers.values()) clearTimeout(timer)
-  nudgeFallbackTimers.clear()
+  try { ctx.promptScheduler.stopTicker() } catch { /* noop */ }
+  ctx.hub.close()
+  try { ctx.db.close() } catch { /* already closed */ }
+  contexts.delete(id)
+}
+
+/**
+ * Close ONLY the active context and reset the active-only globals, without
+ * touching other live workspace contexts. Used before opening a different
+ * project into the active workspace (PROJECT_SWITCH / openProject).
+ */
+async function closeActiveContext(): Promise<void> {
   if (staleTaskTimer) { clearInterval(staleTaskTimer); staleTaskTimer = null }
-  if (promptScheduler) {
-    promptScheduler.stopTicker()
-    promptScheduler = null
-  }
+  if (autonomyExpiryTimer) { clearTimeout(autonomyExpiryTimer); autonomyExpiryTimer = null }
+  await disableRemoteView()
+  await closeWorkspaceContext(activeWorkspaceId)
+  // Null the active globals now the active hub/DB are closed; IPC handlers fall
+  // back gracefully (?? / null-guards) until a context is activated again.
+  promptScheduler = null
   scheduleBridge = null
   boardBridge = null
+  agentBridge = null
   currentSchedulesStore = null
-  if (autonomyExpiryTimer) { clearTimeout(autonomyExpiryTimer); autonomyExpiryTimer = null }
-  autonomyStore = null  // backed by the project DB we're about to close; null so autonomy IPC falls back instead of hitting a closed handle
+  autonomyStore = null
   boardStore = null
   boardAppearanceStore = null
+  currentDb = null
+  currentMessageStore = null
+  currentInboxStore = null
+  currentProposalsStore = null
+  if (mainWindow) mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, [])
+}
 
+/**
+ * Full shutdown: close EVERY live workspace context and clear active-only
+ * globals/timers. Used on app quit / restart.
+ */
+async function closeAllContexts(): Promise<void> {
+  if (staleTaskTimer) { clearInterval(staleTaskTimer); staleTaskTimer = null }
+  if (autonomyExpiryTimer) { clearTimeout(autonomyExpiryTimer); autonomyExpiryTimer = null }
   await disableRemoteView()
-
-  // Close hub
-  hub?.close()
-  contexts.delete(activeWorkspaceId)
-
-  // Close DB
-  if (currentDb) {
-    currentDb.close()
-    currentDb = null
-    currentMessageStore = null
-    currentInboxStore = null
-    currentProposalsStore = null
+  for (const id of [...contexts.keys()]) {
+    await closeWorkspaceContext(id)
   }
-
-  // Notify renderer
-  if (mainWindow) {
-    mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, [])
-  }
+  if (mainWindow) mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, [])
 }
 
 function setupIPC(): void {
@@ -2615,7 +2693,7 @@ function setupIPC(): void {
   })
 
   ipcMain.handle(IPC.APP_RESTART, async () => {
-    await closeProject()
+    await closeAllContexts()
     app.relaunch()
     app.exit(0)
   })
@@ -3190,12 +3268,13 @@ function setupIPC(): void {
 
   ipcMain.handle(IPC.TAB_CLOSE, async (_event, tabId: string) => {
     if (!workspaceManager || workspaceManager.list().length <= 1) return { error: 'Cannot close last tab' }
-    for (const managed of [...agents.values()]) {
-      if (managed.config.tabId === tabId) teardownAgent(managed)
-    }
+    const wasActive = tabId === activeWorkspaceId
+    // Tear down this workspace's whole context (its agents, scheduler, hub, DB).
+    await closeWorkspaceContext(tabId)
     const activeId = workspaceManager.remove(tabId)
-    if (promptScheduler) promptScheduler.deleteByTabId(tabId)
-    // Final refresh covers tab-deletion + scheduler state (per-agent removal already pushed by teardownAgent)
+    // If we closed the active workspace, point the globals + UI at the new active
+    // one; other background contexts are untouched.
+    if (wasActive) await activateWorkspace(activeId)
     mainWindow?.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
     return { status: 'ok', activeId }
   })
@@ -3205,8 +3284,11 @@ function setupIPC(): void {
     return { status: 'ok' }
   })
 
-  ipcMain.handle(IPC.TAB_SET_ACTIVE, (_event, tabId: string) => {
+  ipcMain.handle(IPC.TAB_SET_ACTIVE, async (_event, tabId: string) => {
     if (!workspaceManager?.setActive(tabId)) return { error: 'Tab not found' }
+    // Bring this workspace's context live (lazy-create if first activation) and
+    // repoint the globals + UI at it, leaving other contexts running.
+    await activateWorkspace(tabId)
     return { status: 'ok' }
   })
 
@@ -3580,7 +3662,7 @@ async function main(): Promise<void> {
 main()
 
 app.on('window-all-closed', async () => {
-  await closeProject()
+  await closeAllContexts()
   app.quit()
 })
 
