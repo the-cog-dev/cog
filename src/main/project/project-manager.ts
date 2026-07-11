@@ -208,6 +208,15 @@ export class ProjectManager {
     return path.join(this._current.path, COG_DIR, DB_FILE)
   }
 
+  /**
+   * DB path for an arbitrary project folder, independent of which project is
+   * currently active. Lets a per-workspace context open its own `.cog/cog.db`
+   * without mutating the global `currentProject` (used by concurrent contexts).
+   */
+  dbPathFor(projectPath: string): string {
+    return path.join(projectPath, COG_DIR, DB_FILE)
+  }
+
   get presetsDir(): string {
     if (!this._current) throw new Error('No project open')
     return path.join(this._current.path, COG_DIR, 'presets')

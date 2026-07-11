@@ -93,6 +93,12 @@ interface WorkspaceCtx {
     boardAppearance: BoardAppearanceStore
   }
   promptScheduler: PromptScheduler
+  // Per-context bridges the hub resolves lazily. Kept on the ctx (not just the
+  // module globals) so each context's hub routes to ITS scheduler/board/agents,
+  // not the active one. setActiveContext mirrors these to the globals.
+  scheduleBridge: ScheduleBridge
+  boardBridge: BoardBridge
+  agentBridge: AgentBridge
 }
 const contexts = new Map<string, WorkspaceCtx>()
 let activeWorkspaceId = 'tab-default'
@@ -115,6 +121,11 @@ function setActiveContext(ctx: WorkspaceCtx): void {
   boardStore = ctx.stores.board
   boardAppearanceStore = ctx.stores.boardAppearance
   promptScheduler = ctx.promptScheduler
+  // Mirror the ctx's bridges so the hub getters + approveProposalById (which
+  // read the module globals) resolve against the active workspace's wiring.
+  scheduleBridge = ctx.scheduleBridge
+  boardBridge = ctx.boardBridge
+  agentBridge = ctx.agentBridge
 }
 // Built after promptScheduler + autonomyStore are assigned; injected into the
 // hub via a getter so route handlers can schedule prompts / read autonomy.
@@ -1828,16 +1839,31 @@ function setupStaleTaskWatchdog(): void {
   }, STALE_TASK_CHECK_INTERVAL)
 }
 
-async function openProject(projectPath: string): Promise<void> {
-  // Close existing project if open
-  if (hub) await closeProject()
+/**
+ * Build a fully-wired, live project context for one workspace: its own hub
+ * (own port), DB, stores, scheduler, and bridges. Everything here is LOCAL —
+ * no module globals are assigned — so multiple contexts can run concurrently
+ * (Stage 3). `openProject`/tab-switch register the returned ctx and call
+ * `setActiveContext` to point the module globals (and the ~135 IPC handlers)
+ * at it. The channel hooks (persistence + UI push + Telegram relay) close over
+ * these locals, so each context persists to its OWN DB and relays via its own
+ * hub — while `mainWindow`, `agents`, `remoteWsHub`, and `telegramServer` stay
+ * global (shared surfaces). STAGE 3 will guard every UI push here
+ * (`mainWindow?.webContents.send(...)`) with `workspaceId === activeWorkspaceId`
+ * so a background workspace can't spam the active window; Telegram relay stays
+ * unguarded (all workspaces relay, prefixed by project). One context today.
+ */
+async function createWorkspaceContext(workspaceId: string, projectPath: string): Promise<WorkspaceCtx> {
+  // Ctx-local bridges. Declared before createHubServer so the hub's lazy
+  // getters can close over them; assigned once their backing state exists.
+  let scheduleBridge: ScheduleBridge | null = null
+  let boardBridge: BoardBridge | null = null
+  let agentBridge: AgentBridge | null = null
 
-  projectManager.initProject(projectPath)
-
-  // Initialize SQLite persistence at project path
-  let db
+  // Initialize SQLite persistence at this workspace's own project folder
+  let db: import('better-sqlite3').Database
   try {
-    db = createDatabase(projectManager.dbPath)
+    db = createDatabase(projectManager.dbPathFor(projectPath))
   } catch (err: any) {
     const msg = err?.message || String(err)
     if (msg.includes('NODE_MODULE_VERSION') || msg.includes('was compiled against')) {
@@ -1847,22 +1873,17 @@ async function openProject(projectPath: string): Promise<void> {
     }
     throw err
   }
-  currentDb = db
   const messageStore = new MessageStore(db)
-  currentMessageStore = messageStore
   const pinboardStore = new PinboardStore(db)
   const infoStore = new InfoStore(db)
   const inboxStore = new InboxStore(db)
   const proposalsStore = new ProposalsStore(db)
-  currentInboxStore = inboxStore
-  currentProposalsStore = proposalsStore
-  currentSchedulesStore = new SchedulesStore(db)
-  autonomyStore = new AutonomyStore(db)
-  armAutonomyExpiry()
-  boardStore = new BoardStore(db)
-  boardAppearanceStore = new BoardAppearanceStore(db)
+  const schedulesStore = new SchedulesStore(db)
+  const autonomyStore = new AutonomyStore(db)
+  const boardStore = new BoardStore(db)
+  const boardAppearanceStore = new BoardAppearanceStore(db)
 
-  hub = await createHubServer(0, () => scheduleBridge ?? undefined, () => boardBridge ?? undefined, () => agentBridge ?? undefined)
+  const hub = await createHubServer(0, () => scheduleBridge ?? undefined, () => boardBridge ?? undefined, () => agentBridge ?? undefined)
   hub.setProjectPath(projectPath)
   hub.setMessageStore(messageStore)
 
@@ -1880,7 +1901,7 @@ async function openProject(projectPath: string): Promise<void> {
     autoMode: false
   })
 
-  console.log(`Hub server running on port ${hub.port} for project: ${projectManager.currentProject!.name}`)
+  console.log(`Hub server running on port ${hub.port} for workspace ${workspaceId} (${path.basename(projectPath)})`)
 
   // Restore persisted state
   hub.pinboard.loadTasks(pinboardStore.loadTasks())
@@ -2036,15 +2057,13 @@ async function openProject(projectPath: string): Promise<void> {
     if (!managed) return null
     return managed.outputBuffer.getLines(lines)
   })
-  setupMessageNudge()
-  setupTaskNudge()
-  setupInfoNudge()
-  setupStaleTaskWatchdog()
-  loadLinkState()
+  // NOTE: setupMessageNudge/TaskNudge/InfoNudge/StaleTaskWatchdog + loadLinkState
+  // run in openProject AFTER setActiveContext — they read the module-global `hub`
+  // and WRAP the ctx callbacks set just above, so they can't run in the factory.
 
   // Scheduled prompts: instantiate, load, and start ticker
-  promptScheduler = new PromptScheduler({
-    store: currentSchedulesStore,
+  const promptScheduler = new PromptScheduler({
+    store: schedulesStore,
     clock: () => Date.now(),
     ptyWriter: (agentId, text) => {
       const managed = agents.get(agentId)
@@ -2118,9 +2137,8 @@ async function openProject(projectPath: string): Promise<void> {
       page: p.orderIndex, elementCount: p.elements.length, strokeCount: p.strokes.length
     })),
     renderPath: (n) => {
-      const root = projectManager.currentProject?.path
-      if (!root || !boardStore) return null
-      const rp = renderPathForPage(root, boardStore.listPages(), n)
+      if (!boardStore) return null
+      const rp = renderPathForPage(projectPath, boardStore.listPages(), n)
       if (rp === null) return null
       return fs.existsSync(rp) ? rp : ''
     }
@@ -2138,29 +2156,52 @@ async function openProject(projectPath: string): Promise<void> {
     }
   }
 
-  // Record this project as a live workspace context (P2b scaffolding — today
-  // there's exactly one; the multi-context machinery layers onto this map).
-  if (currentDb && currentSchedulesStore && autonomyStore && boardStore && boardAppearanceStore && promptScheduler) {
-    contexts.set(activeWorkspaceId, {
-      workspaceId: activeWorkspaceId,
-      projectPath,
-      hub,
-      db: currentDb,
-      stores: {
-        message: messageStore,
-        pinboard: pinboardStore,
-        info: infoStore,
-        inbox: inboxStore,
-        proposals: proposalsStore,
-        schedules: currentSchedulesStore,
-        autonomy: autonomyStore,
-        board: boardStore,
-        boardAppearance: boardAppearanceStore
-      },
-      promptScheduler
-    })
-    setActiveContext(contexts.get(activeWorkspaceId)!)
+  return {
+    workspaceId,
+    projectPath,
+    hub,
+    db,
+    stores: {
+      message: messageStore,
+      pinboard: pinboardStore,
+      info: infoStore,
+      inbox: inboxStore,
+      proposals: proposalsStore,
+      schedules: schedulesStore,
+      autonomy: autonomyStore,
+      board: boardStore,
+      boardAppearance: boardAppearanceStore
+    },
+    promptScheduler,
+    scheduleBridge: scheduleBridge!,
+    boardBridge: boardBridge!,
+    agentBridge: agentBridge!
   }
+}
+
+async function openProject(projectPath: string): Promise<void> {
+  // Close existing project if open (Stage 2: still exactly one active context)
+  if (hub) await closeProject()
+
+  projectManager.initProject(projectPath)
+
+  const ctx = await createWorkspaceContext(activeWorkspaceId, projectPath)
+  contexts.set(ctx.workspaceId, ctx)
+  setActiveContext(ctx)
+
+  // Autonomy expiry reads the module-global autonomyStore, which setActiveContext
+  // just assigned — arm it HERE, not in the factory (the factory's autonomyStore
+  // is a local; the global would still be stale). See minefield #1.
+  armAutonomyExpiry()
+
+  // Global one-time wiring against the now-active hub. setupTaskNudge/InfoNudge
+  // WRAP the factory's channel callbacks (they chain the persisted base
+  // callback), so they must run AFTER setActiveContext points `hub` at ctx.
+  setupMessageNudge()
+  setupTaskNudge()
+  setupInfoNudge()
+  setupStaleTaskWatchdog()
+  loadLinkState()
 
   // Update window title
   if (mainWindow) {
