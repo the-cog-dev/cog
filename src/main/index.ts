@@ -69,6 +69,53 @@ let boardAppearanceStore: BoardAppearanceStore | null = null
 let currentInboxStore: InboxStore | null = null
 let currentProposalsStore: ProposalsStore | null = null
 let promptScheduler: PromptScheduler | null = null
+
+/**
+ * A live per-workspace project context: its hub (own port), DB, stores, and
+ * scheduler. P2b builds toward N of these running concurrently (one per open
+ * workspace). Today the app runs exactly one; `contexts` records it so the
+ * multi-context machinery can be layered in behind a stable structure.
+ */
+interface WorkspaceCtx {
+  workspaceId: string
+  projectPath: string
+  hub: HubServer
+  db: import('better-sqlite3').Database
+  stores: {
+    message: MessageStore
+    pinboard: PinboardStore
+    info: InfoStore
+    inbox: InboxStore
+    proposals: ProposalsStore
+    schedules: SchedulesStore
+    autonomy: AutonomyStore
+    board: BoardStore
+    boardAppearance: BoardAppearanceStore
+  }
+  promptScheduler: PromptScheduler
+}
+const contexts = new Map<string, WorkspaceCtx>()
+let activeWorkspaceId = 'tab-default'
+
+/**
+ * Point the module-level globals at a workspace context. Every existing IPC
+ * handler reads these globals, so this is the single switch that makes the
+ * active workspace drive the whole app. (Stage 3 calls this on tab switch;
+ * today it's called once per open, reasserting the just-created context.)
+ */
+function setActiveContext(ctx: WorkspaceCtx): void {
+  activeWorkspaceId = ctx.workspaceId
+  hub = ctx.hub
+  currentDb = ctx.db
+  currentMessageStore = ctx.stores.message
+  currentInboxStore = ctx.stores.inbox
+  currentProposalsStore = ctx.stores.proposals
+  currentSchedulesStore = ctx.stores.schedules
+  autonomyStore = ctx.stores.autonomy
+  boardStore = ctx.stores.board
+  boardAppearanceStore = ctx.stores.boardAppearance
+  promptScheduler = ctx.promptScheduler
+}
 // Built after promptScheduler + autonomyStore are assigned; injected into the
 // hub via a getter so route handlers can schedule prompts / read autonomy.
 // Module-level so a later task (approveProposal) can reach it too.
@@ -2091,6 +2138,30 @@ async function openProject(projectPath: string): Promise<void> {
     }
   }
 
+  // Record this project as a live workspace context (P2b scaffolding — today
+  // there's exactly one; the multi-context machinery layers onto this map).
+  if (currentDb && currentSchedulesStore && autonomyStore && boardStore && boardAppearanceStore && promptScheduler) {
+    contexts.set(activeWorkspaceId, {
+      workspaceId: activeWorkspaceId,
+      projectPath,
+      hub,
+      db: currentDb,
+      stores: {
+        message: messageStore,
+        pinboard: pinboardStore,
+        info: infoStore,
+        inbox: inboxStore,
+        proposals: proposalsStore,
+        schedules: currentSchedulesStore,
+        autonomy: autonomyStore,
+        board: boardStore,
+        boardAppearance: boardAppearanceStore
+      },
+      promptScheduler
+    })
+    setActiveContext(contexts.get(activeWorkspaceId)!)
+  }
+
   // Update window title
   if (mainWindow) {
     mainWindow.setTitle(`The Cog — ${projectManager.currentProject!.name}`)
@@ -2131,6 +2202,7 @@ async function closeProject(): Promise<void> {
 
   // Close hub
   hub?.close()
+  contexts.delete(activeWorkspaceId)
 
   // Close DB
   if (currentDb) {
