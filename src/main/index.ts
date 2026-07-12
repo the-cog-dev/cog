@@ -37,6 +37,7 @@ import { PairingManager } from './telegram/pairing-manager'
 import { TelegramServer, validateBotToken } from './telegram/telegram-server'
 import { GatewayCoordinator } from './telegram/gateway-coordinator'
 import { WorkspaceManager, DEFAULT_WORKSPACE_ID } from './workspace/workspace-manager'
+import { ContextRegistry } from './workspace/context-registry'
 import { stripAnsi } from './telegram/ansi'
 import type { OrchestratorBridge, ProposalView } from './telegram/bridge'
 import { sanitizeFilename, isTextFile, isImageFile, buildAttachmentMessage, TEXT_INLINE_LIMIT } from './telegram/attachment'
@@ -100,17 +101,33 @@ interface WorkspaceCtx {
   boardBridge: BoardBridge
   agentBridge: AgentBridge
 }
-const contexts = new Map<string, WorkspaceCtx>()
-let activeWorkspaceId = DEFAULT_WORKSPACE_ID
+/**
+ * The live per-workspace contexts + which one is active. This is the pure state
+ * machine (own unit tests in context-registry.test.ts); all Electron/DB/hub side
+ * effects are the hooks below. `contextRegistry.activeId` replaces the old
+ * `activeWorkspaceId` global — it's the single source of truth for "which
+ * workspace drives the UI", read by the factory's UI-push guards and the
+ * lifecycle wrappers.
+ */
+const contextRegistry = new ContextRegistry<WorkspaceCtx>({
+  create: async (id, projectPath) => {
+    // Ensure the folder's .cog dir exists (createDatabase won't mkdir) + point
+    // currentProject here before the factory opens the DB.
+    projectManager.initProject(projectPath)
+    return createWorkspaceContext(id, projectPath)
+  },
+  onActivate: (_id, ctx) => applyActiveContext(ctx),
+  projectPathFor: (id) => workspaceManager?.projectPathFor(id) ?? null,
+  closeCtx: (id, ctx) => closeCtxResources(id, ctx)
+}, DEFAULT_WORKSPACE_ID)
 
 /**
  * Point the module-level globals at a workspace context. Every existing IPC
  * handler reads these globals, so this is the single switch that makes the
- * active workspace drive the whole app. (Stage 3 calls this on tab switch;
- * today it's called once per open, reasserting the just-created context.)
+ * active workspace drive the whole app. (Called by the registry's onActivate
+ * hook via applyActiveContext, on every activate/adopt.)
  */
 function setActiveContext(ctx: WorkspaceCtx): void {
-  activeWorkspaceId = ctx.workspaceId
   hub = ctx.hub
   currentDb = ctx.db
   currentMessageStore = ctx.stores.message
@@ -1847,9 +1864,9 @@ function setupStaleTaskWatchdog(): void {
  * at it. The channel hooks (persistence + UI push + Telegram relay) close over
  * these locals, so each context persists to its OWN DB and relays via its own
  * hub — while `mainWindow`, `agents`, `remoteWsHub`, and `telegramServer` stay
- * global (shared surfaces). STAGE 3 will guard every UI push here
- * (`mainWindow?.webContents.send(...)`) with `workspaceId === activeWorkspaceId`
- * so a background workspace can't spam the active window; Telegram relay stays
+ * global (shared surfaces). Every UI push here goes through sendToUi/pushRemote,
+ * which fire only when `contextRegistry.isActive(workspaceId)` is true, so a
+ * background workspace can't spam the active window; Telegram relay stays
  * unguarded (all workspaces relay, prefixed by project). One context today.
  */
 async function createWorkspaceContext(workspaceId: string, projectPath: string): Promise<WorkspaceCtx> {
@@ -1862,12 +1879,12 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
   // UI + remote pushes fire ONLY when this context is the active one — a
   // background workspace persists to its own DB and relays to Telegram, but must
   // not clobber the visible workspace's panels. Evaluated at callback-fire time
-  // (activeWorkspaceId is a module global; workspaceId is this ctx's fixed id).
+  // (contextRegistry.activeId is the live active id; workspaceId is this ctx's).
   const sendToUi = (channel: string, ...payload: unknown[]): void => {
-    if (workspaceId === activeWorkspaceId) mainWindow?.webContents.send(channel, ...payload)
+    if (contextRegistry.isActive(workspaceId)) mainWindow?.webContents.send(channel, ...payload)
   }
   const pushRemote = (keys: Array<'agents' | 'schedules' | 'inbox' | 'pinboard' | 'info'>): void => {
-    if (workspaceId === activeWorkspaceId) remoteWsHub?.pushStateDelta(keys)
+    if (contextRegistry.isActive(workspaceId)) remoteWsHub?.pushStateDelta(keys)
   }
 
   // Initialize SQLite persistence at this workspace's own project folder
@@ -2045,7 +2062,7 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
     // actionable on the go (and shows in the desktop modal once you switch to it).
     void telegramServer?.relayProposal(toProposalView(proposal))
     // Show the main window so the user notices the modal (active workspace only)
-    if (workspaceId === activeWorkspaceId && mainWindow && !mainWindow.isFocused()) {
+    if (contextRegistry.isActive(workspaceId) && mainWindow && !mainWindow.isFocused()) {
       mainWindow.show()
       mainWindow.flashFrame(true)
     }
@@ -2201,51 +2218,40 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
 async function openProject(projectPath: string): Promise<void> {
   // Replace the ACTIVE workspace's context only — other live contexts keep
   // running (this is the "open a different project into this tab" path).
-  if (contexts.has(activeWorkspaceId)) await closeActiveContext()
+  if (contextRegistry.has(contextRegistry.activeId)) await closeActiveContext()
 
-  projectManager.initProject(projectPath)
-
-  const ctx = await createWorkspaceContext(activeWorkspaceId, projectPath)
-  contexts.set(ctx.workspaceId, ctx)
-  setActiveContext(ctx)
-
-  // Autonomy expiry reads the module-global autonomyStore, which setActiveContext
-  // just assigned — arm it HERE, not in the factory (the factory's autonomyStore
-  // is a local; the global would still be stale). See minefield #1.
-  armAutonomyExpiry()
-
-  // Single active-only stale-task watchdog, armed against the now-active hub.
-  // (Nudge wiring is per-context inside the factory.)
-  setupStaleTaskWatchdog()
-
-  // Update window title
-  if (mainWindow) {
-    mainWindow.setTitle(`The Cog — ${projectManager.currentProject!.name}`)
-    mainWindow.webContents.send(IPC.PROJECT_CHANGED, projectManager.currentProject)
-  }
+  const id = contextRegistry.activeId
+  projectManager.initProject(projectPath) // migrate + mkdir .cog so the factory's DB open succeeds
+  const ctx = await createWorkspaceContext(id, projectPath)
+  // adopt registers + activates (runs applyActiveContext: globals + autonomy +
+  // watchdog + title + panel refresh).
+  contextRegistry.adopt(id, ctx)
 }
 
 /**
- * Switch the active workspace to `id`, creating its context on first activation
- * (lazy). Points the module globals + projectManager + UI at it WITHOUT tearing
- * down any other live context, then refreshes the renderer's panels. If the
- * workspace has no bound folder and no existing context, this is a no-op (the
- * previous context stays active).
+ * Switch the active workspace to `id`, lazy-creating its context on first
+ * activation, reusing the live one otherwise — WITHOUT tearing down any other
+ * context. Unbound + never-created workspaces are a no-op (previous stays
+ * active). The registry runs applyActiveContext via its onActivate hook.
  */
 async function activateWorkspace(id: string): Promise<void> {
-  let ctx = contexts.get(id)
-  if (!ctx) {
-    const wsPath = workspaceManager?.projectPathFor(id)
-    if (!wsPath) return // unbound workspace — nothing to open
-    projectManager.initProject(wsPath) // migrate + mkdir .cog + set currentProject (so createDatabase's dir exists)
-    ctx = await createWorkspaceContext(id, wsPath)
-    contexts.set(id, ctx)
-  } else {
-    projectManager.initProject(ctx.projectPath) // re-point currentProject at this workspace's folder (idempotent)
-  }
+  await contextRegistry.activate(id)
+}
+
+/**
+ * The registry's onActivate hook: repoint the module globals + projectManager +
+ * UI at `ctx`, then refresh the renderer's panels. Runs on every activate/adopt
+ * (freshly-created or reused), after contextRegistry.activeId is updated.
+ */
+function applyActiveContext(ctx: WorkspaceCtx): void {
   setActiveContext(ctx)
+  projectManager.initProject(ctx.projectPath) // point currentProject at this workspace's folder (idempotent)
+  // Autonomy expiry reads the module-global autonomyStore, set by
+  // setActiveContext above — arm it here (minefield #1).
   armAutonomyExpiry()
-  setupStaleTaskWatchdog() // re-arm the single active-only watchdog against the now-active hub
+  // Single active-only stale-task watchdog, re-armed against the now-active hub.
+  // (Per-context nudge wiring lives in the factory.)
+  setupStaleTaskWatchdog()
   if (mainWindow) {
     mainWindow.setTitle(`The Cog — ${projectManager.currentProject!.name}`)
     mainWindow.webContents.send(IPC.PROJECT_CHANGED, projectManager.currentProject)
@@ -2269,13 +2275,12 @@ function pushActiveContextState(): void {
 }
 
 /**
- * Teardown for ONE workspace context: kill its agents (matched by workspace
- * tabId), stop its scheduler, close its hub + DB, drop it from the registry.
- * Leaves every OTHER live context and the active-only globals untouched.
+ * The registry's closeCtx hook: tear down ONE context's own resources — kill its
+ * agents (matched by workspace tabId), stop its scheduler, close its hub + DB.
+ * The registry drops it from the map; this leaves every OTHER context and the
+ * active-only globals untouched.
  */
-async function closeWorkspaceContext(id: string): Promise<void> {
-  const ctx = contexts.get(id)
-  if (!ctx) return
+function closeCtxResources(id: string, ctx: WorkspaceCtx): void {
   for (const [agentId, managed] of [...agents.entries()]) {
     const effTab = managed.config.tabId || DEFAULT_WORKSPACE_ID
     if (effTab !== id) continue
@@ -2294,7 +2299,11 @@ async function closeWorkspaceContext(id: string): Promise<void> {
   try { ctx.promptScheduler.stopTicker() } catch { /* noop */ }
   ctx.hub.close()
   try { ctx.db.close() } catch { /* already closed */ }
-  contexts.delete(id)
+}
+
+/** Tear down ONE workspace context (its agents, scheduler, hub, DB). */
+async function closeWorkspaceContext(id: string): Promise<void> {
+  await contextRegistry.closeOne(id)
 }
 
 /**
@@ -2306,7 +2315,7 @@ async function closeActiveContext(): Promise<void> {
   if (staleTaskTimer) { clearInterval(staleTaskTimer); staleTaskTimer = null }
   if (autonomyExpiryTimer) { clearTimeout(autonomyExpiryTimer); autonomyExpiryTimer = null }
   await disableRemoteView()
-  await closeWorkspaceContext(activeWorkspaceId)
+  await contextRegistry.closeOne(contextRegistry.activeId)
   // Null the active globals now the active hub/DB are closed; IPC handlers fall
   // back gracefully (?? / null-guards) until a context is activated again.
   promptScheduler = null
@@ -2332,9 +2341,7 @@ async function closeAllContexts(): Promise<void> {
   if (staleTaskTimer) { clearInterval(staleTaskTimer); staleTaskTimer = null }
   if (autonomyExpiryTimer) { clearTimeout(autonomyExpiryTimer); autonomyExpiryTimer = null }
   await disableRemoteView()
-  for (const id of [...contexts.keys()]) {
-    await closeWorkspaceContext(id)
-  }
+  await contextRegistry.closeAll()
   if (mainWindow) mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, [])
 }
 
@@ -3268,7 +3275,7 @@ function setupIPC(): void {
 
   ipcMain.handle(IPC.TAB_CLOSE, async (_event, tabId: string) => {
     if (!workspaceManager || workspaceManager.list().length <= 1) return { error: 'Cannot close last tab' }
-    const wasActive = tabId === activeWorkspaceId
+    const wasActive = tabId === contextRegistry.activeId
     // Tear down this workspace's whole context (its agents, scheduler, hub, DB).
     await closeWorkspaceContext(tabId)
     const activeId = workspaceManager.remove(tabId)
