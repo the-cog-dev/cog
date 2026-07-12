@@ -1,5 +1,19 @@
 # P2b Execution Plan — concurrent per-workspace contexts (N hubs)
 
+> **STATUS: COMPLETE (Stages 1–5).** All stages implemented on
+> `feat/telegram-workspaces`. The context lifecycle was extracted into a pure,
+> unit-tested state machine — `src/main/workspace/context-registry.ts` — that
+> `index.ts` delegates to. Automated smoke suite:
+> `npx vitest run src/main/workspace` (14 ContextRegistry cases +
+> WorkspaceManager cases; encodes the Stage 3–5 acceptance with fake contexts —
+> no Electron/DB needed, so it runs despite the better-sqlite3 ABI issue).
+> Commits: 03e405b (S2), fc5b8bf (S3), 52c654b (registry+smoke), 2ff286a (S4),
+> 04245b4 (S5). Remaining: a live desktop run to confirm end-to-end (multi-team
+> concurrency, switch, background progress) — the smoke suite covers the logic;
+> only the real hub/DB wiring is unexercised by tests on this machine.
+
+
+
 Self-contained plan for a fresh (post-compaction) agent to execute cold. Goal:
 each open workspace runs its own project context (own hub + DB + stores +
 scheduler) concurrently in one process; the active workspace drives the UI; each
