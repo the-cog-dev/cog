@@ -128,6 +128,17 @@ export class ContextRegistry<Ctx> {
   }
 
   /**
+   * From a workspace list, the ids whose context should be brought live at boot
+   * (Stage 5 restore): folder-bound (has a projectPath), not the active one
+   * (already open), and not already live. Preserves list order.
+   */
+  pendingRestore(workspaces: Array<{ id: string; projectPath?: string | null }>): string[] {
+    return workspaces
+      .filter((w) => !!w.projectPath && w.id !== this._activeId && !this.map.has(w.id))
+      .map((w) => w.id)
+  }
+
+  /**
    * Tear down exactly ONE context and drop it from the registry. Leaves every
    * other context and the `activeId` pointer untouched — the caller decides
    * what to activate next if it closed the active one.

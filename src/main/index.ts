@@ -2261,6 +2261,33 @@ async function activateWorkspace(id: string): Promise<void> {
 }
 
 /**
+ * Stage 5 — boot restore. Bring every OTHER folder-bound workspace's context
+ * live in the background (own hub + DB + scheduler), so their teams reconnect
+ * and keep working immediately after launch instead of only on first switch.
+ * The active context is already open (via openProject); unbound workspaces are
+ * created lazily on first activation. Uses ensureProjectDir (not initProject)
+ * so opening a background DB never stomps the active project. A single failure
+ * is logged and skipped — one bad folder must not block the rest.
+ */
+async function restoreBackgroundWorkspaces(): Promise<void> {
+  if (!workspaceManager) return
+  const list = workspaceManager.list()
+  const pathById = new Map(list.map((w) => [w.id, w.projectPath]))
+  for (const id of contextRegistry.pendingRestore(list)) {
+    const projectPath = pathById.get(id)
+    if (!projectPath) continue // narrowed by pendingRestore, re-checked for the type guard
+    try {
+      projectManager.ensureProjectDir(projectPath)
+      const ctx = await createWorkspaceContext(id, projectPath)
+      contextRegistry.register(ctx.workspaceId, ctx) // live but NOT active
+      console.log(`[workspaces] restored background context ${id} (${path.basename(projectPath)})`)
+    } catch (err: any) {
+      console.error(`[workspaces] failed to restore ${id} (${projectPath}):`, err?.message)
+    }
+  }
+}
+
+/**
  * The registry's onActivate hook: repoint the module globals + projectManager +
  * UI at `ctx`, then refresh the renderer's panels. Runs on every activate/adopt
  * (freshly-created or reused), after contextRegistry.activeId is updated.
@@ -3560,6 +3587,9 @@ async function main(): Promise<void> {
   const lastProject = projectManager.getLastProject()
   if (lastProject) {
     await openProject(lastProject.path)
+    // Stage 5: bring the other folder-bound workspaces live in the background so
+    // their teams reconnect immediately (not just on first switch).
+    await restoreBackgroundWorkspaces()
   } else {
     // No project history — renderer will show project picker
     mainWindow.webContents.send(IPC.PROJECT_CHANGED, null)

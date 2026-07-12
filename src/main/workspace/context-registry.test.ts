@@ -275,6 +275,30 @@ describe('ContextRegistry — boot restore (Stage 5)', () => {
     expect(switched).toBe(bg2)
     expect(h.createdIds).toEqual([])
   })
+
+  it('pendingRestore selects bound, non-active, not-yet-live workspaces', async () => {
+    const h = makeHarness()
+    await adoptFresh(h, DEFAULT, '/p1') // active
+    const bg2: FakeCtx = { id: 'ws2', projectPath: '/p2', alive: true, schedulerRunning: true, hubClosed: false, dbClosed: false, agents: [] }
+    h.registry.register('ws2', bg2) // already live
+
+    const list = [
+      { id: DEFAULT, projectPath: '/p1' }, // active -> skip
+      { id: 'ws2', projectPath: '/p2' },   // already live -> skip
+      { id: 'ws3', projectPath: '/p3' },   // bound, not live -> restore
+      { id: 'ws4', projectPath: undefined },        // unbound -> skip (lazy on switch)
+      { id: 'ws5', projectPath: null }              // unbound -> skip
+    ]
+
+    expect(h.registry.pendingRestore(list)).toEqual(['ws3'])
+  })
+
+  it('pendingRestore returns empty when everything is active or already live', async () => {
+    const h = makeHarness()
+    await adoptFresh(h, DEFAULT, '/p1')
+    expect(h.registry.pendingRestore([{ id: DEFAULT, projectPath: '/p1' }])).toEqual([])
+    expect(h.registry.pendingRestore([])).toEqual([])
+  })
 })
 
 describe('ContextRegistry — end-to-end narrative', () => {

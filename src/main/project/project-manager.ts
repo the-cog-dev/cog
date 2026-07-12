@@ -222,7 +222,13 @@ export class ProjectManager {
     return path.join(this._current.path, COG_DIR, 'presets')
   }
 
-  initProject(projectPath: string): void {
+  /**
+   * Ensure a project folder's `.cog/` scaffolding exists (legacy migration +
+   * presets dir + .gitignore) WITHOUT changing which project is current. Used
+   * to open a background workspace's DB without stomping the active project
+   * (concurrent contexts). initProject() is this plus setting `currentProject`.
+   */
+  ensureProjectDir(projectPath: string): void {
     // Migrate legacy .agentorch/ folder if present (one-time, seamless for existing users)
     migrateLegacyFolder(projectPath)
 
@@ -235,6 +241,10 @@ export class ProjectManager {
     if (!fs.existsSync(gitignorePath)) {
       fs.writeFileSync(gitignorePath, GITIGNORE_CONTENT, 'utf-8')
     }
+  }
+
+  initProject(projectPath: string): void {
+    this.ensureProjectDir(projectPath)
 
     this._current = {
       path: projectPath,
