@@ -1225,18 +1225,27 @@ function injectPrompt(managed: ManagedPty, prompt: string, delayMs: number): voi
   }, delayMs)
 }
 
+// The hub an agent belongs to: its workspace context's hub if that context is
+// live, else the active hub (Stage 4 routing). Agents connect via the baked
+// HUB_URL, so their registry entry + inbox/tasks land on THIS hub's DB —
+// spawning a team in workspace B must reach B's hub, not whichever is active.
+function hubForConfig(config: AgentConfig): HubServer {
+  return contextRegistry.resolveForSpawn(config.tabId)?.hub ?? hub
+}
+
 // Build the env-var block passed to the PTY for MCP server discovery.
 // Dual-emits COG_* (new) and AGENTORCH_* (legacy) so in-flight agents keep
 // working across the rebrand. The AGENTORCH_* aliases can be dropped in a
 // future release.
 function buildMcpEnv(config: AgentConfig): Record<string, string> {
+  const h = hubForConfig(config)
   const env: Record<string, string> = {
-    COG_HUB_PORT: String(hub.port),
-    COG_HUB_SECRET: hub.secret,
+    COG_HUB_PORT: String(h.port),
+    COG_HUB_SECRET: h.secret,
     COG_AGENT_ID: config.id,
     COG_AGENT_NAME: config.name,
-    AGENTORCH_HUB_PORT: String(hub.port),
-    AGENTORCH_HUB_SECRET: hub.secret,
+    AGENTORCH_HUB_PORT: String(h.port),
+    AGENTORCH_HUB_SECRET: h.secret,
     AGENTORCH_AGENT_ID: config.id,
     AGENTORCH_AGENT_NAME: config.name
   }
@@ -1260,11 +1269,12 @@ let piAdapterEnsured = false
 // per-agent dir via the pi-mcp-adapter; every other CLI uses the flag-based
 // tmp file. Returns the path to write into the agent's launch/env.
 function prepareAgentMcpConfig(config: AgentConfig, mcpServerPath: string): string {
+  const h = hubForConfig(config)
   const opts = {
     agentId: config.id,
     agentName: config.name,
-    hubPort: hub.port,
-    hubSecret: hub.secret,
+    hubPort: h.port,
+    hubSecret: h.secret,
     mcpServerPath
   }
   if (config.cli === 'pi') return writePiAgentConfig(opts).configPath
@@ -1282,6 +1292,13 @@ function spawnPtyAndWire(
   mcpEnv: Record<string, string>
 ): void {
   const mcpServerPath = getMcpServerPath()
+  // The agent's OWN context hub (Stage 4): its registry + PTY-lifecycle status
+  // updates target this hub, not whichever workspace is active. Full-list UI
+  // pushes are guarded so a background workspace's agent can't clobber the
+  // visible agent list; per-agent PTY_OUTPUT/PTY_EXIT stay unguarded (the
+  // renderer buffers/routes them by agent id).
+  const h = hubForConfig(config)
+  const spawnTab = config.tabId || DEFAULT_WORKSPACE_ID
 
   const managed = spawnAgentPty({
     config,
@@ -1294,9 +1311,9 @@ function spawnPtyAndWire(
       remoteWsHub?.pushAgentOutput(config.id, typeof data === 'string' ? data : String(data))
     },
     onExit: (exitCode) => {
-      hub.registry.updateStatus(config.name, 'disconnected')
+      h.registry.updateStatus(config.name, 'disconnected')
       mainWindow.webContents.send(IPC.PTY_EXIT, config.id, exitCode)
-      mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
+      if (contextRegistry.isActive(spawnTab)) mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
       if (config.cli === 'pi') {
         cleanupPiAgentDir(piAgentDir(config.id))
       } else if (managed.mcpConfigPath) {
@@ -1317,9 +1334,11 @@ function spawnPtyAndWire(
       }
     },
     onStatusChange: (status) => {
-      hub.registry.updateStatus(config.name, status)
-      mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
-      remoteWsHub?.pushStateDelta(['agents'])
+      h.registry.updateStatus(config.name, status)
+      if (contextRegistry.isActive(spawnTab)) {
+        mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
+        remoteWsHub?.pushStateDelta(['agents'])
+      }
 
       // Status-driven prompt injection: inject when CLI first reaches prompt
       if (status === 'active' && !hasReceivedInitialPrompt.has(config.id)) {
@@ -1338,10 +1357,10 @@ function spawnPtyAndWire(
   })
 
   agents.set(config.id, managed)
-  mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
+  if (contextRegistry.isActive(spawnTab)) mainWindow.webContents.send(IPC.AGENT_STATE_UPDATE, getVisibleAgents())
 
   const ensurePiAdapter = config.cli === 'pi' && !piAdapterEnsured
-  const cmds = buildCliLaunchCommands(config, mcpConfigPath, mcpServerPath, hub.port, hub.secret, ensurePiAdapter)
+  const cmds = buildCliLaunchCommands(config, mcpConfigPath, mcpServerPath, h.port, h.secret, ensurePiAdapter)
   if (ensurePiAdapter) piAdapterEnsured = true
   if (cmds) {
     let delay = 1000
@@ -1448,14 +1467,17 @@ function handleSpawnAgent(config: AgentConfig): { id: string; mcpConfigPath: str
 
   const mcpEnv = buildMcpEnv(config)
 
-  hub.registry.register(config)
-  hub.agentMetrics.register(config.name)
+  // Register on the agent's OWN context hub (Stage 4) so its registry entry +
+  // metrics live with the workspace it belongs to, not whichever is active.
+  const h = hubForConfig(config)
+  h.registry.register(config)
+  h.agentMetrics.register(config.name)
 
   // Compose skill prompts into ceoNotes
   if (config.skills && config.skills.length > 0) {
     const skillPrompt = skillManager.resolveSkillPrompts(config.skills)
     if (skillPrompt) {
-      const registered = hub.registry.get(config.name)
+      const registered = h.registry.get(config.name)
       if (registered) {
         registered.ceoNotes = [skillPrompt, registered.ceoNotes].filter(Boolean).join('\n\n')
       }
