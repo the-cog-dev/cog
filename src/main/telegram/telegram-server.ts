@@ -559,7 +559,8 @@ export class TelegramServer {
     try {
       const existing = this.topics.threadFor(workspaceId)
       if (existing !== undefined) {
-        await this.bot.api.reopenForumTopic(chatId, existing).catch(() => { /* already open */ })
+        await this.bot.api.reopenForumTopic(chatId, existing).catch((err) =>
+          this.log(`ensureTopic reopen(${workspaceId}) failed: ${err instanceof Error ? err.message : String(err)}`))
         return existing
       }
       const topic = await this.bot.api.createForumTopic(chatId, name)
@@ -573,7 +574,7 @@ export class TelegramServer {
 
   async closeTopic(workspaceId: string): Promise<void> {
     const threadId = this.topics.threadFor(workspaceId)
-    if (this.mode !== 'topics' || !this.supergroupChatId || !this.bot || threadId === undefined) return
+    if (this.mode !== 'topics' || !this.supergroupChatId || !this.bot || !this.ready || threadId === undefined) return
     await this.bot.api.closeForumTopic(this.supergroupChatId, threadId).catch((err) => {
       this.log(`closeTopic(${workspaceId}) failed: ${err instanceof Error ? err.message : String(err)}`)
     })
@@ -581,7 +582,7 @@ export class TelegramServer {
 
   async renameTopic(workspaceId: string, name: string): Promise<void> {
     const threadId = this.topics.threadFor(workspaceId)
-    if (this.mode !== 'topics' || !this.supergroupChatId || !this.bot || threadId === undefined) return
+    if (this.mode !== 'topics' || !this.supergroupChatId || !this.bot || !this.ready || threadId === undefined) return
     if (!this.topics.rename(workspaceId, name)) return
     await this.bot.api.editForumTopic(this.supergroupChatId, threadId, { name }).catch((err) => {
       this.log(`renameTopic(${workspaceId}) failed: ${err instanceof Error ? err.message : String(err)}`)

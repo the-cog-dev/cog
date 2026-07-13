@@ -133,6 +133,24 @@ describe('TelegramServer topic lifecycle', () => {
     expect(fakeBotApi.editForumTopic).toHaveBeenCalledWith(-100, 7, { name: 'Beta' })
   })
 
+  it('closeTopic no-ops (no grammY call) when not in topics mode', async () => {
+    const server = await makeTopicsServer(fakeBridge)
+    await server.ensureTopic('ws1', 'Alpha')   // thread stored while in topics mode
+    server.setTopicsMode('dm')                  // flip out of topics mode
+
+    await server.closeTopic('ws1')
+    expect(fakeBotApi.closeForumTopic).not.toHaveBeenCalled()
+  })
+
+  it('renameTopic no-ops (no grammY call) when not in topics mode', async () => {
+    const server = await makeTopicsServer(fakeBridge)
+    await server.ensureTopic('ws1', 'Alpha')
+    server.setTopicsMode('dm')
+
+    await server.renameTopic('ws1', 'Beta')
+    expect(fakeBotApi.editForumTopic).not.toHaveBeenCalled()
+  })
+
   it('setTopicsMode/getTopicsMode round-trip', () => {
     const server = new TelegramServer({ pairing: new PairingManager(), bridge: fakeBridge })
     expect(server.getTopicsMode()).toEqual({ mode: 'dm', supergroupChatId: undefined })
