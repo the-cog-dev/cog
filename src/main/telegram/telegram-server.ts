@@ -41,6 +41,21 @@ export interface FederationGateway {
   aggregateTargets(): Promise<Array<{ project: string; isSelf: boolean; targets: { name: string; role: string; status: string }[] }>>
 }
 
+/**
+ * Topics mode's inbound seam: routes a thread reply to that specific
+ * workspace's orchestrator (as opposed to `bridge`, which addresses whichever
+ * head the chat is currently pointed at). Implemented by the main process
+ * against the per-workspace hub; the bot never imports it directly.
+ */
+export interface WorkspaceRouter {
+  /** Route text to the orchestrator of a specific workspace's hub. */
+  sendToWorkspace(workspaceId: string, text: string): { ok: boolean; detail?: string }
+  /** Orchestrator-status view for one workspace (for thread-scoped /status). */
+  workspaceStatus(workspaceId: string): { name: string; role: string; status: string }[]
+  /** Save + route an incoming attachment to a specific workspace's orchestrator. */
+  sendFileToWorkspace(workspaceId: string, file: IncomingFile): { ok: boolean; relPath?: string; detail?: string }
+}
+
 export interface TelegramServerOptions {
   pairing: PairingManager
   /**
@@ -49,6 +64,12 @@ export interface TelegramServerOptions {
    * (Phase 0) and the bot is pairing-only.
    */
   bridge?: OrchestratorBridge
+  /**
+   * Topics mode's inbound router. When set and mode==='topics', a thread reply
+   * (message_thread_id present) routes to that workspace's orchestrator instead
+   * of falling through to `bridge`'s single active-head routing.
+   */
+  workspaceRouter?: WorkspaceRouter
   /** This Cog's project name — prefixed onto every relayed message so multiple
    *  instances sharing one bot are distinguishable in the DM. */
   project?: string
@@ -108,6 +129,7 @@ export class TelegramServer {
   private polling = false   // long-poll active → can RECEIVE (gateway only)
   private readonly pairing: PairingManager
   private readonly bridge?: OrchestratorBridge
+  private readonly workspaceRouter?: WorkspaceRouter
   private readonly project?: string
   private readonly gateway?: FederationGateway
   private readonly router: ChatRouter
@@ -133,6 +155,7 @@ export class TelegramServer {
   constructor(opts: TelegramServerOptions) {
     this.pairing = opts.pairing
     this.bridge = opts.bridge
+    this.workspaceRouter = opts.workspaceRouter
     this.project = opts.project
     this.gateway = opts.gateway
     this.router = new ChatRouter({
@@ -417,6 +440,20 @@ export class TelegramServer {
     // ── Plain text → the chat's active head (or active Cog, if federated) ───
     bot.on('message:text', async (ctx) => {
       if (ctx.message.text.startsWith('/')) return  // unmatched command — ignore
+
+      // Topics mode: a reply inside a workspace's thread routes straight to
+      // that workspace's orchestrator, bypassing the chat's active-head
+      // routing below entirely. The General topic (no thread id) and DM mode
+      // fall through unchanged.
+      const threadId = ctx.message.message_thread_id
+      if (this.mode === 'topics' && threadId !== undefined && this.workspaceRouter) {
+        const workspaceId = this.topics.workspaceFor(threadId)
+        if (!workspaceId) { await ctx.reply('This thread isn\'t linked to a live workspace.'); return }
+        const res = this.workspaceRouter.sendToWorkspace(workspaceId, ctx.message.text)
+        if (!res.ok) await ctx.reply(`❌ ${res.detail ?? 'Couldn\'t reach that workspace\'s orchestrator.'}`)
+        return
+      }
+
       const chatId = ctx.chat!.id
 
       // Multi-instance: if the chat is addressing a *different* Cog, forward the
@@ -441,6 +478,30 @@ export class TelegramServer {
     // Download the bytes here (we have the bot token), then let the bridge save
     // them into the project and route them to the agent.
     bot.on(['message:document', 'message:photo'], async (ctx) => {
+      // Topics mode: same thread-scoped routing as message:text, but for the
+      // downloaded attachment. General topic / DM mode fall through unchanged.
+      const threadId = ctx.message.message_thread_id
+      if (this.mode === 'topics' && threadId !== undefined && this.workspaceRouter) {
+        const workspaceRouter = this.workspaceRouter
+        const workspaceId = this.topics.workspaceFor(threadId)
+        if (!workspaceId) { await ctx.reply('This thread isn\'t linked to a live workspace.'); return }
+
+        let file: IncomingFile
+        try {
+          file = await this.downloadAttachment(ctx)
+        } catch (err) {
+          this.log(`attachment download failed: ${err instanceof Error ? err.message : String(err)}`)
+          await ctx.reply('❌ Couldn\'t download that file from Telegram (it may be too large — the bot limit is 20 MB).')
+          return
+        }
+
+        const res = workspaceRouter.sendFileToWorkspace(workspaceId, file)
+        await ctx.reply(res.ok
+          ? `📎 Sent ${file.filename} to the workspace.`
+          : `❌ ${res.detail ?? 'Couldn\'t hand that file to the workspace\'s orchestrator.'}`)
+        return
+      }
+
       const bridge = this.bridge
       if (!bridge) { await ctx.reply('Orchestration isn\'t wired up yet.'); return }
       const target = this.router.effectiveTarget(ctx.chat!.id, bridge.listTargets())

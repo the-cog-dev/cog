@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { TelegramServer, type TelegramServerOptions } from './telegram-server'
+import { TelegramServer, type TelegramServerOptions, type WorkspaceRouter } from './telegram-server'
 import { PairingManager } from './pairing-manager'
 import type { OrchestratorBridge } from './bridge'
 
@@ -20,6 +20,11 @@ const fakeBotApi = {
 // grammY-handler code without a network-backed bot.
 let lastCommandHandlers: Record<string, (ctx: any) => unknown> = {}
 
+// Same idea for bot.on(...) handlers (e.g. 'message:text', 'message:document'),
+// keyed by event name. grammY's .on() accepts either a single event string or
+// an array of them (as the document/photo handler does) — capture under each.
+let lastOnHandlers: Record<string, (ctx: any) => unknown> = {}
+
 vi.mock('grammy', () => {
   class FakeBot {
     botInfo = { username: 'test_bot' }
@@ -27,7 +32,9 @@ vi.mock('grammy', () => {
     api = fakeBotApi
     command(name: string, handler: (ctx: any) => unknown) { lastCommandHandlers[name] = handler }
     use(..._args: unknown[]) {}
-    on(..._args: unknown[]) {}
+    on(event: string | string[], handler: (ctx: any) => unknown) {
+      for (const e of Array.isArray(event) ? event : [event]) lastOnHandlers[e] = handler
+    }
     catch(..._args: unknown[]) {}
     async init() {}
     async start(..._args: unknown[]) {}
@@ -40,12 +47,17 @@ vi.mock('grammy', () => {
   return { Bot: FakeBot, InlineKeyboard: FakeInlineKeyboard }
 })
 
-async function makeTopicsServer(bridge: OrchestratorBridge, supergroupChatId = -100): Promise<TelegramServer> {
+async function makeTopicsServer(
+  bridge: OrchestratorBridge,
+  supergroupChatId = -100,
+  extra: Partial<TelegramServerOptions> = {}
+): Promise<TelegramServer> {
   const server = new TelegramServer({
     pairing: new PairingManager(),
     bridge,
     mode: 'topics',
-    supergroupChatId
+    supergroupChatId,
+    ...extra
   })
   await server.start('fake-token')
   return server
@@ -311,5 +323,114 @@ describe('TelegramServer /bind and /unbind commands', () => {
     expect(server.getTopicsMode()).toEqual({ mode: 'dm', supergroupChatId: undefined })
     expect(onUnbind).toHaveBeenCalledTimes(1)
     expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('direct-message'))
+  })
+})
+
+describe('TelegramServer inbound thread routing (Task 6)', () => {
+  const fakeWorkspaceRouter: WorkspaceRouter = {
+    sendToWorkspace: vi.fn(() => ({ ok: true })),
+    workspaceStatus: vi.fn(() => []),
+    sendFileToWorkspace: vi.fn(() => ({ ok: true }))
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    lastOnHandlers = {}
+    fakeBotApi.createForumTopic.mockResolvedValue({ message_thread_id: 7 })
+  })
+
+  it('routes a thread reply to the mapped workspace via workspaceRouter, bypassing bridge', async () => {
+    const sendTo = vi.fn(() => ({ ok: true }))
+    const bridge: OrchestratorBridge = { ...fakeBridge, sendTo }
+    const server = await makeTopicsServer(bridge, -100, { workspaceRouter: fakeWorkspaceRouter })
+    await server.ensureTopic('ws1', 'Alpha')  // maps thread 7 -> ws1
+
+    const ctx = { chat: { id: -100 }, message: { text: 'status please', message_thread_id: 7 }, reply: vi.fn() }
+    await lastOnHandlers['message:text'](ctx)
+
+    expect(fakeWorkspaceRouter.sendToWorkspace).toHaveBeenCalledWith('ws1', 'status please')
+    expect(sendTo).not.toHaveBeenCalled()
+    expect(ctx.reply).not.toHaveBeenCalled()  // ok:true → no error reply
+  })
+
+  it('replies with a clear message and does not call bridge when the thread is unmapped', async () => {
+    const sendTo = vi.fn(() => ({ ok: true }))
+    const bridge: OrchestratorBridge = { ...fakeBridge, sendTo }
+    const server = await makeTopicsServer(bridge, -100, { workspaceRouter: fakeWorkspaceRouter })
+    await server.ensureTopic('ws1', 'Alpha')  // thread 7 mapped; thread 99 is not
+
+    const ctx = { chat: { id: -100 }, message: { text: 'hello', message_thread_id: 99 }, reply: vi.fn() }
+    await lastOnHandlers['message:text'](ctx)
+
+    expect(fakeWorkspaceRouter.sendToWorkspace).not.toHaveBeenCalled()
+    expect(sendTo).not.toHaveBeenCalled()
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('isn\'t linked'))
+  })
+
+  it('falls through to bridge, unchanged, for a General-topic message (no thread id)', async () => {
+    const sendTo = vi.fn(() => ({ ok: true }))
+    const bridge: OrchestratorBridge = {
+      ...fakeBridge,
+      sendTo,
+      listTargets: () => [{ name: 'cara', role: 'orchestrator', status: 'active' }]
+    }
+    const server = await makeTopicsServer(bridge, -100, { workspaceRouter: fakeWorkspaceRouter })
+    await server.ensureTopic('ws1', 'Alpha')
+
+    const ctx = { chat: { id: -100 }, message: { text: 'hello', message_thread_id: undefined }, reply: vi.fn() }
+    await lastOnHandlers['message:text'](ctx)
+
+    expect(fakeWorkspaceRouter.sendToWorkspace).not.toHaveBeenCalled()
+    expect(sendTo).toHaveBeenCalledWith('cara', 'hello')
+  })
+
+  it('falls through to bridge, unchanged, in dm mode even with workspaceRouter configured', async () => {
+    const sendTo = vi.fn(() => ({ ok: true }))
+    const bridge: OrchestratorBridge = {
+      ...fakeBridge,
+      sendTo,
+      listTargets: () => [{ name: 'cara', role: 'orchestrator', status: 'active' }]
+    }
+    const server = new TelegramServer({
+      pairing: new PairingManager(),
+      bridge,
+      workspaceRouter: fakeWorkspaceRouter,
+      mode: 'dm'
+    })
+    await server.start('fake-token')
+
+    const ctx = { chat: { id: 111 }, message: { text: 'hello', message_thread_id: 7 }, reply: vi.fn() }
+    await lastOnHandlers['message:text'](ctx)
+
+    expect(fakeWorkspaceRouter.sendToWorkspace).not.toHaveBeenCalled()
+    expect(sendTo).toHaveBeenCalledWith('cara', 'hello')
+  })
+
+  it('routes a thread attachment to the mapped workspace via sendFileToWorkspace, bypassing bridge', async () => {
+    const sendFile = vi.fn(() => ({ ok: true }))
+    const bridge: OrchestratorBridge = { ...fakeBridge, sendFile }
+    const server = await makeTopicsServer(bridge, -100, { workspaceRouter: fakeWorkspaceRouter })
+    await server.ensureTopic('ws1', 'Alpha')  // maps thread 7 -> ws1
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer
+    } as any)
+
+    const ctx = {
+      chat: { id: -100 },
+      message: { message_thread_id: 7, document: { file_name: 'notes.txt', mime_type: 'text/plain' }, caption: undefined },
+      getFile: vi.fn().mockResolvedValue({ file_path: 'docs/notes.txt' }),
+      reply: vi.fn()
+    }
+    await lastOnHandlers['message:document'](ctx)
+
+    expect(fakeWorkspaceRouter.sendFileToWorkspace).toHaveBeenCalledWith(
+      'ws1', expect.objectContaining({ filename: 'notes.txt' })
+    )
+    expect(sendFile).not.toHaveBeenCalled()
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('📎'))
+
+    fetchSpy.mockRestore()
   })
 })
