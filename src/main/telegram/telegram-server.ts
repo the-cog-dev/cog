@@ -325,6 +325,15 @@ export class TelegramServer {
     // relayed orchestrator output. (/bind and /unbind are registered above,
     // before this gate, since they must run inside a group chat.)
     bot.use(async (ctx, next) => {
+      // Topics mode: the bound supergroup is a trusted surface (trust =
+      // membership, not per-user pairing — the user controls who's in the
+      // group). Let its updates reach the thread handlers below without
+      // subscribing it as a DM relay target or requiring a paired user;
+      // clamp strictly to the bound chat id so other groups still can't in.
+      if (this.mode === 'topics' && this.supergroupChatId !== undefined && ctx.chat?.id === this.supergroupChatId) {
+        await next()
+        return
+      }
       if (!this.pairing.isAllowed(ctx.from?.id)) return
       if (ctx.chat?.type !== 'private') return
       this.router.subscribe(ctx.chat.id)

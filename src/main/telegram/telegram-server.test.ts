@@ -25,20 +25,94 @@ let lastCommandHandlers: Record<string, (ctx: any) => unknown> = {}
 // an array of them (as the document/photo handler does) — capture under each.
 let lastOnHandlers: Record<string, (ctx: any) => unknown> = {}
 
+// The most-recently-constructed FakeBot instance, exposing handleUpdate() so
+// tests can drive an update through the REAL, ORDERED middleware chain (see
+// below) instead of invoking a captured handler directly. Invoking a handler
+// directly (as lastCommandHandlers/lastOnHandlers above do) bypasses any
+// bot.use(...) gate registered before it — which is exactly what let C1 (the
+// topics-mode allowlist gate dropping supergroup updates) slip through Task 6's
+// tests undetected. Tests that need to exercise the gate MUST go through
+// lastBot.handleUpdate(ctx), not the raw captured handlers.
+let lastBot: { handleUpdate(ctx: any): Promise<void> } | null = null
+
+type MiddlewareEntry =
+  | { kind: 'use'; handler: (ctx: any, next: () => Promise<void>) => unknown }
+  | { kind: 'command'; name: string; handler: (ctx: any) => unknown }
+  | { kind: 'on'; events: string[]; handler: (ctx: any) => unknown }
+
+function matchesEvent(ctx: any, events: string[]): boolean {
+  for (const e of events) {
+    if (e === 'message:text' && typeof ctx.message?.text === 'string') return true
+    if (e === 'message:document' && ctx.message?.document) return true
+    if (e === 'message:photo' && ctx.message?.photo) return true
+    if (e === 'message:voice' && ctx.message?.voice) return true
+    if (e === 'callback_query:data' && typeof ctx.callbackQuery?.data === 'string') return true
+  }
+  return false
+}
+
+function matchesCommand(ctx: any, name: string): boolean {
+  const text = ctx.message?.text
+  return typeof text === 'string' && (text === `/${name}` || text.startsWith(`/${name} `) || text.startsWith(`/${name}@`))
+}
+
+// class FakeBot is defined INSIDE the vi.mock factory below (not at module
+// top level): vi.mock('grammy', factory) is hoisted above the rest of this
+// file's top-level code, and telegram-server.ts's `import { Bot } from
+// 'grammy'` triggers the factory while it resolves — before a module-level
+// `class FakeBot {}` declared out here would have run. Referencing it from
+// inside the (also hoisted) factory throws "Cannot access before
+// initialization". lastCommandHandlers/lastOnHandlers/lastBot are plain `let`
+// bindings only read/written from inside method bodies, which only run later
+// during an actual test — so those are safe to keep at module scope.
 vi.mock('grammy', () => {
   class FakeBot {
     botInfo = { username: 'test_bot' }
     me = { id: 999 }
     api = fakeBotApi
-    command(name: string, handler: (ctx: any) => unknown) { lastCommandHandlers[name] = handler }
-    use(..._args: unknown[]) {}
-    on(event: string | string[], handler: (ctx: any) => unknown) {
-      for (const e of Array.isArray(event) ? event : [event]) lastOnHandlers[e] = handler
+    // Ordered registration log — mirrors grammY's single linear Composer
+    // chain, where bot.use/bot.command/bot.on all share one middleware array
+    // in registration order. A bot.use(...) that returns without calling
+    // next() terminates the chain for that update, same as the real thing.
+    private entries: MiddlewareEntry[] = []
+
+    constructor() { lastBot = this }
+
+    command(name: string, handler: (ctx: any) => unknown) {
+      lastCommandHandlers[name] = handler
+      this.entries.push({ kind: 'command', name, handler })
     }
+
+    use(handler: (ctx: any, next: () => Promise<void>) => unknown) {
+      this.entries.push({ kind: 'use', handler })
+    }
+
+    on(event: string | string[], handler: (ctx: any) => unknown) {
+      const events = Array.isArray(event) ? event : [event]
+      for (const e of events) lastOnHandlers[e] = handler
+      this.entries.push({ kind: 'on', events, handler })
+    }
+
     catch(..._args: unknown[]) {}
     async init() {}
     async start(..._args: unknown[]) {}
     async stop() {}
+
+    /** Dispatch one fake update through the real, ordered middleware chain. */
+    async handleUpdate(ctx: any): Promise<void> {
+      const runFrom = async (index: number): Promise<void> => {
+        if (index >= this.entries.length) return
+        const entry = this.entries[index]
+        if (entry.kind === 'use') {
+          await entry.handler(ctx, () => runFrom(index + 1))
+          return
+        }
+        const matched = entry.kind === 'command' ? matchesCommand(ctx, entry.name) : matchesEvent(ctx, entry.events)
+        if (matched) { await entry.handler(ctx); return }
+        await runFrom(index + 1)
+      }
+      await runFrom(0)
+    }
   }
   class FakeInlineKeyboard {
     text() { return this }
@@ -432,5 +506,71 @@ describe('TelegramServer inbound thread routing (Task 6)', () => {
     expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('📎'))
 
     fetchSpy.mockRestore()
+  })
+})
+
+// C1 regression: the allowlist gate registered via bot.use(...) hard-returns
+// on any non-private chat BEFORE the inbound handlers above ever run. Forum
+// topics live in a chat of type 'supergroup', so every in-thread update was
+// being dropped at the gate — Task 6's tests never caught this because they
+// invoke lastOnHandlers[...] directly, bypassing bot.use(...) entirely. These
+// tests drive updates through FakeBot.handleUpdate() — the real, ordered
+// composer chain — so the gate is actually exercised.
+describe('TelegramServer allowlist gate + topics (C1 regression, real middleware chain)', () => {
+  const fakeWorkspaceRouter: WorkspaceRouter = {
+    sendToWorkspace: vi.fn(() => ({ ok: true })),
+    workspaceStatus: vi.fn(() => []),
+    sendFileToWorkspace: vi.fn(() => ({ ok: true }))
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    lastOnHandlers = {}
+    lastBot = null
+    fakeBotApi.createForumTopic.mockResolvedValue({ message_thread_id: 7 })
+  })
+
+  it('lets a bound supergroup thread reply through the gate to the workspace router', async () => {
+    const server = await makeTopicsServer(fakeBridge, -100, { workspaceRouter: fakeWorkspaceRouter })
+    await server.ensureTopic('ws1', 'Alpha')  // maps thread 7 -> ws1
+    expect(lastBot).not.toBeNull()
+
+    // No pairing at all — trust in topics mode is supergroup membership, not
+    // per-user pairing, so this must still get through.
+    const ctx = {
+      chat: { id: -100, type: 'supergroup' },
+      from: { id: 555 },
+      message: { text: 'status please', message_thread_id: 7 },
+      reply: vi.fn()
+    }
+    await lastBot!.handleUpdate(ctx)
+
+    expect(fakeWorkspaceRouter.sendToWorkspace).toHaveBeenCalledWith('ws1', 'status please')
+  })
+
+  it('drops an update from a non-bound supergroup even for a paired user (clamp holds)', async () => {
+    const pairing = new PairingManager({ initialAllowlist: [111] })
+    const server = new TelegramServer({
+      pairing,
+      bridge: fakeBridge,
+      workspaceRouter: fakeWorkspaceRouter,
+      mode: 'topics',
+      supergroupChatId: -100
+    })
+    await server.start('fake-token')
+    await server.ensureTopic('ws1', 'Alpha')
+    expect(lastBot).not.toBeNull()
+
+    // Same thread id (7), but a DIFFERENT (non-bound) supergroup chat id —
+    // must be dropped, not routed, even though the user is paired.
+    const ctx = {
+      chat: { id: -999, type: 'supergroup' },
+      from: { id: 111 },
+      message: { text: 'status please', message_thread_id: 7 },
+      reply: vi.fn()
+    }
+    await lastBot!.handleUpdate(ctx)
+
+    expect(fakeWorkspaceRouter.sendToWorkspace).not.toHaveBeenCalled()
   })
 })
