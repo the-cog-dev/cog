@@ -8,6 +8,7 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { HelpDialog } from './components/HelpDialog'
 import { ProjectPickerDialog } from './components/ProjectPickerDialog'
 import { useWindowManager } from './hooks/useWindowManager'
+import { loadWindowBounds, saveWindowBounds, deleteWindowBounds } from './window-layout'
 import { useAgents } from './hooks/useAgents'
 import { UpdateNotice } from './components/UpdateNotice'
 import { WhatsNewDialog } from './components/WhatsNewDialog'
@@ -213,10 +214,13 @@ export function App(): React.ReactElement {
       if (session) {
         await window.electronAPI.racRelease(session.session_id)
       }
+      deleteWindowBounds(windowId)
       removeWindow(windowId)
       return
     }
     await killAgent(windowId)
+    // Deliberately closed → forget its saved layout so it doesn't linger.
+    deleteWindowBounds(windowId)
     removeWindow(windowId)
   }, [killAgent, removeWindow, agents])
 
@@ -479,15 +483,35 @@ export function App(): React.ReactElement {
   useEffect(() => {
     for (const agent of agents) {
       if (windows.some(w => w.id === agent.id)) continue
+      const isRac = agent.name.startsWith('rac-')
+      if (isRac && closedRacAgents.current.has(agent.id)) continue
       const tab = agent.tabId || activeTabId
-      if (agent.name.startsWith('rac-')) {
-        if (closedRacAgents.current.has(agent.id)) continue
-        addWindow(agent.id, `${agent.name} (R.A.C.)`, '#4a9eff', tab)
+      const title = isRac ? `${agent.name} (R.A.C.)` : `${agent.name} (${agent.cli})`
+      const color = isRac ? '#4a9eff' : getStatusColor(agent.status)
+      // Restore the window where the user last left it (persisted per agent id,
+      // stable across a respawn); otherwise tile it via addWindow.
+      const saved = loadWindowBounds(agent.id)
+      if (saved) {
+        addWindowAt(agent.id, title, saved.x, saved.y, saved.width, saved.height, color, tab)
       } else {
-        addWindow(agent.id, `${agent.name} (${agent.cli})`, getStatusColor(agent.status), tab)
+        addWindow(agent.id, title, color, tab)
       }
     }
-  }, [agents, windows, addWindow, activeTabId, getStatusColor])
+  }, [agents, windows, addWindow, addWindowAt, activeTabId, getStatusColor])
+
+  // Persist agent window positions/sizes (debounced) so a restored team returns
+  // to where you left it. Only agent windows (keyed by agent id) — panels excluded.
+  useEffect(() => {
+    const agentIds = new Set(agents.map(a => a.id))
+    const t = setTimeout(() => {
+      for (const w of windows) {
+        if (agentIds.has(w.id)) {
+          saveWindowBounds(w.id, { x: w.x, y: w.y, width: w.width, height: w.height })
+        }
+      }
+    }, 400)
+    return () => clearTimeout(t)
+  }, [windows, agents])
 
   // Mobile workshop drag/resize → apply window updates here
   useEffect(() => {

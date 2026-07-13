@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
+import { nextSpawnBounds } from '../window-layout'
 
 export interface WindowState {
   id: string
@@ -97,22 +98,29 @@ export function useWindowManager() {
   const addWindow = useCallback((id: string, title: string, statusColor?: string, tabId?: string) => {
     setWindows(prev => {
       const next = new Map(prev)
-      // Only count windows in the same tab for offset calculation
+      // Only tile against windows in the same tab.
       const tabWins = tabId ? Array.from(next.values()).filter(w => w.tabId === tabId) : Array.from(next.values())
-      const offset = tabWins.length * 30
       const z = zoomRef.current
       const p = panRef.current
-      const canvasX = (window.innerWidth / 2 - p.x) / z - 300 + offset
-      const canvasY = (window.innerHeight / 2 - p.y) / z - 200 + offset
+      // Base point (used only when the tab is empty): the canvas coord at the
+      // viewport centre, offset so the window is roughly centred.
+      const baseX = (window.innerWidth / 2 - p.x) / z - 300
+      const baseY = (window.innerHeight / 2 - p.y) / z - 200
+      // Tile to the right of existing windows instead of stacking on top.
+      const b = nextSpawnBounds(
+        tabWins.map(w => ({ x: w.x, y: w.y, width: w.width, height: w.height })),
+        baseX,
+        baseY
+      )
       next.set(id, {
         id,
         title,
         statusColor,
         tabId,
-        x: canvasX,
-        y: canvasY,
-        width: 600,
-        height: 400,
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
         zIndex: ++nextZ,
         minimized: false
       })
