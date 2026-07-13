@@ -42,6 +42,7 @@ import { ContextRegistry } from './workspace/context-registry'
 import { stripAnsi } from './telegram/ansi'
 import type { OrchestratorBridge, ProposalView } from './telegram/bridge'
 import { sanitizeFilename, isTextFile, isImageFile, buildAttachmentMessage, TEXT_INLINE_LIMIT } from './telegram/attachment'
+import type { TopicEntry } from './telegram/topic-registry'
 import * as communityClient from './community/community-client'
 import * as themesStore from './themes/themes-store'
 import * as workspaceThemeStore from './themes/workspace-theme-store'
@@ -283,6 +284,25 @@ function saveSetting(key: string, value: any): void {
   const settings = loadSettings()
   settings[key] = value
   fs.writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2), 'utf-8')
+}
+
+interface TelegramTopicsConfig {
+  mode: 'dm' | 'topics'
+  supergroupChatId?: number
+  topics?: Record<string, TopicEntry>
+}
+
+function telegramConfig(): TelegramTopicsConfig {
+  const t = (loadSettings().telegram ?? {}) as Partial<TelegramTopicsConfig>
+  return {
+    mode: t.mode === 'topics' ? 'topics' : 'dm',
+    supergroupChatId: typeof t.supergroupChatId === 'number' ? t.supergroupChatId : undefined,
+    topics: t.topics ?? {}
+  }
+}
+
+function saveTelegramConfig(patch: Partial<TelegramTopicsConfig>): void {
+  saveSetting('telegram', { ...telegramConfig(), ...patch })
 }
 
 // ── Remote View helpers ──────────────────────────────────────────────────────
