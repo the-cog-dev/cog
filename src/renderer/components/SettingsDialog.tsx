@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { AutonomySettings } from './AutonomySettings'
 import QRCode from 'qrcode-svg'
-import type { AgentState, WorkspaceTheme, CommunityThemeListItem, CommunityTheme, AgentTheme, TelegramStatus, NotificationThreshold } from '../../shared/types'
+import type { AgentState, WorkspaceTheme, CommunityThemeListItem, CommunityTheme, AgentTheme, TelegramStatus, TelegramTopicsStatus, NotificationThreshold } from '../../shared/types'
 import { ROLE_THEME_DEFAULTS, getPresetById, THEME_PRESETS, WORKSPACE_THEMES, getWorkspaceThemeById } from '../themes'
 
 declare const electronAPI: {
@@ -1072,6 +1072,7 @@ function TelegramSection(): React.ReactElement {
   const [error, setError] = React.useState<string | null>(null)
   const [notice, setNotice] = React.useState<string | null>(null)
   const [threshold, setThreshold] = React.useState<NotificationThreshold>('low')
+  const [topicsStatus, setTopicsStatus] = React.useState<TelegramTopicsStatus | null>(null)
 
   React.useEffect(() => {
     void window.electronAPI.getTelegramStatus().then(setStatus)
@@ -1079,6 +1080,7 @@ function TelegramSection(): React.ReactElement {
       const t = s.telegramNotifyThreshold
       if (typeof t === 'string') setThreshold(t as NotificationThreshold)
     })
+    void window.electronAPI.getTelegramTopicsStatus?.().then(setTopicsStatus)
     const off = window.electronAPI.onTelegramStatusUpdate(setStatus)
     return () => off()
   }, [])
@@ -1334,6 +1336,30 @@ function TelegramSection(): React.ReactElement {
             with Topics give each project its own thread. To set it up: create a group → open its settings →
             turn on <b>Topics</b> → add your bot and make it an <b>admin</b> with <i>Manage Topics</i>.
             (DM mode above needs no setup and is the default.)
+          </div>
+
+          {/* Telegram — per-workspace threads */}
+          <div style={{ marginTop: '8px', borderTop: '1px solid #2c2c2c', paddingTop: '8px' }}>
+            <div style={{ fontSize: '12px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Telegram — per-workspace threads
+            </div>
+            <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
+              Topics mode:{' '}
+              {topicsStatus == null
+                ? 'checking…'
+                : topicsStatus.mode === 'topics'
+                  ? <span style={{ color: '#6ee7b7' }}>bound to supergroup {topicsStatus.supergroupChatId} ✓</span>
+                  : <span style={{ color: '#aaa' }}>DM mode</span>}
+            </div>
+            <div style={{ fontSize: '11px', color: '#aaa', lineHeight: 1.6, marginTop: '4px' }}>
+              Give each workspace its own thread in one Telegram group instead of one shared DM:
+              <ol style={{ margin: '6px 0 0 16px', padding: 0 }}>
+                <li>Create a Telegram <b>supergroup</b> and turn on <b>Topics</b> (Group Settings → Topics).</li>
+                <li>Add your Cog bot as an <b>admin</b> with the <b>Manage Topics</b> permission.</li>
+                <li>In the group, send <code>/bind</code>. Each workspace then gets its own topic; closing a workspace archives its thread.</li>
+                <li>Send <code>/unbind</code> anytime to go back to direct messages.</li>
+              </ol>
+            </div>
           </div>
         </div>
       </details>

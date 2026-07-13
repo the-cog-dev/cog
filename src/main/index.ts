@@ -42,6 +42,7 @@ import { ContextRegistry } from './workspace/context-registry'
 import { stripAnsi } from './telegram/ansi'
 import type { OrchestratorBridge, ProposalView } from './telegram/bridge'
 import { sanitizeFilename, isTextFile, isImageFile, buildAttachmentMessage, TEXT_INLINE_LIMIT } from './telegram/attachment'
+import type { TopicEntry } from './telegram/topic-registry'
 import * as communityClient from './community/community-client'
 import * as themesStore from './themes/themes-store'
 import * as workspaceThemeStore from './themes/workspace-theme-store'
@@ -283,6 +284,25 @@ function saveSetting(key: string, value: any): void {
   const settings = loadSettings()
   settings[key] = value
   fs.writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2), 'utf-8')
+}
+
+interface TelegramTopicsConfig {
+  mode: 'dm' | 'topics'
+  supergroupChatId?: number
+  topics?: Record<string, TopicEntry>
+}
+
+function telegramConfig(): TelegramTopicsConfig {
+  const t = (loadSettings().telegram ?? {}) as Partial<TelegramTopicsConfig>
+  return {
+    mode: t.mode === 'topics' ? 'topics' : 'dm',
+    supergroupChatId: typeof t.supergroupChatId === 'number' ? t.supergroupChatId : undefined,
+    topics: t.topics ?? {}
+  }
+}
+
+function saveTelegramConfig(patch: Partial<TelegramTopicsConfig>): void {
+  saveSetting('telegram', { ...telegramConfig(), ...patch })
 }
 
 // ── Remote View helpers ──────────────────────────────────────────────────────
@@ -828,6 +848,7 @@ function telegramBridge(): OrchestratorBridge {
 /** Build and start the bot with the given token. Throws on a bad token/network. */
 async function startTelegram(token: string): Promise<void> {
   const s = loadSettings()
+  const cfg = telegramConfig()
   telegramPairing = new PairingManager({
     initialAllowlist: Array.isArray(s.telegramAllowlist) ? s.telegramAllowlist : [],
     onAllowlistChange: (ids) => saveSetting('telegramAllowlist', ids)
@@ -865,7 +886,69 @@ async function startTelegram(token: string): Promise<void> {
     initialChats: Array.isArray(s.telegramChats) ? s.telegramChats : [],
     onChatsChange: (ids) => saveSetting('telegramChats', ids),
     onLog: (m) => console.log('[telegram]', m),
-    onStatusChange: () => emitTelegramStatus()
+    onStatusChange: () => emitTelegramStatus(),
+    // ── Topics mode: per-workspace forum threads ──────────────────────────
+    initialTopics: cfg.topics,
+    onTopicsChange: (map) => saveTelegramConfig({ topics: map }),
+    mode: cfg.mode,
+    supergroupChatId: cfg.supergroupChatId,
+    onBind: async (supergroupChatId) => {
+      saveTelegramConfig({ mode: 'topics', supergroupChatId })
+      // Open a topic for every live workspace.
+      for (const id of contextRegistry.ids()) {
+        const name = workspaceManager?.get(id)?.name ?? id
+        await telegramServer?.ensureTopic(id, name)
+      }
+    },
+    onUnbind: () => saveTelegramConfig({ mode: 'dm' }),
+    workspaceRouter: {
+      // Route a thread reply to THAT workspace's orchestrator (not the active head).
+      sendToWorkspace: (workspaceId, text) => {
+        const ctx = contextRegistry.get(workspaceId)
+        if (!ctx) return { ok: false, detail: 'workspace not live' }
+        const orch = ctx.hub.registry.list().find(a => a.role === 'orchestrator')
+        if (!orch) return { ok: false, detail: 'no orchestrator in that workspace' }
+        try {
+          const res = ctx.hub.messages.send('user', orch.name, text)
+          return res.status === 'error' ? { ok: false, detail: res.detail } : { ok: true }
+        } catch (e) {
+          return { ok: false, detail: (e as Error).message }
+        }
+      },
+      workspaceStatus: (workspaceId) => {
+        const ctx = contextRegistry.get(workspaceId)
+        return ctx
+          ? ctx.hub.registry.list()
+              .filter(a => a.name !== 'user')
+              .map(a => ({ name: a.name, role: a.role, status: a.status }))
+          : []
+      },
+      // Save the attachment into the workspace's project + route to its orchestrator
+      // (mirrors telegramBridge().sendFile, but scoped to a specific workspace ctx).
+      sendFileToWorkspace: (workspaceId, file) => {
+        const ctx = contextRegistry.get(workspaceId)
+        if (!ctx) return { ok: false, detail: 'workspace not live' }
+        const orch = ctx.hub.registry.list().find(a => a.role === 'orchestrator')
+        if (!orch) return { ok: false, detail: 'no orchestrator in that workspace' }
+        try {
+          const { relPath, safeName } = saveTelegramInboxFile(ctx.projectPath, file.filename, file.bytes)
+          const isImage = isImageFile(safeName, file.mimeType)
+          let textContent: string | null = null
+          let truncated = false
+          if (isTextFile(file.filename, file.mimeType)) {
+            const decoded = Buffer.from(file.bytes).toString('utf8')
+            truncated = decoded.length > TEXT_INLINE_LIMIT
+            textContent = truncated ? decoded.slice(0, TEXT_INLINE_LIMIT) : decoded
+          }
+          const msg = buildAttachmentMessage({ filename: safeName, relPath, caption: file.caption, isImage, textContent, truncated })
+          const res = ctx.hub.messages.send('user', orch.name, msg)
+          if (res.status === 'error') return { ok: false, detail: res.detail }
+          return { ok: true, relPath }
+        } catch (err) {
+          return { ok: false, detail: (err as Error).message }
+        }
+      }
+    }
   })
 
   try {
@@ -1757,7 +1840,7 @@ function flushPendingNudges(agentName: string): void {
 }
 
 // When a message is queued for an agent, nudge them to call get_messages().
-function setupMessageNudge(hub: HubServer): void {
+function setupMessageNudge(hub: HubServer, workspaceId: string): void {
   hub.messages.onMessageQueued = (msg) => {
     // When an agent messages the user, show an OS notification
     if (msg.to === 'user') {
@@ -1769,7 +1852,7 @@ function setupMessageNudge(hub: HubServer): void {
         // don't overlap, so this is not a double-send. Conversational replies
         // always relay (you're actively chatting); the inbox stream is the one
         // gated by the telegram priority threshold.
-        telegramServer?.relayFromAgent(msg.from, msg.message)
+        telegramServer?.relayFromWorkspace(workspaceId, msg.from, msg.message)
         const preview = msg.message.length > 120 ? msg.message.slice(0, 120) + '…' : msg.message
         const notification = new Notification({
           title: `Message from ${msg.from}`,
@@ -2061,7 +2144,7 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
     const tgThreshold = (settings.telegramNotifyThreshold || 'low') as NotificationThreshold
     const isQuestion = Array.isArray(msg.choices) && msg.choices.length > 0
     if (isQuestion || (tgThreshold !== 'none' && meetsThreshold(msg.priority, tgThreshold))) {
-      telegramServer?.relayFromAgent(msg.agentName, msg.message, msg.priority, {
+      telegramServer?.relayFromWorkspace(workspaceId, msg.agentName, msg.message, msg.priority, {
         id: msg.id,
         choices: msg.choices
       })
@@ -2133,7 +2216,7 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
   // callback), so they must run HERE, after those — once per context, never
   // re-wrapped. (setupStaleTaskWatchdog is a single active-only timer, armed in
   // openProject / on switch, not per-context.)
-  setupMessageNudge(hub)
+  setupMessageNudge(hub, workspaceId)
   setupTaskNudge(hub)
   setupInfoNudge(hub)
   loadLinkState(hub, projectPath)
@@ -2232,6 +2315,10 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
       return { ok: true }
     }
   }
+
+  // Topics mode: open (or reopen) this workspace's forum thread. No-op in dm
+  // mode / when telegram is off (ensureTopic self-guards).
+  void telegramServer?.ensureTopic(workspaceId, path.basename(projectPath))
 
   return {
     workspaceId,
@@ -2351,6 +2438,13 @@ async function restoreBackgroundWorkspaces(): Promise<void> {
       console.error(`[workspaces] failed to restore ${id} (${projectPath}):`, err?.message)
     }
   }
+  // Topics mode: sync forum threads for the active + restored workspaces on boot.
+  if (telegramConfig().mode === 'topics') {
+    for (const id of contextRegistry.ids()) {
+      const name = workspaceManager?.get(id)?.name ?? id
+      void telegramServer?.ensureTopic(id, name)
+    }
+  }
 }
 
 /**
@@ -2417,6 +2511,8 @@ function closeCtxResources(id: string, ctx: WorkspaceCtx): void {
   // Clear the respawn mark so reopening this workspace respawns its roster
   // (e.g. PROJECT_SWITCH into the same tab, or re-adding a closed workspace).
   respawnedRosters.delete(id)
+  // Topics mode: close this workspace's forum thread (no-op in dm mode / off).
+  void telegramServer?.closeTopic(id)
 }
 
 /** Tear down ONE workspace context (its agents, scheduler, hub, DB). */
@@ -3406,6 +3502,8 @@ function setupIPC(): void {
 
   ipcMain.handle(IPC.TAB_RENAME, (_event, tabId: string, name: string) => {
     if (!workspaceManager?.rename(tabId, name)) return { error: 'Tab not found' }
+    // Topics mode: rename this workspace's forum thread to match (no-op if off).
+    void telegramServer?.renameTopic(tabId, name)
     return { status: 'ok' }
   })
 
@@ -3557,6 +3655,10 @@ function setupIPC(): void {
     emitTelegramStatus()
   })
   ipcMain.handle(IPC.TELEGRAM_GET_STATUS, async () => telegramStatus())
+  ipcMain.handle(IPC.TELEGRAM_TOPICS_STATUS, async () => {
+    const cfg = telegramConfig()
+    return { mode: cfg.mode, supergroupChatId: cfg.supergroupChatId }
+  })
 
   // Helper: rotate URLs after a token change so both tunnel and LAN URLs reflect the new token
   function rotateUrlsAfterTokenChange(): void {
