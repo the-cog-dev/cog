@@ -10,6 +10,7 @@ import {
   answerCallback, parseAnswerCallback, clipChoiceLabel, formatAnswered
 } from './question-format'
 import { projectPrefix } from './relay-format'
+import { TopicRegistry, type TopicEntry } from './topic-registry'
 
 /** Telegram caps a single message at 4096 chars; leave headroom for our prefix. */
 const MAX_RELAY_CHARS = 3900
@@ -61,6 +62,14 @@ export interface TelegramServerOptions {
   initialChats?: number[]
   /** Fired when the subscribed-chat set changes so the caller can persist it. */
   onChatsChange?: (chatIds: number[]) => void
+  /** Persisted workspace→thread map from the last run (topics mode). */
+  initialTopics?: Record<string, TopicEntry>
+  /** Fired when the topic map changes so the caller can persist it. */
+  onTopicsChange?: (map: Record<string, TopicEntry>) => void
+  /** Relay mode. 'topics' routes per-workspace threads; 'dm' is the classic relay. */
+  mode?: 'dm' | 'topics'
+  /** The bound supergroup's chat id (topics mode). */
+  supergroupChatId?: number
 }
 
 /**
@@ -98,6 +107,9 @@ export class TelegramServer {
   private readonly project?: string
   private readonly gateway?: FederationGateway
   private readonly router: ChatRouter
+  private readonly topics: TopicRegistry
+  private mode: 'dm' | 'topics'
+  private supergroupChatId?: number
   private readonly log: (m: string) => void
   private readonly onStatusChange?: () => void
   // proposalId → the chat messages carrying its buttons, so we can edit them to
@@ -121,6 +133,9 @@ export class TelegramServer {
       initialSubscribed: opts.initialChats,
       onSubscribedChange: opts.onChatsChange
     })
+    this.topics = new TopicRegistry(opts.initialTopics, opts.onTopicsChange)
+    this.mode = opts.mode ?? 'dm'
+    this.supergroupChatId = opts.supergroupChatId
     this.log = opts.onLog ?? (() => {})
     this.onStatusChange = opts.onStatusChange
   }
@@ -521,6 +536,56 @@ export class TelegramServer {
         this.log(`relay to ${chatId} failed: ${err instanceof Error ? err.message : String(err)}`)
       })
     }
+  }
+
+  setTopicsMode(mode: 'dm' | 'topics', supergroupChatId?: number): void {
+    this.mode = mode
+    this.supergroupChatId = supergroupChatId
+    this.onStatusChange?.()
+  }
+
+  getTopicsMode(): { mode: 'dm' | 'topics'; supergroupChatId?: number } {
+    return { mode: this.mode, supergroupChatId: this.supergroupChatId }
+  }
+
+  /**
+   * Ensure a workspace has an OPEN topic. Creates one (first time) or reopens a
+   * stored one; stores + persists the threadId. Returns the threadId, or null if
+   * topics mode is off / the op failed (caller falls back to DM).
+   */
+  async ensureTopic(workspaceId: string, name: string): Promise<number | null> {
+    if (this.mode !== 'topics' || !this.supergroupChatId || !this.bot || !this.ready) return null
+    const chatId = this.supergroupChatId
+    try {
+      const existing = this.topics.threadFor(workspaceId)
+      if (existing !== undefined) {
+        await this.bot.api.reopenForumTopic(chatId, existing).catch(() => { /* already open */ })
+        return existing
+      }
+      const topic = await this.bot.api.createForumTopic(chatId, name)
+      this.topics.set(workspaceId, topic.message_thread_id, name)
+      return topic.message_thread_id
+    } catch (err) {
+      this.log(`ensureTopic(${workspaceId}) failed: ${err instanceof Error ? err.message : String(err)}`)
+      return null
+    }
+  }
+
+  async closeTopic(workspaceId: string): Promise<void> {
+    const threadId = this.topics.threadFor(workspaceId)
+    if (this.mode !== 'topics' || !this.supergroupChatId || !this.bot || threadId === undefined) return
+    await this.bot.api.closeForumTopic(this.supergroupChatId, threadId).catch((err) => {
+      this.log(`closeTopic(${workspaceId}) failed: ${err instanceof Error ? err.message : String(err)}`)
+    })
+  }
+
+  async renameTopic(workspaceId: string, name: string): Promise<void> {
+    const threadId = this.topics.threadFor(workspaceId)
+    if (this.mode !== 'topics' || !this.supergroupChatId || !this.bot || threadId === undefined) return
+    if (!this.topics.rename(workspaceId, name)) return
+    await this.bot.api.editForumTopic(this.supergroupChatId, threadId, { name }).catch((err) => {
+      this.log(`renameTopic(${workspaceId}) failed: ${err instanceof Error ? err.message : String(err)}`)
+    })
   }
 
   /**
