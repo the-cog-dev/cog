@@ -1438,7 +1438,7 @@ function uniqueAgentName(desired: string): string {
 // workshop spawn endpoint (mobile). Preserves all side effects: MCP config,
 // hub registration, skill prompt composition, PTY lifecycle wiring, CLI
 // launch command sequencing, and workspace window updates.
-function handleSpawnAgent(config: AgentConfig): { id: string; mcpConfigPath: string } {
+function handleSpawnAgent(config: AgentConfig, opts?: { reconnect?: boolean }): { id: string; mcpConfigPath: string } {
   // P2: an agent runs in its workspace's bound folder, so different workspaces
   // drive different projects. When the workspace isn't folder-bound (e.g. the
   // default tab), keep the config's cwd (which defaults to the current project).
@@ -1492,7 +1492,9 @@ function handleSpawnAgent(config: AgentConfig): { id: string; mcpConfigPath: str
     }
   }
 
-  const initialPrompt = buildInitialPrompt(config)
+  // On a restart respawn, use the reconnect prompt so the fresh CLI process is
+  // re-oriented ("you were previously running…") instead of treated as brand new.
+  const initialPrompt = opts?.reconnect ? buildReconnectPrompt(config) : buildInitialPrompt(config)
   initialPrompts.set(config.id, initialPrompt)
   // Block prompt injection until CLI commands are sent
   hasReceivedInitialPrompt.add(config.id)
@@ -2278,6 +2280,52 @@ async function activateWorkspace(id: string): Promise<void> {
   await contextRegistry.activate(id)
 }
 
+// Context ids whose roster has already been respawned this session, so repeated
+// switches / boot passes never double-spawn a live team.
+const respawnedRosters = new Set<string>()
+
+/** User setting: which workspaces' agents auto-respawn on restart. Default 'active'. */
+function agentRespawnMode(): 'all' | 'active' | 'none' {
+  const m = loadSettings().agentRespawnMode
+  return m === 'all' || m === 'none' ? m : 'active'
+}
+
+/**
+ * Respawn one context's persisted agent roster: fresh CLI processes, each
+ * re-oriented with the reconnect prompt. Idempotent — skips agents already live
+ * and marks the context done. Per-agent failures are logged, not fatal.
+ */
+function respawnRosterFor(ctx: WorkspaceCtx): void {
+  respawnedRosters.add(ctx.workspaceId)
+  for (const cfg of ctx.stores.roster.list()) {
+    if (agents.has(cfg.id)) continue // already running
+    try {
+      handleSpawnAgent(cfg, { reconnect: true })
+    } catch (err: any) {
+      console.error(`[respawn] ${cfg.name} in ${ctx.workspaceId} failed:`, err?.message)
+    }
+  }
+}
+
+/**
+ * Respawn workspace rosters per the user's mode. Called at boot (after contexts
+ * restore) and after each tab switch — resolveRespawnTargets + respawnedRosters
+ * make it safe to call repeatedly: 'none' does nothing, 'active' brings up the
+ * active workspace (and each other lazily on first switch to it), 'all' brings
+ * up every live context once.
+ */
+function respawnPerMode(): void {
+  const targets = contextRegistry.resolveRespawnTargets(
+    agentRespawnMode(),
+    contextRegistry.ids(),
+    respawnedRosters
+  )
+  for (const id of targets) {
+    const ctx = contextRegistry.get(id)
+    if (ctx) respawnRosterFor(ctx)
+  }
+}
+
 /**
  * Stage 5 — boot restore. Bring every OTHER folder-bound workspace's context
  * live in the background (own hub + DB + scheduler), so their teams reconnect
@@ -2366,6 +2414,9 @@ function closeCtxResources(id: string, ctx: WorkspaceCtx): void {
   try { ctx.promptScheduler.stopTicker() } catch { /* noop */ }
   ctx.hub.close()
   try { ctx.db.close() } catch { /* already closed */ }
+  // Clear the respawn mark so reopening this workspace respawns its roster
+  // (e.g. PROJECT_SWITCH into the same tab, or re-adding a closed workspace).
+  respawnedRosters.delete(id)
 }
 
 /** Tear down ONE workspace context (its agents, scheduler, hub, DB). */
@@ -3363,6 +3414,9 @@ function setupIPC(): void {
     // Bring this workspace's context live (lazy-create if first activation) and
     // repoint the globals + UI at it, leaving other contexts running.
     await activateWorkspace(tabId)
+    // Lazy respawn for 'active' mode: first switch to a workspace brings its
+    // team back. No-op for 'all' (already up at boot) and 'none'.
+    respawnPerMode()
     return { status: 'ok' }
   })
 
@@ -3608,6 +3662,9 @@ async function main(): Promise<void> {
     // Stage 5: bring the other folder-bound workspaces live in the background so
     // their teams reconnect immediately (not just on first switch).
     await restoreBackgroundWorkspaces()
+    // Auto-respawn each workspace's agents per the user's setting (default:
+    // active workspace only; others respawn lazily on first switch).
+    respawnPerMode()
   } else {
     // No project history — renderer will show project picker
     mainWindow.webContents.send(IPC.PROJECT_CHANGED, null)

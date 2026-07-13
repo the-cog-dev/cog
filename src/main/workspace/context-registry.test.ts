@@ -301,6 +301,46 @@ describe('ContextRegistry — boot restore (Stage 5)', () => {
   })
 })
 
+describe('ContextRegistry — respawn targets (agent auto-respawn)', () => {
+  it("mode 'none' respawns nothing", async () => {
+    const h = makeHarness()
+    await adoptFresh(h, DEFAULT, '/p1')
+    h.makeBound('ws2', '/p2')
+    await h.registry.activate('ws2')
+    expect(h.registry.resolveRespawnTargets('none', h.registry.ids(), new Set())).toEqual([])
+  })
+
+  it("mode 'active' respawns only the active context, once", async () => {
+    const h = makeHarness()
+    await adoptFresh(h, DEFAULT, '/p1')
+    h.makeBound('ws2', '/p2')
+    await h.registry.activate('ws2') // active = ws2, both live
+
+    // Boot: only the active one.
+    expect(h.registry.resolveRespawnTargets('active', h.registry.ids(), new Set())).toEqual(['ws2'])
+    // Already done -> nothing.
+    expect(h.registry.resolveRespawnTargets('active', h.registry.ids(), new Set(['ws2']))).toEqual([])
+    // Lazy on switch: switch to tab-default, now it's the target.
+    await h.registry.activate(DEFAULT)
+    expect(h.registry.resolveRespawnTargets('active', h.registry.ids(), new Set(['ws2']))).toEqual([DEFAULT])
+  })
+
+  it("mode 'all' respawns every live context not yet done", async () => {
+    const h = makeHarness()
+    await adoptFresh(h, DEFAULT, '/p1')
+    h.makeBound('ws2', '/p2')
+    h.makeBound('ws3', '/p3')
+    await h.registry.activate('ws2')
+    await h.registry.activate('ws3') // 3 live, active = ws3
+
+    expect(h.registry.resolveRespawnTargets('all', h.registry.ids(), new Set()).sort())
+      .toEqual([DEFAULT, 'ws2', 'ws3'])
+    // Some already respawned -> only the remainder.
+    expect(h.registry.resolveRespawnTargets('all', h.registry.ids(), new Set([DEFAULT, 'ws2'])))
+      .toEqual(['ws3'])
+  })
+})
+
 describe('ContextRegistry — end-to-end narrative', () => {
   it('runs the full multi-team lifecycle', async () => {
     const h = makeHarness()

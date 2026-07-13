@@ -139,6 +139,30 @@ export class ContextRegistry<Ctx> {
   }
 
   /**
+   * Which live contexts should respawn their agent roster right now, given the
+   * user's mode and which contexts have already been respawned this session
+   * (Stage: agent auto-respawn). Pure — the caller does the actual spawning.
+   *   - 'none'   → nothing.
+   *   - 'active' → the active context only (background ones respawn lazily on
+   *     first switch, handled by calling this again with a single-id list).
+   *   - 'all'    → every live context not yet respawned.
+   * `contextIds` are the currently-live context ids; `alreadyDone` is the set
+   * already respawned (so repeated calls / switches don't double-spawn).
+   */
+  resolveRespawnTargets(
+    mode: 'all' | 'active' | 'none',
+    contextIds: string[],
+    alreadyDone: ReadonlySet<string>
+  ): string[] {
+    if (mode === 'none') return []
+    const live = contextIds.filter((id) => !alreadyDone.has(id))
+    if (mode === 'active') {
+      return live.includes(this._activeId) ? [this._activeId] : []
+    }
+    return live // 'all'
+  }
+
+  /**
    * Tear down exactly ONE context and drop it from the registry. Leaves every
    * other context and the `activeId` pointer untouched — the caller decides
    * what to activate next if it closed the active one.
