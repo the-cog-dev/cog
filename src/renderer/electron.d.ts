@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentState, AgentTheme, HubInfo, PinboardTask, InfoEntry, WorkspacePreset, WorkspaceTheme, Skill, CreateScheduleInput, EditScheduleInput, CommunityTeam, CommunityTeamListItem, CommunityAgent, CommunityCategory, CommunityTheme, CommunityThemeListItem, RespawnResult, InboxMessage, NotificationThreshold, TeamProposal, TelegramStatus } from '../shared/types'
+import type { AgentConfig, AgentState, AgentTheme, HubInfo, PinboardTask, InfoEntry, WorkspacePreset, WorkspaceTheme, Skill, CreateScheduleInput, EditScheduleInput, CommunityTeam, CommunityTeamListItem, CommunityAgent, CommunityCategory, CommunityTheme, CommunityThemeListItem, RespawnResult, InboxMessage, NotificationThreshold, TeamProposal, TelegramStatus, TelegramTopicsStatus } from '../shared/types'
 
 declare global {
   interface Window {
@@ -84,6 +84,7 @@ declare global {
       getTelegramPairingCode: () => Promise<string | null>
       unpairTelegram: (userId: number) => Promise<void>
       getTelegramStatus: () => Promise<TelegramStatus>
+      getTelegramTopicsStatus: () => Promise<TelegramTopicsStatus>
       onTelegramStatusUpdate: (cb: (status: TelegramStatus) => void) => () => void
       // Stale task alert snooze
       getStaleAlertSnooze: () => Promise<{ muteUntil: number | null }>

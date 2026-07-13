@@ -3655,6 +3655,10 @@ function setupIPC(): void {
     emitTelegramStatus()
   })
   ipcMain.handle(IPC.TELEGRAM_GET_STATUS, async () => telegramStatus())
+  ipcMain.handle(IPC.TELEGRAM_TOPICS_STATUS, async () => {
+    const cfg = telegramConfig()
+    return { mode: cfg.mode, supergroupChatId: cfg.supergroupChatId }
+  })
 
   // Helper: rotate URLs after a token change so both tunnel and LAN URLs reflect the new token
   function rotateUrlsAfterTokenChange(): void {

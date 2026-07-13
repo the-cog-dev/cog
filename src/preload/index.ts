@@ -235,6 +235,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getTelegramPairingCode: () => ipcRenderer.invoke(IPC.TELEGRAM_GET_PAIRING_CODE),
   unpairTelegram: (userId: number) => ipcRenderer.invoke(IPC.TELEGRAM_UNPAIR, userId),
   getTelegramStatus: () => ipcRenderer.invoke(IPC.TELEGRAM_GET_STATUS),
+  getTelegramTopicsStatus: () => ipcRenderer.invoke(IPC.TELEGRAM_TOPICS_STATUS),
   onTelegramStatusUpdate: (callback: (status: unknown) => void) => {
     const handler = (_event: unknown, status: unknown) => callback(status)
     ipcRenderer.on(IPC.TELEGRAM_STATUS_UPDATE, handler)

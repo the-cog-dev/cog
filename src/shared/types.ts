@@ -239,6 +239,7 @@ export const IPC = {
   TELEGRAM_UNPAIR: 'telegram:unpair',
   TELEGRAM_GET_STATUS: 'telegram:get-status',
   TELEGRAM_STATUS_UPDATE: 'telegram:status-update',
+  TELEGRAM_TOPICS_STATUS: 'telegram:topics-status',
   // Workshop passcode
   WORKSHOP_SET_PASSCODE: 'workshop:set-passcode',
   WORKSHOP_GET_PASSCODE_SET: 'workshop:get-passcode-set',
@@ -658,4 +659,10 @@ export interface TelegramStatus {
   /** Paired Telegram user IDs — what the Settings unpair list renders. */
   pairedIds: number[]
   activePairingCode: string | null
+}
+
+/** Per-workspace forum-topics mode: whether Telegram relay is DM-based or bound to a supergroup. */
+export interface TelegramTopicsStatus {
+  mode: 'dm' | 'topics'
+  supergroupChatId?: number
 }
