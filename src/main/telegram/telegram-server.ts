@@ -70,6 +70,10 @@ export interface TelegramServerOptions {
   mode?: 'dm' | 'topics'
   /** The bound supergroup's chat id (topics mode). */
   supergroupChatId?: number
+  /** Fired after a successful /bind so the app can open topics for live workspaces. */
+  onBind?: (supergroupChatId: number) => Promise<void>
+  /** Fired after /unbind so the app can persist mode='dm'. */
+  onUnbind?: () => void
 }
 
 /**
@@ -112,6 +116,8 @@ export class TelegramServer {
   private supergroupChatId?: number
   private readonly log: (m: string) => void
   private readonly onStatusChange?: () => void
+  private readonly onBind?: (supergroupChatId: number) => Promise<void>
+  private readonly onUnbind?: () => void
   // proposalId → the chat messages carrying its buttons, so we can edit them to
   // "settled" once it resolves (from Telegram, desktop, or 3DS).
   private readonly proposalMsgs = new Map<string, Array<{ chatId: number; messageId: number }>>()
@@ -138,6 +144,8 @@ export class TelegramServer {
     this.supergroupChatId = opts.supergroupChatId
     this.log = opts.onLog ?? (() => {})
     this.onStatusChange = opts.onStatusChange
+    this.onBind = opts.onBind
+    this.onUnbind = opts.onUnbind
   }
 
   isRunning(): boolean {
@@ -251,13 +259,48 @@ export class TelegramServer {
       await ctx.reply(`Your Telegram user ID: ${ctx.from?.id ?? 'unknown'}`)
     })
 
+    // ── Group-binding commands (trusted, but must run IN the supergroup) ───
+    // These are gated by the same pairing.isAllowed() check as the allowlist
+    // gate below, but they can't sit behind that gate: it hard-refuses any
+    // non-private chat, and /bind's whole point is to run inside the target
+    // supergroup. So they get their own inline trust check here instead.
+    bot.command('bind', async (ctx) => {
+      if (!this.pairing.isAllowed(ctx.from?.id)) return
+      const chat = ctx.chat
+      if (!chat || chat.type !== 'supergroup') {
+        await ctx.reply('Run /bind inside your supergroup (not a DM).')
+        return
+      }
+      if (!('is_forum' in chat) || !chat.is_forum) {
+        await ctx.reply('Enable *Topics* on this group first (Group Settings → Topics), then run /bind again.', { parse_mode: 'Markdown' })
+        return
+      }
+      // Require the bot to be an admin that can manage topics.
+      try {
+        const me = await ctx.api.getChatMember(chat.id, ctx.me.id)
+        const canManage = me.status === 'administrator' && (me as any).can_manage_topics
+        if (!canManage) { await ctx.reply('Make me an admin with the "Manage Topics" permission, then run /bind again.'); return }
+      } catch { /* fall through — createForumTopic will surface the real error */ }
+      this.setTopicsMode('topics', chat.id)
+      await ctx.reply('✅ Bound. Each workspace now gets its own topic. Closing a workspace archives its thread.')
+      await this.onBind?.(chat.id)
+    })
+
+    bot.command('unbind', async (ctx) => {
+      if (!this.pairing.isAllowed(ctx.from?.id)) return
+      this.setTopicsMode('dm')
+      this.onUnbind?.()
+      await ctx.reply('Reverted to direct-message relay. Your topics stay in the group (archived).')
+    })
+
     // ── Allowlist gate ─────────────────────────────────────────────────────
     // Anything past this point requires a trusted user in a PRIVATE chat.
     // Non-allowed updates are dropped silently (no next() call → chain ends).
     // Groups are refused outright: pairing is per-user, but a subscription is
     // per-chat — relaying agent output into a group would hand it to every
     // member, paired or not. The trusted DM is registered here so it receives
-    // relayed orchestrator output.
+    // relayed orchestrator output. (/bind and /unbind are registered above,
+    // before this gate, since they must run inside a group chat.)
     bot.use(async (ctx, next) => {
       if (!this.pairing.isAllowed(ctx.from?.id)) return
       if (ctx.chat?.type !== 'private') return

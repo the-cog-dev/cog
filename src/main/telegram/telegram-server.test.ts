@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { TelegramServer } from './telegram-server'
+import { TelegramServer, type TelegramServerOptions } from './telegram-server'
 import { PairingManager } from './pairing-manager'
 import type { OrchestratorBridge } from './bridge'
 
@@ -15,11 +15,17 @@ const fakeBotApi = {
   editMessageText: vi.fn()
 }
 
+// Command handlers registered during the last FakeBot construction, keyed by
+// name — lets tests fire a fake /bind or /unbind update through the real
+// grammY-handler code without a network-backed bot.
+let lastCommandHandlers: Record<string, (ctx: any) => unknown> = {}
+
 vi.mock('grammy', () => {
   class FakeBot {
     botInfo = { username: 'test_bot' }
+    me = { id: 999 }
     api = fakeBotApi
-    command(..._args: unknown[]) {}
+    command(name: string, handler: (ctx: any) => unknown) { lastCommandHandlers[name] = handler }
     use(..._args: unknown[]) {}
     on(..._args: unknown[]) {}
     catch(..._args: unknown[]) {}
@@ -156,5 +162,78 @@ describe('TelegramServer topic lifecycle', () => {
     expect(server.getTopicsMode()).toEqual({ mode: 'dm', supergroupChatId: undefined })
     server.setTopicsMode('topics', -100)
     expect(server.getTopicsMode()).toEqual({ mode: 'topics', supergroupChatId: -100 })
+  })
+})
+
+describe('TelegramServer /bind and /unbind commands', () => {
+  const forumSupergroupChat = { id: -200, type: 'supergroup' as const, is_forum: true }
+
+  function makeCtx(overrides: Record<string, unknown> = {}) {
+    return {
+      chat: forumSupergroupChat,
+      from: { id: 111 },
+      me: { id: 999 },
+      api: { getChatMember: vi.fn().mockResolvedValue({ status: 'administrator', can_manage_topics: true }) },
+      reply: vi.fn(),
+      ...overrides
+    }
+  }
+
+  beforeEach(() => {
+    lastCommandHandlers = {}
+    vi.clearAllMocks()
+  })
+
+  async function makeBoundServer(extra: Partial<TelegramServerOptions> = {}) {
+    const pairing = new PairingManager({ initialAllowlist: [111] })
+    const onBind = vi.fn().mockResolvedValue(undefined)
+    const onUnbind = vi.fn()
+    const server = new TelegramServer({ pairing, bridge: fakeBridge, onBind, onUnbind, ...extra })
+    await server.start('fake-token')
+    return { server, onBind, onUnbind }
+  }
+
+  it('/bind flips to topics mode, replies, and fires onBind for an allowed user', async () => {
+    const { server, onBind } = await makeBoundServer()
+    const ctx = makeCtx()
+
+    await lastCommandHandlers['bind'](ctx)
+
+    expect(server.getTopicsMode()).toEqual({ mode: 'topics', supergroupChatId: -200 })
+    expect(onBind).toHaveBeenCalledWith(-200)
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('Bound'))
+  })
+
+  it('/bind refuses a non-supergroup chat without flipping mode', async () => {
+    const { server, onBind } = await makeBoundServer()
+    const ctx = makeCtx({ chat: { id: 111, type: 'private' } })
+
+    await lastCommandHandlers['bind'](ctx)
+
+    expect(server.getTopicsMode().mode).toBe('dm')
+    expect(onBind).not.toHaveBeenCalled()
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('supergroup'))
+  })
+
+  it('/bind is silently dropped for a user not on the allowlist', async () => {
+    const { server, onBind } = await makeBoundServer()
+    const ctx = makeCtx({ from: { id: 999999 } })
+
+    await lastCommandHandlers['bind'](ctx)
+
+    expect(server.getTopicsMode().mode).toBe('dm')
+    expect(onBind).not.toHaveBeenCalled()
+    expect(ctx.reply).not.toHaveBeenCalled()
+  })
+
+  it('/unbind reverts to dm mode and fires onUnbind', async () => {
+    const { server, onUnbind } = await makeBoundServer({ mode: 'topics', supergroupChatId: -200 })
+    const ctx = makeCtx()
+
+    await lastCommandHandlers['unbind'](ctx)
+
+    expect(server.getTopicsMode()).toEqual({ mode: 'dm', supergroupChatId: undefined })
+    expect(onUnbind).toHaveBeenCalledTimes(1)
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('direct-message'))
   })
 })
