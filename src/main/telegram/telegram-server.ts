@@ -581,6 +581,37 @@ export class TelegramServer {
     }
   }
 
+  /**
+   * Topics mode: send an agent→user message into the workspace's thread (no
+   * [Project] prefix — the thread is the identity). Falls back to the classic
+   * DM relay when topics mode is off, the workspace has no thread, or the send
+   * fails, so a message is never dropped.
+   */
+  relayFromWorkspace(
+    workspaceId: string | undefined,
+    fromName: string,
+    message: string,
+    priority?: string,
+    opts?: { id?: string; choices?: string[] }
+  ): void {
+    const threadId = workspaceId !== undefined ? this.topics.threadFor(workspaceId) : undefined
+    if (this.mode !== 'topics' || !this.supergroupChatId || threadId === undefined || !this.bot || !this.ready) {
+      this.relayFromAgent(fromName, message, priority, opts) // DM fallback (prefixed)
+      return
+    }
+    const chatId = this.supergroupChatId
+    // Questions with choices still render buttons — send into the thread.
+    if (opts?.id && opts.choices && opts.choices.length) {
+      void this.relayQuestionToThread(chatId, threadId, fromName, message, priority, opts.id, opts.choices)
+      return
+    }
+    const text = this.clip(`${priorityPrefix(priority)}💬 ${fromName}:\n${message}`)
+    this.bot.api.sendMessage(chatId, text, { message_thread_id: threadId }).catch((err) => {
+      this.log(`thread relay (${workspaceId}) failed, falling back to DM: ${err instanceof Error ? err.message : String(err)}`)
+      this.relayFromAgent(fromName, message, priority, opts)
+    })
+  }
+
   setTopicsMode(mode: 'dm' | 'topics', supergroupChatId?: number): void {
     this.mode = mode
     this.supergroupChatId = supergroupChatId
@@ -632,6 +663,13 @@ export class TelegramServer {
     })
   }
 
+  /** One tappable button per choice, wired to answerCallback so a tap round-trips to handleAnswer. */
+  private buildChoiceKeyboard(messageId: string, choices: string[]): InlineKeyboard {
+    const keyboard = new InlineKeyboard()
+    choices.forEach((c, i) => { keyboard.text(clipChoiceLabel(c), answerCallback(messageId, i)).row() })
+    return keyboard
+  }
+
   /**
    * Send a question with one inline button per choice, and register it so the
    * tapped answer can be routed back to the asking agent (see handleAnswer).
@@ -643,8 +681,7 @@ export class TelegramServer {
   ): Promise<void> {
     if (!this.bot) return
     const text = this.clip(`${projectPrefix(this.project)}${priorityPrefix(priority)}❓ ${fromName} asks:\n${question}`)
-    const keyboard = new InlineKeyboard()
-    choices.forEach((c, i) => { keyboard.text(clipChoiceLabel(c), answerCallback(messageId, i)).row() })
+    const keyboard = this.buildChoiceKeyboard(messageId, choices)
 
     const sent: Array<{ chatId: number; messageId: number }> = []
     for (const chatId of chats) {
@@ -657,6 +694,28 @@ export class TelegramServer {
     }
     if (sent.length) {
       this.pendingQuestions.set(messageId, { askerName: fromName, question, choices, sent })
+    }
+  }
+
+  /**
+   * Thread variant of relayQuestion: targets one (chatId, threadId) instead of
+   * looping the subscribed chats, and has no [Project] prefix (the thread is the
+   * identity). Falls back to the classic DM question relay if the send fails, so
+   * the question is never silently dropped.
+   */
+  private async relayQuestionToThread(
+    chatId: number, threadId: number, fromName: string, question: string, priority: string | undefined,
+    messageId: string, choices: string[]
+  ): Promise<void> {
+    if (!this.bot) return
+    const text = this.clip(`${priorityPrefix(priority)}❓ ${fromName} asks:\n${question}`)
+    const keyboard = this.buildChoiceKeyboard(messageId, choices)
+    try {
+      const msg = await this.bot.api.sendMessage(chatId, text, { reply_markup: keyboard, message_thread_id: threadId })
+      this.pendingQuestions.set(messageId, { askerName: fromName, question, choices, sent: [{ chatId, messageId: msg.message_id }] })
+    } catch (err) {
+      this.log(`thread question (${chatId}/${threadId}) failed, falling back to DM: ${err instanceof Error ? err.message : String(err)}`)
+      this.relayFromAgent(fromName, question, priority, { id: messageId, choices })
     }
   }
 

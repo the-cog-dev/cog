@@ -165,6 +165,82 @@ describe('TelegramServer topic lifecycle', () => {
   })
 })
 
+describe('TelegramServer relayFromWorkspace', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fakeBotApi.createForumTopic.mockResolvedValue({ message_thread_id: 7 })
+    fakeBotApi.sendMessage.mockResolvedValue({ message_id: 555 })
+  })
+
+  it('sends into the workspace thread with no [project] prefix when a thread is mapped', async () => {
+    const server = await makeTopicsServer(fakeBridge)
+    await server.ensureTopic('ws1', 'Alpha')
+
+    server.relayFromWorkspace('ws1', 'Orc', 'hi')
+
+    expect(fakeBotApi.sendMessage).toHaveBeenCalledWith(-100, expect.any(String), { message_thread_id: 7 })
+    const [, text] = fakeBotApi.sendMessage.mock.calls.at(-1)!
+    expect(text).not.toMatch(/^\[.*\]/)
+    expect(text).toContain('Orc:')
+  })
+
+  it('falls back to the DM relay when mode is dm', async () => {
+    const pairing = new PairingManager({ initialAllowlist: [111] })
+    const server = new TelegramServer({
+      pairing,
+      bridge: fakeBridge,
+      mode: 'dm',
+      initialChats: [111]
+    })
+    await server.start('fake-token')
+
+    server.relayFromWorkspace('ws1', 'Orc', 'hi')
+
+    expect(fakeBotApi.sendMessage).toHaveBeenCalledTimes(1)
+    const call = fakeBotApi.sendMessage.mock.calls.at(-1)!
+    expect(call[0]).toBe(111)          // subscribed DM chat, not the supergroup
+    expect(call[2]).toBeUndefined()    // no message_thread_id on the DM path
+  })
+
+  it('falls back to the DM relay when the workspace has no mapped thread', async () => {
+    const pairing = new PairingManager({ initialAllowlist: [111] })
+    const server = new TelegramServer({
+      pairing,
+      bridge: fakeBridge,
+      mode: 'topics',
+      supergroupChatId: -100,
+      initialChats: [111]
+    })
+    await server.start('fake-token')
+
+    server.relayFromWorkspace('ws-unmapped', 'Orc', 'hi')
+
+    expect(fakeBotApi.sendMessage).toHaveBeenCalledWith(111, expect.any(String))
+  })
+
+  it('falls back to the DM relay when the thread send fails', async () => {
+    const pairing = new PairingManager({ initialAllowlist: [111] })
+    const server = new TelegramServer({
+      pairing,
+      bridge: fakeBridge,
+      mode: 'topics',
+      supergroupChatId: -100,
+      initialChats: [111]
+    })
+    await server.start('fake-token')
+    await server.ensureTopic('ws1', 'Alpha')
+
+    fakeBotApi.sendMessage.mockRejectedValueOnce(new Error('boom')).mockResolvedValue({ message_id: 555 })
+
+    server.relayFromWorkspace('ws1', 'Orc', 'hi')
+    await new Promise((r) => setTimeout(r, 0)) // let the rejected promise's .catch() fallback run
+
+    expect(fakeBotApi.sendMessage).toHaveBeenCalledTimes(2)
+    const lastCall = fakeBotApi.sendMessage.mock.calls.at(-1)!
+    expect(lastCall[0]).toBe(111)
+  })
+})
+
 describe('TelegramServer /bind and /unbind commands', () => {
   const forumSupergroupChat = { id: -200, type: 'supergroup' as const, is_forum: true }
 
