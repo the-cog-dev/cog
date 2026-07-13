@@ -396,6 +396,42 @@ export function SettingsDialog({ onClose, agents = [] }: SettingsDialogProps): R
           </label>
         </div>
 
+        {/* Agents section */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid #333', paddingTop: '16px' }}>
+          <div style={{ fontSize: '12px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Agents
+          </div>
+
+          <label style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '8px', backgroundColor: '#252525', borderRadius: '4px'
+          }}>
+            <div style={{ marginRight: 12 }}>
+              <div style={{ fontSize: '13px', color: '#e0e0e0' }}>Respawn agents on restart</div>
+              <div style={{ fontSize: '11px', color: '#666' }}>
+                Bring your teams back when you relaunch. Agents restart fresh (re-oriented with a
+                reconnect prompt) — CLIs don&apos;t keep memory across a restart.
+              </div>
+            </div>
+            <select
+              value={(settings.agentRespawnMode as string) ?? 'active'}
+              onChange={async (e) => {
+                const val = e.target.value
+                await electronAPI.setSetting('agentRespawnMode', val)
+                setSettings(prev => ({ ...prev, agentRespawnMode: val }))
+              }}
+              style={{
+                flexShrink: 0, backgroundColor: '#1a1a1a', color: '#e0e0e0',
+                border: '1px solid #333', borderRadius: 4, padding: '6px 8px', fontSize: 12, cursor: 'pointer'
+              }}
+            >
+              <option value="active">Active workspace only</option>
+              <option value="all">All workspaces</option>
+              <option value="none">Don&apos;t respawn</option>
+            </select>
+          </label>
+        </div>
+
         {/* Workspace Themes section */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid #333', paddingTop: '16px' }}>
           <div style={{ fontSize: '12px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
