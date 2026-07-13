@@ -1,5 +1,13 @@
 # Agent auto-respawn on restart — plan
 
+> **STATUS: COMPLETE.** Chunks A (roster persistence, 5d6ab2a/fc4bd2a), B
+> (mode-driven respawn, 20225e1), C (Settings UI, 9d78b04) on
+> `feat/telegram-workspaces`. Pure respawn-target selection is smoke-tested
+> (`npx vitest run src/main/workspace`, 82 total). Needs a live pass: spawn a
+> team, quit, relaunch → it comes back re-oriented.
+
+
+
 Goal: when the app relaunches, bring each workspace's agents back automatically
 (fresh CLI processes re-oriented with a reconnect prompt — CLIs lose in-session
 memory, so it's re-orientation, not perfect resume). User-configurable.
