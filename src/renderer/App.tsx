@@ -468,17 +468,26 @@ export function App(): React.ReactElement {
   // Track R.A.C. agents we've manually closed/released so auto-create doesn't re-add them
   const closedRacAgents = React.useRef(new Set<string>())
 
-  // Auto-create windows for R.A.C. agents (they register externally, not via SPAWN_AGENT)
+  // Auto-create windows for agents that don't have one yet. The UI spawn flow
+  // (handleSpawn) calls addWindow directly, but agents spawned from the MAIN
+  // process — restart auto-respawn, remote/mobile spawn, and R.A.C. rentals —
+  // never hit that path, so their windows must be created here from the agent
+  // list. Each window opens in the agent's OWN tab. Closing a normal agent
+  // window kills the agent (it leaves the registry), so a live agent with no
+  // window is always one we should surface — no "deliberately closed" ambiguity
+  // (except R.A.C., which we track separately since closing it only releases).
   useEffect(() => {
     for (const agent of agents) {
-      if (agent.name.startsWith('rac-') && !closedRacAgents.current.has(agent.id)) {
-        const hasWindow = windows.some(w => w.id === agent.id)
-        if (!hasWindow) {
-          addWindow(agent.id, `${agent.name} (R.A.C.)`, '#4a9eff', activeTabId)
-        }
+      if (windows.some(w => w.id === agent.id)) continue
+      const tab = agent.tabId || activeTabId
+      if (agent.name.startsWith('rac-')) {
+        if (closedRacAgents.current.has(agent.id)) continue
+        addWindow(agent.id, `${agent.name} (R.A.C.)`, '#4a9eff', tab)
+      } else {
+        addWindow(agent.id, `${agent.name} (${agent.cli})`, getStatusColor(agent.status), tab)
       }
     }
-  }, [agents, windows, addWindow, activeTabId])
+  }, [agents, windows, addWindow, activeTabId, getStatusColor])
 
   // Mobile workshop drag/resize → apply window updates here
   useEffect(() => {
