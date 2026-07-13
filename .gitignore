@@ -10,3 +10,9 @@ BRANDING_GUIDE.md
 
 # Local scratchpad — testing notes, never commit
 TESTING-MOBILE-PWA.txt
+
+# App runtime data (created when running the dev app on this repo)
+.cog/
+
+# TypeScript incremental build cache
+*.tsbuildinfo

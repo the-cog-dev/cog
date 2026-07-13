@@ -87,6 +87,12 @@ export function createDatabase(dbPath: string): Database.Database {
       elements    TEXT NOT NULL DEFAULT '[]',
       strokes     TEXT NOT NULL DEFAULT '[]'
     );
+
+    CREATE TABLE IF NOT EXISTS agent_roster (
+      id         TEXT PRIMARY KEY,
+      config     TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `)
 
   // Migrations for existing DBs — safe to fail if column already exists

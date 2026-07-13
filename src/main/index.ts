@@ -8,6 +8,7 @@ import { PinboardStore } from './db/pinboard-store'
 import { InfoStore } from './db/info-store'
 import { InboxStore } from './db/inbox-store'
 import { ProposalsStore } from './db/proposals-store'
+import { AgentRosterStore } from './db/agent-roster-store'
 import { meetsThreshold } from './hub/inbox-channel'
 import { createHubServer, type HubServer } from './hub/server'
 import type { ScheduleBridge, BoardBridge, AgentBridge } from './hub/routes'
@@ -92,6 +93,7 @@ interface WorkspaceCtx {
     autonomy: AutonomyStore
     board: BoardStore
     boardAppearance: BoardAppearanceStore
+    roster: AgentRosterStore
   }
   promptScheduler: PromptScheduler
   // Per-context bridges the hub resolves lazily. Kept on the ctx (not just the
@@ -1385,8 +1387,9 @@ function spawnPtyAndWire(
 
 // Auto-reconnect: respawn an agent with its original config after an unexpected exit.
 function reconnectAgent(config: AgentConfig): void {
-  // Clean up stale state from previous instance
-  try { hub.registry.remove(config.name) } catch { /* already removed */ }
+  // Clean up stale state from previous instance, on the agent's OWN context hub.
+  const h = hubForConfig(config)
+  try { h.registry.remove(config.name) } catch { /* already removed */ }
   agents.delete(config.id)
   hasReceivedInitialPrompt.delete(config.id)
 
@@ -1394,7 +1397,7 @@ function reconnectAgent(config: AgentConfig): void {
   const mcpConfigPath = prepareAgentMcpConfig(config, mcpServerPath)
 
   const mcpEnv = buildMcpEnv(config)
-  hub.registry.register(config)
+  h.registry.register(config)
 
   const initialPrompt = buildReconnectPrompt(config)
   initialPrompts.set(config.id, initialPrompt)
@@ -1469,9 +1472,14 @@ function handleSpawnAgent(config: AgentConfig): { id: string; mcpConfigPath: str
 
   // Register on the agent's OWN context hub (Stage 4) so its registry entry +
   // metrics live with the workspace it belongs to, not whichever is active.
-  const h = hubForConfig(config)
+  const ctx = contextRegistry.resolveForSpawn(config.tabId)
+  const h = ctx?.hub ?? hub
   h.registry.register(config)
   h.agentMetrics.register(config.name)
+  // Persist the ORIGINAL config to this workspace's roster so it respawns on
+  // restart (skills compose into the registry copy below, not `config`, so a
+  // respawn re-composes cleanly). Saved before skill composition on purpose.
+  ctx?.stores.roster.save(config)
 
   // Compose skill prompts into ceoNotes
   if (config.skills && config.skills.length > 0) {
@@ -1618,8 +1626,16 @@ function teardownAgent(managed: ManagedPty): void {
   const { id, name } = managed.config
   manualKills.add(id) // Prevent auto-reconnect
   killPty(managed)
-  hub.registry.remove(name)
-  hub.messages.clearAgent(name)
+  // Target the agent's OWN context (Stage 4): its registry entry + roster live
+  // on that workspace's hub/DB, not whichever is active.
+  const ctx = contextRegistry.resolveForSpawn(managed.config.tabId)
+  const h = ctx?.hub ?? hub
+  // User-initiated removal: drop it from its workspace roster so it does NOT
+  // respawn on next boot. (App-quit / context-close kill PTYs via
+  // closeCtxResources, which never calls this — so those DO respawn.)
+  ctx?.stores.roster.remove(id)
+  h.registry.remove(name)
+  h.messages.clearAgent(name)
   pendingNudges.delete(name)
   lastNudgeDelivery.delete(name)
   const fallbackTimer = nudgeFallbackTimers.get(name)
@@ -1931,6 +1947,7 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
   const autonomyStore = new AutonomyStore(db)
   const boardStore = new BoardStore(db)
   const boardAppearanceStore = new BoardAppearanceStore(db)
+  const rosterStore = new AgentRosterStore(db)
 
   const hub = await createHubServer(0, () => scheduleBridge ?? undefined, () => boardBridge ?? undefined, () => agentBridge ?? undefined)
   hub.setProjectPath(projectPath)
@@ -2228,7 +2245,8 @@ async function createWorkspaceContext(workspaceId: string, projectPath: string):
       schedules: schedulesStore,
       autonomy: autonomyStore,
       board: boardStore,
-      boardAppearance: boardAppearanceStore
+      boardAppearance: boardAppearanceStore,
+      roster: rosterStore
     },
     promptScheduler,
     scheduleBridge: scheduleBridge!,
