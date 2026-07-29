@@ -168,6 +168,8 @@ const nudgeFallbackTimers = new Map<string, ReturnType<typeof setTimeout>>() // 
 const NUDGE_COOLDOWN_MS = 3000    // Minimum interval between nudge deliveries to the same agent
 const STALE_TASK_CHECK_INTERVAL = 60000  // Check for stuck in_progress tasks every 60s
 const STALE_TASK_THRESHOLD_MS = 5 * 60 * 1000 // 5 minutes before a task is considered stale
+const STALE_ALERT_REFIRE_MS = 10 * 60 * 1000  // Only re-alert about the same task every 10 minutes
+const lastStaleAlertForTask = new Map<string, number>() // taskId → last alert epoch ms
 let staleTaskTimer: ReturnType<typeof setInterval> | null = null
 let staleAlertMuteUntil: number | null = null  // epoch ms; null = not muted
 
@@ -1951,11 +1953,23 @@ function setupStaleTaskWatchdog(): void {
     })
     if (staleTasks.length === 0) return
 
+    // Per-task refire cooldown: only re-alert about a task every STALE_ALERT_REFIRE_MS
+    const alertableTasks = staleTasks.filter(t => {
+      const lastAlert = lastStaleAlertForTask.get(t.id)
+      return !lastAlert || (now - lastAlert) >= STALE_ALERT_REFIRE_MS
+    })
+    // Clean up tracking for tasks that are no longer stale
+    const staleIds = new Set(staleTasks.map(t => t.id))
+    for (const id of lastStaleAlertForTask.keys()) {
+      if (!staleIds.has(id)) lastStaleAlertForTask.delete(id)
+    }
+    if (alertableTasks.length === 0) return
+
     // Nudge orchestrators about stale tasks — only about tasks on their own tab
     const orchestrators = hub.registry.list().filter(a => a.role === 'orchestrator' && a.status !== 'disconnected')
     for (const orch of orchestrators) {
       // Tab isolation: only alert orchestrators about stale tasks on their own tab
-      const relevantStale = staleTasks.filter(t => {
+      const relevantStale = alertableTasks.filter(t => {
         if (t.tabId && orch.tabId && t.tabId !== orch.tabId) return false
         return true
       })
@@ -1966,7 +1980,7 @@ function setupStaleTaskWatchdog(): void {
     }
 
     // Also nudge the stuck workers themselves
-    for (const task of staleTasks) {
+    for (const task of alertableTasks) {
       if (task.claimedBy) {
         const worker = hub.registry.get(task.claimedBy)
         if (worker && worker.status !== 'disconnected') {
@@ -1975,6 +1989,9 @@ function setupStaleTaskWatchdog(): void {
         }
       }
     }
+
+    // Record alert timestamps for refire cooldown
+    for (const task of alertableTasks) lastStaleAlertForTask.set(task.id, now)
   }, STALE_TASK_CHECK_INTERVAL)
 }
 
